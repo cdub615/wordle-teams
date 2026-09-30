@@ -1,0 +1,210 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen } from '@testing-library/react'
+import { createElement } from 'react'
+import { afterEach, describe, expect, test } from 'vitest'
+import { TREND_MONTHS, type PersonalBoard } from '#/lib/insights-personal.ts'
+import { TrendPanel } from './trend-panel.tsx'
+
+afterEach(cleanup)
+
+/** A solved board on `day` (YYYY-MM-DD), taking `n` guesses (n <= 6). */
+const board = (day: string, n: number): PersonalBoard => ({
+  puzzleDay: day,
+  answer: 'SPEED',
+  guesses: [...Array.from({ length: Math.max(n - 1, 0) }, () => 'MOIST'), 'SPEED'].slice(0, n),
+})
+
+/** `count` boards spread one per day, starting at the 1st of `month` ('YYYY-MM'), all taking `n` guesses. */
+function monthBoards(month: string, count: number, n: number): PersonalBoard[] {
+  return Array.from({ length: count }, (_, i) => board(`${month}-${String(i + 1).padStart(2, '0')}`, n))
+}
+
+/** The i-th month after 2025-01, as 'YYYY-MM' — walks past a year boundary so a 24-month fixture is real. */
+const monthAt = (i: number): string => {
+  const date = new Date(Date.UTC(2025, i, 1))
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+const render_ = (boards: PersonalBoard[]) => render(createElement(TrendPanel, { boards }))
+
+test('renders nothing when there are no months', () => {
+  render_([])
+  expect(screen.queryByTestId('insights-trend')).toBeNull()
+})
+
+test('never renders more than TREND_MONTHS bars, even for a two-year history', () => {
+  // 24 distinct months, one board each — a player with two years behind them.
+  const boards = Array.from({ length: 24 }, (_, i) => monthAt(i)).flatMap((month) => monthBoards(month, 1, 3))
+  const { container } = render_(boards)
+  const bars = container.querySelectorAll('[data-testid="insights-trend-bar"]')
+  expect(bars).toHaveLength(TREND_MONTHS)
+})
+
+test('states the direction outright, so a shorter bar is not ambiguous', () => {
+  render_(monthBoards('2026-08', 5, 4))
+  expect(screen.getByTestId('insights-trend').textContent).toContain('avg guesses · lower is better')
+})
+
+test('insights-months resolves to exactly one element, holding the bars', () => {
+  render_(monthBoards('2026-08', 5, 4))
+  const months = screen.getByTestId('insights-months')
+  expect(months).not.toBeNull()
+  expect(months.querySelectorAll('[data-testid="insights-trend-bar"]')).toHaveLength(1)
+})
+
+test('each bar carries an sr-only sentence with its month, board count and mean', () => {
+  render_(monthBoards('2026-08', 5, 4))
+  const months = screen.getByTestId('insights-months')
+  const sentence = months.querySelector('.sr-only')
+  expect(sentence).not.toBeNull()
+  expect(sentence!.textContent).toContain('Aug 2026')
+  expect(sentence!.textContent).toContain('5 boards')
+  expect(sentence!.textContent).toContain('4')
+})
+
+test('the mean is printed as VISIBLE text next to the bar, not only inside the sr-only sentence', () => {
+  // One board at 4 guesses and one at 5 gives a mean of exactly 4.5 — a
+  // number that appears nowhere else in this render (not the board count,
+  // not the month), so finding "4.5" among the visible text proves this
+  // label specifically, rather than coincidentally matching something else.
+  const boards = [board('2026-08-01', 4), board('2026-08-02', 5)]
+  const { container } = render_(boards)
+  const months = screen.getByTestId('insights-months')
+  const bar = container.querySelector('[data-testid="insights-trend-bar"]')!
+  // bar -> its aria-hidden wrapper -> the column div holding the wrapper,
+  // the sr-only sentence and both month-name spans as siblings.
+  const column = bar.parentElement!.parentElement!
+  const visibleText = [...column.children]
+    .filter((el) => !el.classList.contains('sr-only'))
+    .map((el) => el.textContent)
+    .join(' ')
+  expect(visibleText).toContain('4.5')
+  // The sr-only sentence still carries it too, in prose — this assertion is
+  // about the VISIBLE label existing in addition, not replacing it.
+  expect(months.querySelector('.sr-only')!.textContent).toContain('4.5')
+})
+
+/*
+  wordle-teams-fqws' FOURTH SENTENCE, and the second of the two it does not
+  name. The sr-only line already agreed on `board` (an inline `=== 1` ternary)
+  and did not agree on `guess` at all — half the agreement present beside the
+  other half missing — so both nouns go through lib/pluralize.ts now.
+
+  n=1 IS THE ONLY VALUE THAT EXPOSES EITHER HALF: at two boards or a mean of
+  two, plural-only copy reads correctly. The whole sentence is asserted with
+  `toBe` rather than `toContain` so a singular stuck where a plural belongs
+  fails too, not only the reverse.
+*/
+describe('the number and its noun agree at n = 1', () => {
+  test('one board solved in one guess reads "1 board, average 1 guess."', () => {
+    // attemptsFor (convex/lib/board.ts) scores a single-guess board as 1, so
+    // one board at n=1 puts BOTH counts in this sentence at one at once.
+    render_([board('2026-08-01', 1)])
+    const sentence = screen.getByTestId('insights-months').querySelector('.sr-only')
+    expect(sentence!.textContent).toBe('Aug 2026: 1 board, average 1 guess.')
+  })
+
+  test('and more than one of either stays plural', () => {
+    render_(monthBoards('2026-08', 3, 4))
+    const sentence = screen.getByTestId('insights-months').querySelector('.sr-only')
+    expect(sentence!.textContent).toBe('Aug 2026: 3 boards, average 4 guesses.')
+  })
+})
+
+describe('the bars scale from zero against the worst mean, not from the minimum', () => {
+  test('a month at half the worst mean renders at half height, not zero', () => {
+    // July: mean 2 (the best). August: mean 4 (the worst, and the window's
+    // ceiling). Scaling from zero puts July at 50% — scaling from the minimum
+    // (the bug this guards against) would put it at 0%, since July IS the min.
+    const boards = [...monthBoards('2026-07', 3, 2), ...monthBoards('2026-08', 3, 4)]
+    const { container } = render_(boards)
+    const bars = [...container.querySelectorAll('[data-testid="insights-trend-bar"]')]
+    expect((bars[0] as HTMLElement).style.height).toBe('50%')
+    expect((bars[1] as HTMLElement).style.height).toBe('100%')
+  })
+})
+
+describe('the latest bar is accented only when it is also the best month', () => {
+  test('a latest month that is the best gets bg-accent-solid', () => {
+    // July mean 4 (worse), August (latest) mean 2 (better) — August is both
+    // latest and best.
+    const boards = [...monthBoards('2026-07', 3, 4), ...monthBoards('2026-08', 3, 2)]
+    const { container } = render_(boards)
+    const bars = [...container.querySelectorAll('[data-testid="insights-trend-bar"]')]
+    // In full: `toContain('bg-muted')` also matches `bg-muted-foreground`, so
+    // the looser form cannot tell the visible fill from the invisible track.
+    expect(bars[0]!.className).toContain('bg-muted-foreground')
+    expect(bars[0]!.className).not.toContain('bg-accent-solid')
+    expect(bars[1]!.className).toContain('bg-accent-solid')
+  })
+
+  test('a latest month that is worse than an earlier month stays unaccented, not accented for being newest', () => {
+    // July mean 2 (the best). August (latest) mean 4 — worse than July, so
+    // August must NOT get the accent just because it is the most recent bar.
+    const boards = [...monthBoards('2026-07', 3, 2), ...monthBoards('2026-08', 3, 4)]
+    const { container } = render_(boards)
+    const bars = [...container.querySelectorAll('[data-testid="insights-trend-bar"]')]
+    expect(bars[1]!.className).toContain('bg-muted-foreground')
+    expect(bars[1]!.className).not.toContain('bg-accent-solid')
+  })
+})
+
+/*
+  wordle-teams-yulu: THE FOOTER'S OWN `board`/`boards`, WHICH NOTHING PINNED.
+  trend-panel.tsx's CardFooter renders `{trend.best.boards === 1 ? 'board' :
+  'boards'}` inline, and it is CORRECT -- but measured during the review of
+  wordle-teams-fqws.2, forcing it to plural-only left the whole suite green. The
+  gap was the missing test, not the idiom, so this pins it and deliberately does
+  NOT migrate the ternary to lib/pluralize.ts: that file's header states the rule
+  that an already-correct pluralisation moves only when its line is being changed
+  for another reason, and adding a test is not such a reason.
+
+  THE SCOPING IS THE WHOLE DIFFICULTY, and getting it wrong would make this test
+  pass for the wrong element. At one board the sr-only sentence ABOVE the footer
+  also contains the words "1 board" -- so `toContain('1 board')` over the panel is
+  satisfied by the line this file already pins at n=1, and would stay green with
+  the footer forced to plural. The two differ in punctuation: the sr-only line
+  reads `Aug 2026: 1 board, average 1 guess.` while the footer reads
+  `... — 1 board · avg 1`. Matching on the em dash and the middot therefore
+  identifies the footer and nothing else, without depending on a class name or on
+  CardFooter growing a test id.
+*/
+describe("the footer's best-month count agrees with its noun", () => {
+  test('one board in the best month reads "1 board", not "1 boards"', () => {
+    render_([board('2026-08-01', 1)])
+    const text = screen.getByTestId('insights-trend').textContent ?? ''
+    // Both arms: the plural form asserted absent as well, so a singular that
+    // silently became plural-only fails here rather than reading correctly.
+    expect(text).toMatch(/— 1 board · avg/)
+    expect(text).not.toMatch(/— 1 boards · avg/)
+  })
+
+  test('and more than one stays plural', () => {
+    render_(monthBoards('2026-08', 3, 4))
+    const text = screen.getByTestId('insights-trend').textContent ?? ''
+    expect(text).toMatch(/— 3 boards · avg/)
+  })
+})
+
+describe('the caption', () => {
+  test('reads "your best month yet" when the latest month is the best', () => {
+    const boards = [...monthBoards('2026-07', 3, 4), ...monthBoards('2026-08', 5, 2)]
+    render_(boards)
+    const text = screen.getByTestId('insights-trend').textContent ?? ''
+    expect(text).toContain('Your best month yet')
+    expect(text).toContain('Aug 2026')
+    expect(text).toContain('5 boards')
+    expect(text).toContain('avg 2')
+  })
+
+  test('reads "your best month" (no "yet") and names the earlier month when the latest is not best', () => {
+    const boards = [...monthBoards('2026-07', 4, 2), ...monthBoards('2026-08', 3, 4)]
+    render_(boards)
+    const text = screen.getByTestId('insights-trend').textContent ?? ''
+    expect(text).toContain('Your best month')
+    expect(text).not.toContain('Your best month yet')
+    expect(text).toContain('Jul 2026')
+    expect(text).toContain('4 boards')
+    expect(text).toContain('avg 2')
+  })
+})

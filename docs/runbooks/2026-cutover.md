@@ -1,0 +1,1189 @@
+# Cutover runbook — v1 (Vercel/Supabase) → v2 (Cloudflare/Convex)
+
+**Phase 8 (`wt-ksh.9`) executes from this file.** It is written to be followed at
+6am without reading anything else, so the facts are inline rather than cited.
+Where a step says STOP, stop.
+
+The deployment that becomes production is the one beta already runs on —
+Convex `fabulous-goldfish-949`, Cloudflare Worker `wordle-teams-v2`. **Nothing
+is created at cutover.** The domain moves and the configuration changes.
+
+> **A SEPARATE DEV ENVIRONMENT NOW EXISTS ALONGSIDE IT** (`wordle-teams-qjh3`,
+> 2026-09-28), and it changes nothing on this day except by taking work off it.
+> Convex `successful-canary-135` (project `wordle-teams-dev`) and Worker
+> `wordle-teams-v2-dev` on `dev.wordleteams.com`, deployed from the `dev` branch
+> via wrangler's `env.dev`. **None of it is touched at cutover.** What it buys
+> here: §1.3's dry run no longer rehearses against the deployment that becomes
+> production, and the sentinel rule in §0 now has three machines to tell apart
+> rather than two.
+
+**Written 2026-09-02 by Phase 7 Task 20.** It supersedes the runbook prose in
+`wt-ksh.9`'s description, two bullets of which are now factually wrong — see
+§7.3 for what changed and why, if you want to know before trusting this.
+
+> **PHASE 7.5 LANDS BEFORE THIS RUNBOOK RUNS** (owner's decision, 2026-09-02).
+> `wordle-teams-wty4` moved the seven post-v2 roadmap epics inside the v2
+> release, so v2 and all seven go live in one flip and the announcement email
+> covers everything at once. `wt-ksh.9` is now blocked by it.
+>
+> **What that adds to the day:** the features in Phase 7.5 are part of what goes
+> live here, so §5's smoke test covers them too, and §1.3's dry run should
+> happen after they have landed rather than before. Nothing else in this file
+> changes — the flip, the copy and the rollback are the same either way.
+
+---
+
+## 0. THE MEASUREMENT RULE — read this before anything else
+
+Every environment check below is run under time pressure with DNS waiting, and
+there are **two ways to read the wrong machine, both silent**.
+
+**1. `convex env --prod` can talk to your LOCAL backend and report success.**
+It resolves "prod" from `CONVEX_DEPLOYMENT` in `.env.local`, which on a dev
+box is `anonymous:anonymous-v2`. On 2026-09-01 a bare
+`npx convex env get SITE_URL --prod` returned `http://localhost:3000`.
+
+> **Read the sentinel first, in every shell, before believing anything else:**
+>
+> ```
+> npx convex env get SITE_URL --prod
+> ```
+>
+> It must print the production origin. If it prints `http://localhost:3000`, you
+> are talking to the local backend and **every other reading in this document is
+> worthless.** Load the production `CONVEX_DEPLOY_KEY` and try again.
+
+**2. `convex env get` exits 0 whether or not the variable exists.** Verified:
+`E2E_TEST_MODE` absent, exit code 0, with `Environment variable "E2E_TEST_MODE"
+not found` on stdout. **Match the TEXT, never the exit code.** Any check in this
+runbook whose evidence is an exit status is not evidence.
+
+**3. THERE ARE NOW THREE MACHINES TO CONFUSE, not two** (2026-09-28). Local,
+`successful-canary-135` (dev), and `fabulous-goldfish-949` (the one that becomes
+production). The sentinel above still works and is still the rule, but read it
+knowing which of the three answers you expect:
+
+| Deployment | `SITE_URL` reads |
+| --- | --- |
+| local backend | `http://localhost:3000` |
+| `successful-canary-135` | `https://dev.wordleteams.com` |
+| `fabulous-goldfish-949` | `https://beta.wordleteams.com` → the apex after §4.6 |
+
+**4. A CONVEX DEPLOY KEY CANNOT READ ENVIRONMENT VARIABLES AT ALL.** Measured on
+2026-09-28 (CI run 36474279805): a deploy key answers
+`You do not have permission to perform this operation (deployment:env:view)`, and
+`convex deployment token create` offers no scope to widen. So **every env check in
+this runbook needs an ACCOUNT login** (`npx convex login`), not the deploy key —
+and it must be run from a directory with **no `.env.local`**, because a deploy key
+sitting in that file masks the account login completely: `convex login status`
+reports "Not logged in" from the repository root and "Logged in" from a clean
+directory elsewhere, with
+the same token on disk (`wordle-teams-ldm8`).
+
+> **One command does §2.1's check and more, and builds its own clean directory
+> so the masking cannot bite:**
+>
+> ```
+> node scripts/check-deployment-env.mjs '' fabulous-goldfish-949
+> ```
+>
+> It asserts `SITE_URL` is set and `E2E_TEST_MODE` is ABSENT, errors on either
+> failing, and warns while `POLAR_SERVER` is still `sandbox` — which it is today,
+> and which §2.2 is where you fix. `dev successful-canary-135` checks the other
+> one. **NEVER `convex env list`:** it prints every value in plaintext.
+
+---
+
+## 1. Pre-cutover week
+
+- [ ] **1.1 — Register production OAuth callbacks for all four providers.**
+
+  better-auth's shape is `https://<site>/api/auth/callback/<providerId>` — **no
+  version segment, provider id on the END.** Supabase/v1 used
+  `https://<ref>.supabase.co/auth/v1/callback`, which is the opposite shape in
+  both respects. Mixing them cost most of a day across four consoles.
+
+  Provider ids: `google`, `microsoft` (**not** `azure` — that is the v1/Supabase
+  name), `github`, `discord`.
+
+  ```
+  node scripts/check-oauth-callbacks.mjs https://wordleteams.com
+  ```
+
+  **THAT SCRIPT CAN ONLY PROVE GOOGLE.** Only Google validates `redirect_uri`
+  *before* login; microsoft, github and discord validate *after* authenticating,
+  so the script reports them UNVERIFIED and **a provider reaching its login
+  screen proves nothing about its callback.** Sign in with each of the other
+  three by hand.
+
+  **Microsoft spans 12 tenants** (`wordle-teams-bnv`), each with its own consent
+  policy. One tenant consenting does not mean the rest will.
+
+  **THE REGISTRATION HALF OF THIS STEP IS ALREADY DONE (2026-09-29,
+  `wordle-teams-qjh3.10`).** All four apps already carry
+  `https://wordleteams.com/api/auth/callback/<id>` alongside their existing beta
+  URL, because the owner added the production callback while in each console for
+  dev's. So on the day there is **nothing to register** — only the verification
+  below to perform, and it cannot be done earlier because it needs the apex
+  actually serving v2.
+
+  **DEV IS NOT PART OF THIS STEP AND MUST NOT BE TOUCHED ON THE DAY.** All four
+  apps also carry `https://dev.wordleteams.com/api/auth/callback/<id>`, and all
+  four were confirmed by a real hand sign-in on dev on 2026-09-29. Adding a
+  redirect URI does not re-trigger consent, so none of that is at risk from the
+  production work here.
+
+  **GITHUB IS THE ONE ASYMMETRY.** Google, Microsoft and Discord reuse a single
+  app across dev and production; GitHub does **not**, because a GitHub OAuth App
+  accepts exactly ONE callback URL. Dev runs a separate "Dev" app, so
+  `GITHUB_CLIENT_ID`/`_SECRET` legitimately DIFFER between the two deployments —
+  measured 2026-09-29. Do not "fix" that by copying one to the other; it would
+  break GitHub sign-in on whichever deployment lost its own app.
+
+- [ ] **1.2 — Point Polar's webhook at the production origin.**
+
+  The URL is on **`.convex.site`, NOT `.convex.cloud`** — Convex serves
+  httpActions from the `.site` host. Today:
+  `https://fabulous-goldfish-949.convex.site/polar/webhook`. The deployment does
+  not change at cutover, so **this URL does not change either.** Confirm it is
+  registered and live:
+
+  | Probe | Expected |
+  | --- | --- |
+  | `POST`, no `webhook-id` header | **400** |
+  | `POST`, bogus signature | **403**, body `Invalid signature` |
+
+  A **500** means `POLAR_WEBHOOK_SECRET` is missing on the deployment — the 400
+  is the proof it is set and reaching the code: `convex/http.ts` reads the secret
+  *before* it reads the `webhook-id` header, and that order is what makes the two
+  codes tell you different things. Verified set on
+  `fabulous-goldfish-949` on 2026-09-01.
+
+  **The endpoint this names was REPLACED on 2026-09-14** — see §1.6, which also
+  covers the new signing secret that came with it.
+
+  **DEV HAS ITS OWN ENDPOINT AND IT IS NOT PART OF THE DAY**
+  (`wordle-teams-qjh3.11`, 2026-09-29):
+  `https://successful-canary-135.convex.site/polar/webhook`, pinned to
+  `api_version: 2026-10`, on the SANDBOX account. Both probes above were run
+  against it on 2026-09-29 and answered 400 and 403 as tabled. Nothing in this
+  step or §1.6 should re-register or re-secret it.
+
+  **THE SANDBOX ACCOUNT NOW HOLDS TWO ENDPOINTS, ONE PER ENVIRONMENT, AND THAT IS
+  CORRECT.** Beta points at `fabulous-goldfish-949.convex.site`, dev at
+  `successful-canary-135.convex.site`. That is NOT the "two enabled endpoints"
+  hazard §1.6 warns about — that hazard is two endpoints on the SAME URL, which
+  double-deliver every event. Two endpoints on two different URLs each receive
+  their own deployment's traffic. Beta moves to the PRODUCTION Polar account at
+  cutover (§2.2), which leaves dev alone on sandbox.
+
+- [ ] **1.3 — One full dry run: purge + copy + verify, no DNS flip.** §4.2–§4.5
+      exactly as written, **against the DEV deployment** (`successful-canary-135`),
+      the week before. The cutover window is not where you want to discover the
+      copy's shape for the first time.
+
+      **IT USED TO SAY "against beta", AND THAT WAS THE ONLY OPTION** until a dev
+      environment existed (`wordle-teams-qjh3`, 2026-09-28). Rehearsing on the
+      deployment that becomes production meant purging and re-copying the very
+      thing being protected. Dev is a better rehearsal in every respect: the same
+      sequence, the same script, the same reports, and a mistake costs nothing.
+
+      **The copy now names its target before it writes a row**, so the dry run
+      also proves you can read that banner and recognise the wrong answer:
+
+      ```
+      ==============================================================================
+        WRITING TO: dev — dev.wordleteams.com (successful-canary-135)
+      ==============================================================================
+      ```
+
+      **This starts by emptying DEV** (§4.2's purge step). That is fine and is the
+      point: dev holds one person's copied rows by design
+      (`wordle-teams-qjh3.12`), so there is nothing there a re-copy cannot
+      rebuild. It exercises the exact sequence cutover day runs, and §4.5 coming
+      back clean on dev is the evidence that it will on production.
+
+      **THE DRY RUN'S COPY IS `--scope=all`, LIKE THE REAL ONE — NOT dev's usual
+      `--scope=solo`.** The point of a rehearsal is to run the command cutover day
+      runs, and scope is the one thing that changes the shape of every report it
+      prints. Dev's own seeding copy is a separate, owner-scoped thing
+      (`--scope=solo`, `wordle-teams-696k`) that is never part of cutover; re-run
+      it afterwards if you want dev back to one person's data.
+
+      **THESE TWO SENTENCES USED TO SAY "beta"** and were left behind when this
+      step was retargeted to dev on 2026-09-28. Corrected 2026-09-29 — a step that
+      says "against DEV" in its first line and "emptying beta" four lines later is
+      exactly the ambiguity §0 exists to prevent.
+
+- [ ] **1.4 — Resolve the paying customer by hand.**
+
+  There is **no active Polar subscription** right now: the one paying customer
+  rides an unbounded `pro` grace period with nothing behind it
+  (`wordle-teams-g3k`). Whatever state exists at cutover must SURVIVE it, which
+  is an **identity-mapping check, not a re-subscribe** — every migrated user
+  already exists as a Polar customer under their email.
+
+- [ ] **1.5 — Confirm `/me` against a REAL INSTALLED PWA.**
+
+  **This is the one check that cannot be done after the flip, and it is the one
+  with no second chance.** v1's `src/app/manifest.json:30` sets
+  `"start_url": "/me"`, and **an installed iOS PWA does not adopt a new
+  `start_url` from a re-fetched manifest** — every production user who installed
+  the app has that path burned in. Install from v1 *now*, keep the install, and
+  after the flip confirm it still opens correctly.
+
+  `src/routes/me.tsx` redirects `/me` → `/app` **carrying the query string**,
+  because v1's checkout sets `successUrl: .../me?checkout=success` and a checkout
+  in flight across the window comes back to it.
+
+  Note it answers **307**, not a permanent redirect, despite the route file and
+  the phase docs calling it permanent (`wordle-teams-cog5`). It works either way;
+  decide before the flip whether you want 301.
+
+- [ ] **1.6 — VERIFY both Polar webhook endpoints are the new ones, pinned to
+      `2026-10`.** The work here is done; what remains is confirming it.
+
+  **What happened (2026-09-14).** The Polar dashboard flagged the existing
+  webhook endpoints as deprecated. They were replaced with new endpoints pinned
+  to `api_version: 2026-10`, the new signing secret was set on the Convex
+  deployment, and the deprecated endpoints were disabled. `v2` moved to the
+  matching contract in the same week (`wordle-teams-acmm`), so **both directions
+  are now 2026-10**.
+
+  Confirm, on **each** Polar instance — sandbox and production are wholly
+  separate accounts (§2.2), so this is two checks, not one. On sandbox there are
+  now **two** endpoints to look at, beta's and dev's (§1.2); check the one whose
+  URL names the deployment you are working on, and leave dev's alone:
+
+  | Check | Expected |
+  | --- | --- |
+  | The endpoint pointed at `/polar/webhook` | the NEW one, not the deprecated one |
+  | Its `api_version` | `2026-10` |
+  | The deprecated endpoint | disabled or deleted |
+  | `POLAR_WEBHOOK_SECRET` on the deployment | the NEW endpoint's secret |
+
+  **A NEW ENDPOINT HAS A NEW SIGNING SECRET.** This is the one that bites. If
+  `POLAR_WEBHOOK_SECRET` still holds the old endpoint's value, every delivery
+  fails signature verification and is answered **403**; Polar retries, then gives
+  up, and the upgrades in those deliveries are gone. It is written down here
+  because the next person to rotate an endpoint will meet it again.
+
+  **DO NOT LEAVE THE OLD ENDPOINT ENABLED ALONGSIDE THE NEW ONE.** Two enabled
+  endpoints on the same URL means **two deliveries per event with different
+  `webhook-id`s**, and the replay guard keys on `webhook-id` — so it cannot
+  collapse them. Both are processed and two `webhookEvents` rows are stored per
+  event.
+
+  **How the version is actually set — not, as this runbook previously said, a
+  dashboard field.** Polar's endpoint docs list only URL, Delivery Format,
+  Secret and Events. `api_version` is set when the endpoint is **created**, and
+  changed afterwards by `PATCH /v1/webhooks/endpoints/{id}`:
+
+  ```bash
+  # production is api.polar.sh
+  curl -s -X PATCH https://sandbox-api.polar.sh/v1/webhooks/endpoints/<id> \
+    -H "Authorization: Bearer $POLAR_WEBHOOKS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"api_version": "2026-10"}'
+  ```
+
+  **`api_version` CAN BE SET AT CREATION, which is cheaper than PATCHing it.**
+  `POST /v1/webhooks/endpoints` accepts the field directly — measured 2026-09-29
+  creating dev's endpoint (`wordle-teams-qjh3.11`), which came back `201` already
+  pinned to `2026-10`. Use the PATCH above only on an endpoint that already
+  exists.
+
+  **THE "not `POLAR_ACCESS_TOKEN`" CLAIM IS FALSE ON SANDBOX — measured, and this
+  runbook previously asserted the opposite.** The sandbox `POLAR_ACCESS_TOKEN`
+  listed, created AND read webhook endpoints without a `webhooks:write` token of
+  its own. It is an **organization token**, and the only thing it refused was an
+  explicit `organization_id` in the body:
+
+  ```
+  422 PolarRequestValidationError
+  "Setting organization_id is disallowed when using an organization token."
+  ```
+
+  Drop that field and it is a `201`. So do not go hunting for a second credential
+  before trying the one the deployment already holds. **Production's token has not
+  been tested this way** — it is a different account with its own scopes, so
+  verify there rather than assuming either answer.
+
+  Changing an endpoint's `api_version` applies only to events created
+  **afterwards** — existing events keep the version they were rendered at, so a
+  redelivery reproduces the original contract. Setting it early is free; setting
+  it late fixes nothing already queued.
+
+  **If any of this drifts, the app says so rather than breaking.**
+  `convex/http.ts` logs, on every delivery whose version is not the one v2 was
+  written against:
+
+  ```
+  [polar] webhook delivered at an unexpected API version
+    { webhookId, eventName, delivered: '2027-01', expected: '2026-10' }
+  ```
+
+  Convex dashboard → the deployment → Logs, filtered to `[polar]`. The delivery
+  is still processed and still answered exactly as it would have been — the
+  warning is deliberately **not** a rejection, because a stale endpoint setting
+  is an operator error and a 4xx would turn it into a Polar retry loop against a
+  body the app can still read (`wordle-teams-swmt`).
+
+  **The silent failure this replaces is the one that matters.** The handler runs
+  no per-event schema, so a version flip does not fail a parse — it moves a field
+  under `extractIdentityCandidates`, which answers "nobody", and the delivery is
+  **202'd with no audit row and no error**. A subscriber is simply never
+  upgraded. That is how v1 lost an upgrade on 2026-08-03.
+
+  **Worth knowing for the next release:** moving 2026-04 → 2026-10 changed no
+  payload shape at all. Diffing the two model sets the SDK ships — 21710 lines
+  each — gives two doc-comment strings and a sourcemap filename. That is why the
+  endpoint switch above was safe to make ahead of the code. Do not assume the
+  next quarter is as kind.
+
+  **The next deadline is real.** 2026-10 goes Deprecated at the January 2027
+  release and is removed roughly two quarters later; Polar answers a removed
+  version with **404**, not a fallback. `wordle-teams-shdx` carries that date
+  together with the prerelease SDK it is entangled with.
+
+---
+
+## 2. Convex environment on the production deployment
+
+Sentinel first (§0). Then, on `fabulous-goldfish-949`:
+
+| Variable | Required value | Why |
+| --- | --- | --- |
+| `SITE_URL` | the production origin | `wordle-teams-cd8` |
+| `E2E_TEST_MODE` | **not set** | `wordle-teams-7az` — see below |
+| `REMINDERS_ENABLED` | `true` | gates delivery, not scheduling -- see §2.3, §5.5 before setting |
+| `REMINDERS_ALLOWLIST` | **unset/empty** | unrestricted IS the production setting |
+| `POLAR_ACCESS_TOKEN` | production | move as a SET — see below |
+| `POLAR_WEBHOOK_SECRET` | production | |
+| `POLAR_PRO_MONTHLY_PRODUCT_ID` | production | |
+| `POLAR_PRO_ANNUAL_PRODUCT_ID` | production | |
+| `POLAR_SERVER` | `production` | currently `sandbox` |
+
+- [ ] **2.1 — `E2E_TEST_MODE` must be unset, and RE-CONFIRMED AFTER THE FINAL
+      COPY.** Twice, not once.
+
+  It was measured unset on 2026-09-01. That is not sufficient: the risk is the
+  gap — somebody sets it to run e2e against beta between now and cutover and
+  nobody clears it. If it survives, two public mutations (`testOtps.takeFor`,
+  `e2eSeed.ensureTeamFor`) become live unauthenticated write paths, **and**
+  `isE2eTraffic` silently suppresses sign-in codes and team invitations for every
+  `e2e+*@wordleteams.com` address **with no error raised anywhere** — the invite
+  still parks in `teams.invited` and `invitePlayer` still reports success. The
+  person simply never hears anything.
+
+  Match the "not found" text, not the exit code.
+
+- [ ] **2.2 — The five `POLAR_*` move TOGETHER, or not at all.**
+
+  Polar's sandbox is a **wholly separate instance** — separate accounts,
+  organizations, products and tokens. Flipping `POLAR_SERVER` to `production`
+  without the token and both product ids sends real subscribers to an instance
+  holding none of their data. `POLAR_SERVER` must be exactly `production` or
+  `sandbox`; `assertPolarEnv` validates all five together and names every missing
+  one, so the first checkout after cutover is a complete test that fails loudly.
+
+  **YOU DO NOT HAVE TO REMEMBER THIS STEP — THE PIPELINE NAGS YOU.** Until it is
+  done, `scripts/check-deployment-env.mjs` prints this on **every production
+  deploy** (`scripts/lib/deployment-env.mjs`):
+
+  ```
+  POLAR_SERVER is "sandbox" on the deployment that becomes production.
+  ```
+
+  It is a WARNING, not a failure, and deliberately so: sandbox is the correct
+  setting for beta right up to the moment it isn't, so failing the deploy would
+  block every deploy between now and cutover. **When this step is done the warning
+  stops** — that silence is the confirmation, and it is a better one than a
+  checkbox because nobody has to go and look.
+
+  The same script carries the mirror-image guard for dev, which is what stops this
+  step being done to the wrong deployment: `POLAR_SERVER is "production" on dev`
+  is an **error**, not a warning — dev must never take a real checkout.
+
+  **Scopes are a different thing from variables.** The token needs **four**,
+  across **five** SDK call sites in `convex/polar.ts` — `customers:write` covers
+  two of them. Named by their enclosing action, because line numbers in this
+  table have gone stale twice:
+
+  | Scope | Call | Enclosing action |
+  | --- | --- | --- |
+  | `checkouts:write` | `checkouts.create` | `createProCheckout` |
+  | `customer_sessions:write` | `customerSessions.create` | `getCustomerPortalUrl` |
+  | `customers:write` | `customers.create` | `getCustomerPortalUrl` |
+  | `checkouts:read` | `checkouts.get` | `fetchCheckoutExternalId` |
+  | `customers:write` | `customers.update` | `repairCustomerExternalId` |
+
+  **The API version is a third thing again, and no variable covers it.** Outbound
+  requests are pinned by the `@polar-sh/sdk/2026-10` **import path** in
+  `convex/polar.ts`, which is why it is deliberately **not** settable per
+  deployment: the version is fixed at build time, so a deployment variable could
+  only ever disagree with the code, and Polar answers an unknown version with
+  404. `POLAR_API_VERSION` in `convex/lib/polarVersion.ts` describes that choice
+  and is asserted against it. The webhook side is per endpoint — §1.6.
+
+  **The SDK is a PRERELEASE: `@polar-sh/sdk` is pinned to an exact
+  `1.0.0-alpha.21`**, which is the only line shipping versioned clients. It is
+  pinned exactly rather than by range so an install cannot move it between CI and
+  a deploy. `wordle-teams-shdx` tracks moving to 1.0.0 when it is stable.
+
+- [ ] **2.3 — `REMINDERS_ENABLED=true` is the last switch you throw ON
+      PRODUCTION, and it is irreversible in effect.**
+
+  It is the only thing between a config slip and mailing every copied production
+  row. Turn it on only after §5's smoke test passes **and** §5.5 confirms the
+  maintenance pass has reached the copied players — the flag alone does not mail
+  anyone who has no scheduled job yet.
+
+  **It is already `true` on beta, and that is deliberate — see §7.8 for the
+  stale claim this replaced.** Beta holds copied production rows and
+  `E2E_TEST_MODE` is not set there, so what actually protects them is
+  `REMINDERS_ALLOWLIST` holding a single address (Gate 2), not this flag
+  (Gate 1) — see `convex/reminders.ts`'s `deliver` for which gate does the
+  work. **The rule that must keep holding:** beta's allowlist stays populated
+  for as long as beta holds copied production rows, and production's is
+  cleared — an empty allowlist is unrestricted, which is what production wants
+  (`allowsAddress` in `convex/lib/reminders.ts`).
+
+---
+
+## 3. Worker and DNS configuration
+
+- [ ] **3.1 — `ENVIRONMENT` must become `production`.** It is a wrangler var in
+      `wrangler.jsonc`, currently `"beta"`. Every LogSnag funnel event is
+      tagged with it, so leaving it mistags all production analytics.
+
+      **CHANGE THE TOP-LEVEL BLOCK ONLY.** `wrangler.jsonc` now also carries an
+      `env.dev` block whose `ENVIRONMENT` is `"development"` and must stay that
+      way. The two blocks do not share values — wrangler's `vars` is
+      *notInheritable*, so each declares its own complete set, and
+      `src/wrangler-environments.test.ts` fails if either goes incomplete or if a
+      hostname stops agreeing with its `ENVIRONMENT`. Run `pnpm test:once` after
+      editing and that test will tell you before a deploy does.
+
+      Check with:
+
+  ```
+  curl -sI -X POST -d '{"name":"login_view"}' https://wordleteams.com/api/funnel
+  ```
+
+  and read the `x-funnel` header — `sent` | `skipped` | `dropped`.
+
+- [ ] **3.2 — `MAINTENANCE` set to `"false"`** in `wrangler.jsonc` (it is a
+      string compared to exactly `"true"`). See §4.1 for the flip itself.
+
+- [ ] **3.3 — Routes and the custom domain.** The TOP-LEVEL `routes` in
+      `wrangler.jsonc` carries `beta.wordleteams.com` as a `custom_domain`. Add
+      the apex.
+
+  **LEAVE `env.dev`'s ROUTE ALONE.** It declares `dev.wordleteams.com` and must
+  keep declaring it. `routes` *is* inheritable, unlike `vars` — so an `env.dev`
+  that lost its own route would silently inherit the top-level one and the dev
+  Worker would try to claim production's domain. That is the single most damaging
+  edit anyone could make to this file on this day, and
+  `src/wrangler-environments.test.ts` is what catches it.
+
+  **A wildcard `*.wordleteams.com` A record points at Vercel.** An explicit
+  record outranks it — but **if any hostname ever serves a Vercel 404 again,
+  suspect that wildcard first.** It is the reason beta resolved before it existed.
+
+  **AFTER cutover, when beta is retired**, three things go together and none of
+  them is urgent — do them as one change once the apex is proven:
+  `beta.wordleteams.com` out of the top-level `routes`, out of `NOINDEX_HOSTS` in
+  `src/lib/robots-policy.ts`, and out of `HOST_ENVIRONMENTS` in
+  `src/lib/sentry-config.ts`. Both of those files say so in their own headers.
+
+- [ ] **3.4 — The `noindex` needs NO action, and that is deliberate. Verify it
+      rather than change it.** Beta sends `X-Robots-Tag: noindex, nofollow`;
+      production must not, and **beta and the apex are the same deployment** —
+      which is exactly why this is keyed on the REQUEST HOSTNAME rather than on
+      the `ENVIRONMENT` var (`src/lib/robots-policy.ts`, `wt-ksh.8.54`).
+      (`dev.wordleteams.com` is a different deployment and is also noindexed, by
+      the same list; the argument below is about beta and the apex, which one
+      Worker answers on at once.) A var is a property of
+      the deployment and cannot tell two hostnames apart on the day this Worker
+      answers on both; the hostname can, so the apex is indexable the moment it
+      is added and beta stays suppressed, with nothing to flip.
+
+      **It is a deny-list and must stay one.** An unrecognised host is
+      indexable. The two mistakes are not equals: indexing beta is recoverable
+      through Search Console, while noindexing production removes the site from
+      search silently. If anyone ever rewrites this as "index only on
+      wordleteams.com", the catastrophic outcome moves one typo away.
+
+      Confirm both directions AFTER the apex is live — the second command is the
+      one that matters:
+
+  ```
+  curl -sI https://beta.wordleteams.com/  | grep -i x-robots-tag   # noindex, nofollow
+  curl -sI https://wordleteams.com/       | grep -i x-robots-tag   # NOTHING
+  ```
+
+      **Static assets are not covered.** `/favicon.ico` and `/opengraph-image.png`
+      are served by the Workers assets layer without entering the Worker, so
+      they remain indexable on beta. The exposure `wt-ksh.8.54` was filed about
+      is the marketing documents, which are covered.
+
+- [ ] **3.5 — Browser Cache TTL must still be "Respect Existing Headers".**
+      Caching -> Configuration, zone-wide, and therefore inherited by the apex.
+      **The default is 4 hours and it overrides a LOWER origin `max-age`**, which
+      silently turned the documents' deliberate `max-age=0` into `max-age=14400`
+      until it was changed on 2026-09-02 (`wordle-teams-g1cd`).
+
+      This matters because a browser cache is the one copy the version-keyed
+      edge key in `src/server.ts` cannot reach: at four hours, a fix shipped on
+      cutover day would be invisible to anyone who had loaded the page in the
+      previous four. **Nothing in the repository can assert this** — it is
+      dashboard state — so it is a check here or it is nowhere.
+
+  ```
+  curl -sI https://wordleteams.com/about | grep -i cache-control
+  ```
+
+      Expect `max-age=0` with `s-maxage=86400` and
+      `stale-while-revalidate=604800` intact. **`max-age=14400` means the
+      setting has reverted.** Run it TWICE — the first response is never the
+      rewritten one, because the rewrite only applies to what Cloudflare
+      serves from cache.
+
+---
+
+## 4. Cutover day
+
+### 4.1 — Maintenance mode is ONE step, and it is a deploy
+
+**Corrected 2026-09-04.** An earlier version of this section said two steps —
+flip the var, then purge the Cloudflare cache. **There is nothing to purge**, and
+the reasoning is in `wt-ksh.8.52`, which closed not-applicable after the outage
+drill measured it. What that section got wrong is worth one paragraph, because
+the wrong version is the intuitive one:
+
+`/` is the only path that is both gated and cacheable, so the fear was a cached
+landing page outliving the flag — true of a **CDN edge cache sitting in front of
+a Worker**, which is not what shipped. `wt-ksh.8.45` measured that `s-maxage` on
+a Worker response reaches no Cloudflare edge cache at all, and
+`wordle-teams-fqeq` bought the caching back a different way: documents are stored
+through the **Cache API, inside the fetch handler.** That is a store the Worker
+*consults*, not a layer in front of it, so **the Worker runs on every request** —
+and `src/server.ts` consults it strictly downstream of the gate
+(`withMaintenanceGate` delegates to `withCachePolicyOnDocuments` only when the
+request is NOT gated, and `cache.match` lives inside the latter). A stored `/`
+**cannot** outlive the flag.
+
+- [ ] Set `MAINTENANCE` to the exact string `"true"`. Only `"true"` turns it on
+      — `"True"`, `"1"` and `"yes"` all leave the site UP, which is the safe way
+      for this to be wrong.
+
+**BUDGET FOR A VERSION ROLLOUT, NOT A FIELD EDIT.** A Worker var is part of a
+VERSION, not a value hanging beside one, so the Cloudflare dashboard offers no
+Save — editing `MAINTENANCE` and confirming **mints and deploys a new version**,
+and the button says Deploy. This surprised the owner mid-drill on 2026-09-04. It
+is the one place this is worse than v1's Edge Config, where the value changed
+with no deploy at all.
+
+> **A DEPLOY FROM THE REPO SILENTLY ENDS THE OUTAGE.** `vars` in
+> `wrangler.jsonc` carries `"false"`, so the next `wrangler deploy` overwrites
+> whatever the dashboard holds. That is deliberate — the site cannot stay dark
+> because someone forgot to flip back — but it means **the dashboard is the ONLY
+> thing holding maintenance on.** Do not ship a routine deploy during the window
+> and expect the maintenance page to survive it.
+
+- [ ] Confirm: every gated path answers **307** to `/maintenance`, and the 307
+      carries `private, no-store` with no `s-maxage`. Measured on beta
+      2026-09-04 with `/` warm (`x-doc-cache: HIT`, `age: 12`) immediately
+      before the flip: all five gated paths 307'd, all four static pages stayed
+      200.
+
+**What actually remains is client-side, and no purge reaches it.** `/` ships
+`stale-while-revalidate=604800`, so an individual visitor's OWN browser may serve
+them the pre-outage landing page while it revalidates. It self-corrects on the
+next navigation and the blast radius is one visitor rather than everyone — a
+property to know about, **not a step to run.**
+
+### 4.2 — The final copy
+
+> **"THE FINAL COPY" MEANS PRODUCTION, AND ONLY PRODUCTION.** Since
+> `wordle-teams-qjh3` there are two deployments a copy could run against, and
+> dev's is a separate, owner-scoped thing (`--scope=mine`) that is never part of
+> this day. Everything in §4.2–§4.5 targets `fabulous-goldfish-949`.
+>
+> **The copy announces its target before it writes a row**, so this is checkable
+> rather than assumed — and it REFUSES outright on a deployment
+> `wrangler.jsonc` does not declare:
+>
+> ```
+> ==============================================================================
+>   WRITING TO: (top level) — beta.wordleteams.com (fabulous-goldfish-949)
+> ==============================================================================
+> ```
+>
+> Read that line. If it names dev, stop: `CONVEX_URL` is pointing at the wrong
+> deployment and the purge below would empty the wrong database.
+
+- [ ] **PURGE FIRST. This step is not optional and its ORDER is the whole point.**
+
+  ```
+  node --env-file=.env.production.local --env-file=<convex env> \
+    scripts/purge-copied-data.mjs --confirm-deployment=$CONVEX_URL
+  ```
+
+  **Why this exists (`wordle-teams-z8wz`):** the copy below UPSERTS on
+  `byLegacyId`. It cannot remove anything. So without a purge, every row born in
+  v2 on this deployment survives the copy and shows up in §4.5 as a delta — 19
+  problems when last measured on beta (2026-09-05), growing. The operator reading
+  `PARITY FAILED` at 6am then has to decide, live, which deltas are expected.
+  Purging first means §4.5 can simply come back clean.
+
+  **`purgeCopiedData` does NOT filter on `legacyId`, despite its name.** It
+  empties `dailyScores`, `monthlyWinners`, `webhookEvents`, `playerMembership`,
+  `teams` and `players` completely — copied rows and v2-born rows alike. That is
+  what makes it the right tool here, and it is also the easiest thing in this
+  file to get backwards.
+
+  It **deletes ~800 rows per call and returns `remaining:true`** when there is
+  more. The script loops; running the mutation by hand once does not, and §4.4
+  GATE A exists because a half-purged deployment makes the next insert report
+  look like a resurrection. The script refuses unless `--confirm-deployment`
+  matches `CONVEX_URL` exactly — paste it, and read which deployment it names.
+
+  **It does not sign anyone out.** Better Auth's component tables are untouched,
+  and `players` is resolved by EMAIL (`players.by_email`), not document id, so a
+  re-copied row re-links to the same account.
+
+  **If the copy below fails after this runs, the deployment is empty.** That is
+  recoverable and not an emergency: v1 is frozen and still holds everything, and
+  DNS has not flipped. Fix the cause and re-run the copy. **Do not flip DNS until
+  §4.5 is clean.**
+
+- [ ] **Run it WITH `--with-reminders`. This flag is the whole restoration.**
+
+  ```
+  node --env-file=.env.production.local --env-file=<beta convex env> \
+    scripts/copy-from-supabase.mjs --scope=all --with-reminders
+  ```
+
+  Every copy before this one **deliberately withheld** `timeZone` and
+  `reminderDeliveryMethods` (`wt-ksh.7.32`), so that a Phase 7 re-copy could not
+  switch reminders on for someone who does not know beta exists. The banner
+  states which mode it is in, in both directions — **it must say `CARRIED` on
+  this run.** Without the flag, every player arrives with reminders off.
+
+  The other three reminder fields crossed all along: `lastBoardEntryReminder`
+  (which *suppresses* a same-day send — withholding it would have made an
+  unwanted reminder more likely), `reminderDeliveryTime` and `hasPwa`.
+
+  **This copy does not itself put anyone on the reminder schedule — that is a
+  separate pass, and it can take up to ~24 hours if you let it happen on its
+  own.** §5.5 covers the ordering and the read-only check; know that timeline
+  exists before you get there, since it lands inside cutover day, not after
+  it.
+
+  **Prerequisite:** `supabase.co` must resolve. It was blocked by network DNS
+  filtering on the dev box on 2026-09-01 — `supabase.com` and everything else
+  resolved, only `supabase.co` was dropped. The error names a **different table
+  each run** (`readScoped` races its reads and reports whichever loses first) and
+  survives switching Node versions, so it looks like a flaky timeout or a Node
+  issue and is neither. **Check `resolvectl query supabase.co` first.**
+
+- [ ] **This run DISCARDS beta team and player state on purpose.** Owner's
+      decision, 2026-08-24: everything in the beta deployment is testing data
+      permanently, including rows created by anyone brought in to help test. **It
+      reads like data loss and is not.**
+
+      Which rows, because it is easy to get backwards: a row **born in v2 is
+      SAFE** — no `legacyId`, and `byLegacyId` is the whole upsert key for
+      `players` and `teams`. What a re-run reverts is a **copied** row v2 later
+      edited. `monthlyWinners` is the exception: it matches on
+      `(teamId, year, month)`, so a winner row v2 computed itself IS adopted and
+      overwritten.
+
+### 4.3 — Read the overwrite report AT FIELD LEVEL
+
+Table level is a check that cannot fail. Only `players`, `teams` and
+`monthlyWinners` can ever appear at all — anything without a `clobbered` key is
+routed to "Not diffed" — so "nothing else" means **no unexpected FIELD on those
+three**, not no fourth table.
+
+**EXPECTED — beta state being discarded. Do not stop:**
+
+- `teams`: `name`, `playWeekends`, `showLetters`, `playerIds`, `invited`. Any
+  subset is ordinary.
+- `players`: `timeZone`, `reminderDeliveryMethods`, `reminderDeliveryTime`,
+  `hasPwa`, `lastBoardEntryReminder`.
+- `monthlyWinners` on an **adopted** row: `legacyId` always moves;
+  `playerId` only if v1's winner differs; `hasSeenCelebration` only if the
+  seen-lists differ as multisets. `teamId`/`year`/`month` are the match key and
+  cannot differ.
+
+**STOP AND READ before the DNS flip:**
+
+- [ ] **`teams.owner`** — insert-only in v2, so a count here is never a lost v2
+      edit. It means the copy is **changing which player owns a team**.
+- [ ] **`teams.scoring`** (eight base fields, reported as one) — always v1-side,
+      and **possibly the most consequential count in the report.** An imported v1
+      scoring edit lands as the team's BASE system, and any month with no
+      `scoringSystems` version preceding it falls back to exactly those fields —
+      so the import **retroactively re-scores every month before v2's first
+      version row and can change who won one** (`wordle-teams-1j3`).
+- [ ] Anything not on the expected list.
+
+The report **cannot tell you who wrote the value it replaced.** A clobber means
+only that the incoming v1 value differs from the stored one — a lost v2 edit *or*
+v1 drifting since the last copy.
+
+### 4.4 — Adjudicate the insert report (resurrection)
+
+A row v2 **deleted** leaves the overwrite report nothing to diff against, so it
+returns counted as `inserted`. The insert block makes that visible; **it does not
+attribute it.** Work the gates IN ORDER — starting at the per-table list gives the
+wrong answer and sends you deleting rows the copy legitimately just wrote.
+
+- [ ] **GATE A — is this actually the same copy run again?** Not if: the previous
+      copy died partway (whole tables at full size), the `--scope` or `ME_EMAIL`
+      changed, this is the first copy into a deployment already holding v2-born
+      rows, or the §4.2 purge **did not finish** — `purgeCopiedData` deletes ~800
+      per call and returns `remaining:true`, which is why §4.2 runs it through
+      `scripts/purge-copied-data.mjs` rather than by hand. In every one of these
+      there is **nothing to delete**.
+
+      Since §4.2 now purges before every copy, a deployment holding v2-born rows
+      at this point means that purge did not complete. Fix that and re-run the
+      copy; do not adjudicate individual rows.
+- [ ] **GATE B — did the skip filters' inputs move?** A nameless v1 player given
+      a name, or a memberless team that gained a member, is a legitimate
+      first-time insert of an OLD row. Compare both "Skipped" counts against the
+      previous run.
+- [ ] **GATE C — only with A and B ruled out:** does v1 hold the row with a
+      `created_at` AFTER the previous copy? If v1's newest rows in that table all
+      predate it, the copy re-inserted an old row — v2 had deleted it.
+
+  **Deleting on gate C alone is the dangerous mistake here:** a resumed partial
+  copy fails gate C for every row it wrote.
+
+If you confirm a resurrection: delete the row in Convex by hand, **after the copy
+and before the DNS flip**, then re-read the counts. There is no tombstone.
+
+### 4.5 — Verify
+
+- [ ] ```
+      node scripts/verify-parity.mjs --scope=all
+      ```
+      **Counts come from `countTable`, which loops across transactions and is not
+      a consistent snapshot.** If a count is off by one or two, **re-run before
+      believing it.**
+
+**EXPECT THIS TO PASS.** With §4.2's purge run first, the deployment holds
+exactly what the copy just wrote, so parity is the normal outcome rather than a
+hopeful one. `verify-parity` is exact on purpose — its own header: *"a check that
+tolerated a delta could not tell a deliberate exclusion from a lost row."*
+
+#### If it reports PARITY FAILED — adjudicate, do not guess
+
+- [ ] **First: was the purge actually looped to completion?** By far the most
+      likely cause. `scripts/purge-copied-data.mjs` prints `N rows in M calls`
+      and only exits 0 when the mutation stopped reporting `remaining`. If it
+      threw, or was interrupted, or the mutation was run by hand instead — the
+      deployment is half-purged and holds copied rows the copy then re-upserted
+      plus v2-born rows it could not touch. **Re-run the purge, then re-run the
+      copy, then re-verify.** Do not start deleting rows.
+
+- [ ] **Second: decompose the delta by ORIGIN before interpreting it.**
+
+      ```
+      internal.migrate.parityProbe
+      ```
+      Returns `legacyId` per row for `players` / `teams` / `playerMembership`,
+      and `teamLegacyId` per `monthlyWinners` row. **`legacyId === undefined`
+      means the row was born in v2** — i.e. it survived a purge that did not
+      complete. Counts-only, so it is safe to paste in a public repo.
+
+      It does **not** cover `webhookEvents` or `dailyScores`. A `dailyScores`
+      delta has to be read against v1 directly, one player at a time, via
+      `playerScoreFingerprint`.
+
+- [ ] **Third: know which direction is actually dangerous.**
+
+      **A copied row MISSING from Convex is the only real failure.** That is data
+      loss and it stops the cutover. An EXTRA row in Convex is a purge that did
+      not finish — recoverable by re-running §4.2, and it has never once meant a
+      lost v1 row.
+
+      A `dailyScores` count that is LOW against Supabase for a specific player,
+      after a completed purge and a clean copy against a frozen v1, is the shape
+      that means stop.
+
+**Historical note, so the numbers in `wordle-teams-z8wz` are not misread as the
+expected state:** before this section had a purge step, beta measured 19 problems
+— `players +1`, `teams +3`, `playerMembership +1`, `monthlyWinners +3`,
+`webhookEvents +5`, `dailyScores +3 net`. Every one of those was a v2-born or
+beta-native row. They are what §4.2's purge now removes, not a delta to expect.
+
+### 4.6 — Flip DNS, then switch the configuration
+
+- [ ] DNS to the Worker (see §3.3 on the wildcard).
+- [ ] `ENVIRONMENT` → `production` (§3.1).
+- [ ] `X-Robots-Tag` verified in BOTH directions — present on beta, absent on the
+      apex (§3.4). No change to make; this is a check, not a step.
+- [ ] Browser Cache TTL still "Respect Existing Headers"; `/about` returns
+      `max-age=0` on a SECOND request, not `max-age=14400` (§3.5).
+- [ ] All five `POLAR_*` → production, as a set (§2.2).
+- [ ] `SITE_URL` → production origin.
+- [ ] `MAINTENANCE` → `"false"` (§4.1). One step; there is nothing to purge.
+- [ ] **Re-confirm `E2E_TEST_MODE` is still unset** (§2.1). This is the second of
+      the two checks.
+
+---
+
+## 5. After the flip
+
+- [ ] **5.1 — Smoke test by hand:** OTP sign-in, each of the four social
+      providers, board entry, the scoreboard, the PWA.
+- [ ] **5.2 — The `/me` PWA install from §1.5 still lands correctly.**
+- [ ] **5.3 — Re-run the parity harness against production:**
+      ```
+      node scripts/parity-routes.mjs --beta=https://wordleteams.com
+      ```
+      Compare against `docs/superpowers/audits/2026-09-01-parity-routes.md`.
+      Known differences live in `V2-ADDENDUM.md` §7a, and **anything not in that
+      table is a bug.**
+
+      **DO NOT TRUST A COUNT WRITTEN ANYWHERE ELSE, INCLUDING THIS FILE.** This
+      line said "forty-three of them" until 2026-09-04, when the table held
+      SIXTY — so an operator working from it would have treated seventeen
+      deliberate divergences as defects, at 6am, with DNS waiting. That number
+      has now drifted three times (`wordle-teams-4m2t`), which is why
+      `src/addendum-divergences.test.ts` pins the count INSIDE the addendum and
+      why this runbook no longer restates it. **Read it off the file:**
+
+      ```
+      grep -c '^| [0-9]' docs/design-system/V2-ADDENDUM.md   # rows in all tables
+      ```
+
+      or just open §7a — its own header states the count, and CI fails if that
+      header and its table disagree.
+- [ ] **5.4 — BEFORE reminders go on: count who became eligible, and compare
+      against v1.** `wordle-teams-k501`, settled here on 2026-09-04.
+
+  **`--with-reminders` does NOT overwrite `timeZone` for every copied player**,
+  which is the assumption this check exists to catch. `copy-reminder-policy.mjs`
+  sends the zone only when production HAS one
+  (`...(row.timeZone !== undefined ? { timeZone: row.timeZone } : {})`) — it
+  omits the key otherwise, and `upsertPlayers` does `db.patch`, so **a zone
+  written onto a beta row survives the final copy.** 17 of 392 copied players
+  carried one on 2026-09-04, from early `--scope=mine` runs and from
+  `use-local-capture.ts`, which writes a zone on sign-in to any player lacking
+  one.
+
+  That is inert today because no copied player holds a delivery method. **It
+  stops being inert at cutover**, when the copy brings production's methods
+  across: a player who has methods in v1 but **no `time_zone`** gets nothing from
+  v1 — `get_players_for_reminder()` is `WHERE time_zone IS NOT NULL` — yet in v2
+  the beta-captured zone completes the pair and the next `reminder
+  maintenance` pass schedules them. That is a
+  reminder **v1 has never sent**, to a real person, on the one switch §2.3 calls
+  irreversible in effect.
+
+  ```
+  CONVEX_URL=<production> CONVEX_MIGRATION_KEY=<key> \
+    node scripts/verify-reminder-policy.mjs
+  ```
+
+  **Its pass condition INVERTS at cutover and the script does not know that.** It
+  exits non-zero if a copied player is eligible to be scheduled (holds both a
+  `timeZone` and a known delivery method), which is correct every day until
+  this one and wrong today — after the final copy, a non-zero `sweepEligible`
+  on copied rows is the entire point (the field name predates the per-player
+  scheduler and is now just what the script calls "eligible"). **Read the
+  number, not the exit code.** Compare it against v1:
+
+  ```
+  select count(*) from players
+   where time_zone is not null
+     and reminder_delivery_methods is not null
+     and array_length(reminder_delivery_methods, 1) > 0;
+  ```
+
+  - **v2 `sweepEligible` ≤ v1's count** is expected and fine. It can be lower
+    because v2 filters to the delivery methods `deliver` recognizes
+    (`hasKnownMethod`/`METHODS` in `convex/lib/reminders.ts`) while v1 counts
+    any non-empty array.
+  - **v2 higher than v1 is the alarm, and the excess is exactly this
+    population.** Clear `timeZone` by hand on those players before §5.5's
+    maintenance run reaches them — that is the scheduling boundary now, not
+    `REMINDERS_ENABLED`. (If the 01:15 UTC cron beats you to it, it is not a
+    safety hole — `deliver` re-reads `timeZone` and skips as `'no-time-zone'`
+    before any send — but the row will carry a stray scheduled job until a
+    later pass corrects it, which is avoidable cleanup.) And know that a later
+    sign-in re-adds a cleared zone — which is why this is a measurement at
+    cutover rather than a cleanup beforehand.
+
+- [ ] **5.5 — A player is not on the schedule until something puts them
+      there. Confirm the maintenance pass has reached the copied players
+      before §5.6 flips `REMINDERS_ENABLED`.**
+
+  There is no hourly sweep any more (`wordle-teams-spcu`). Each player holds
+  one scheduled job, and **for a COPIED player, the `reminder maintenance`
+  cron — daily at 01:15 UTC — is the only automatic path onto it.** `maintain`
+  is not gated on `REMINDERS_ENABLED` by design, so it runs regardless of the
+  flag — which is exactly why it can and must run first.
+
+  **Do not read this the way a natively-signed-up v2 player would work.**
+  `updateTimeZoneFor` does fire automatically on first authenticated load, but
+  only for a player who has never had a zone (`convex/settings.ts`'s doc
+  comment on it) — `use-local-capture.ts` writes `timeZone` only when it is
+  absent. `--with-reminders` (§4.2) is what carries `timeZone` across for
+  exactly the players this step is about, so a copied player signing in
+  triggers **no** automatic reschedule: the row already has a zone.
+  (`updateReminderTimeFor`, `updateReminderMethodsFor` and
+  `setReminderMethodFor` also reschedule, but only if the player goes and
+  changes a setting — that needs the player to act, not merely sign in, so it
+  is not something to rely on here.) The cron is the only automatic path for
+  the population this step exists to protect.
+
+  **So the final copy (§4.2) has to precede a `reminder maintenance` run, and
+  that run has to precede §5.6.** A copied player with no `nextReminderAt` has
+  no pending job, and gets nothing until the cron next reaches them.
+
+  **If you don't run the pass deliberately, budget the wait: up to ~24
+  hours**, depending on how the final copy lands relative to 01:15 UTC. Then
+  re-check the dashboard (below) before §5.6.
+
+  **The read-only check is the Convex dashboard: confirm `players` rows carry
+  a populated `nextReminderAt`.** That answers the only question this step
+  asks, with no write at all. **Do not use `npx convex env list` for this** —
+  it is read-only too, but it prints every deployment secret in plaintext.
+
+  **`budget: 0` is NOT that read-only check, and do not treat it as a dry
+  run.** It suppresses scheduling for any row that would otherwise be
+  scheduled — but a player with no `timeZone` whose derived `playsWeekends`
+  flag has FLIPPED is still patched even at `budget: 0`; that row is never
+  schedulable, so it never reaches the budget check at all
+  (`convex/reminders.ts`'s `maintain`: the `schedulable` guard, and the
+  `if (flipped)` patch above it). So it writes nothing for any schedulable
+  row, but it is a mutation, not an inspection — and beta currently holds a
+  large zoneless population, some share of which this flipped-flag write
+  touches: `copy-reminder-policy.mjs` withholds `timeZone` on every copy but
+  the one passing `--with-reminders` (§7.7).
+
+  **There is no copy-pasteable command here, on purpose.** If you need the
+  pass to run now rather than waiting for 01:15 UTC, the safer way is the
+  Convex dashboard's function runner, invoking `maintain` against the
+  deployment you're already looking at for the check above — not the CLI,
+  which resolves its own idea of "prod" and can get it wrong silently (below).
+  Run it WITHOUT a budget so it actually schedules, and read `deferred` in the
+  result: non-zero means the table is larger than one run's budget and
+  another run is needed.
+
+  Two `--prod` hazards compound, and either alone is reason to prefer the
+  dashboard over trusting CLI output: `CONVEX_DEPLOY_KEY` in `.env.local`
+  outranks `CONVEX_DEPLOYMENT` (§0), and `convex run --prod` has separately
+  been observed silently hitting the LOCAL deployment. A CLI run can
+  therefore write to the wrong deployment and still report success.
+
+- [ ] **5.6 — Only now, `REMINDERS_ENABLED=true`** (§2.3, §5.5).
+- [ ] **5.7 — Watch the deploy's EFFECT, not its green.** For a Convex change
+      that is the "Deploy Convex and build the client" step. And **`gh run list
+      --limit 1` right after a push returns the PREVIOUS run** — select by SHA.
+
+**Shipping a corrected document is not instant, and §8b is the detail.** The
+EDGE half is handled by construction — the Cache API key carries the Worker
+version id, so a new deployment misses rather than needing a purge — **but that
+rotation is not yet measured end to end** (`wordle-teams-fv2s`; an accidental
+natural experiment on 2026-09-04 was ambiguous). The BROWSER half is not handled
+and is accepted: `stale-while-revalidate=604800` lets a returning visitor see one
+stale view. **If a corrected page appears not to ship, read §8b before debugging
+it** — that is the failure mode `wt-ksh.8.46` was filed to prevent.
+
+---
+
+## 6. Rollback
+
+The flip is DNS, so rollback is DNS — but **read the next paragraph before you
+rely on it**, because what "untouched" means changed on 2026-09-28.
+
+v1's RUNNING DEPLOYMENT on Vercel is untouched and still serves. What is no longer
+true is that it could be REBUILT: `wordle-teams-4m96` deleted v1's source from
+this branch, and its git integration is disconnected, so nothing in this
+repository can produce a new v1 deployment.
+
+**So rollback means re-pointing DNS at a deployment that ALREADY EXISTS, and
+never redeploying it.** Vercel deployments are immutable, so the one currently
+promoted keeps serving indefinitely — do not delete the Vercel project, do not
+"clean up" old deployments, and do not attempt a rebuild to fix anything. If that
+deployment is ever lost, rollback is `git revert` of the move plus a Vercel
+rebuild, which is not a cutover-day operation.
+
+- [ ] Point DNS back at Vercel.
+- [ ] **v1's Supabase data is authoritative and was only ever READ.** The copy is
+      read-only against Supabase, so no rollback of source data is required or
+      possible.
+- [ ] Set `MAINTENANCE` back to `"true"` on the Worker if you want the v2
+      hostname to stop serving (§4.1). Remember it is a deploy, and that a
+      later `wrangler deploy` resets it to `"false"`.
+- [ ] Anything written into v2 *after* the flip does not exist in v1 and does not
+      come back. That window is the real cost of a late rollback — keep it short.
+
+---
+
+## 7. Facts that were wrong in an earlier version of this runbook
+
+Recorded because each was believed, written down, and acted on.
+
+**7.1 — "Nothing in v2 deletes from `players` or `playerMembership`."** False
+since `convex/e2ePrune.ts` landed: it deletes from `playerMembership` (`:361`),
+`players` (`:378`), `dailyScores` (`:338`), `monthlyWinners` (`:351`) and
+`pushSubscriptions` (`:372`). The **conclusion** still holds — an unexpected
+insert into `players` is still a new v1 signup — but not for the stated reason.
+It is safe by two independent halves: `pruneBatch` is an `internalMutation`, and
+it throws unless `E2E_TEST_MODE === 'true'` (`:183`). **If that flag survives
+onto production, this guarantee is void.**
+
+**7.2 — `cascadeDeleteTeam` has FOUR reachable callers, not two.**
+`deleteTeamFor`, `leaveTeamFor`'s last-member case, `e2ePrune.ts`, and
+`billing.ts`'s `downgradeTeamRemovalFor`. The last matters differently: a team it
+deletes carries a `legacyId`, so a later copy re-inserts it — and **it fires from
+a Polar webhook rather than from a person**, so it can happen during a
+dual-running window with nobody watching. ("creator" is also a stale field name;
+the Phase 5 rename made it `owner`.)
+
+**7.3 — The `db.delete` hit count is not a constant.** It printed fourteen on
+2026-08-25, twenty-one on 2026-08-26, and twenty-six on 2026-09-01 (sixteen
+production, ten in `*.test.ts`). **Run `git grep -c "db\.delete(" convex/` on the
+day; do not trust any figure written in prose, including this one.**
+
+**7.4 — "Nothing in v2 writes `playerMembership` or `webhookEvents` yet."**
+False since Phase 5: `convex/billing.ts` inserts `playerMembership` at `:549` and
+`webhookEvents` at `:523` and `:638`.
+
+**7.5 — v1's `/login-error` says the passcode expires in 1 hour.** This
+deployment sets `OTP_EXPIRY_SEC = 300` — five minutes — and the email says so.
+
+**7.6 — "Maintenance mode is two steps: flip the var, then purge the Cloudflare
+cache."** This runbook said that, `wt-ksh.8.52` was filed for it, and a comment
+on `GATED_PATHS` asserted it. It is wrong, and the reason is worth keeping: the
+premise ("a cache hit does not invoke the Worker") describes a **CDN edge cache
+in front of a Worker**, and what shipped is the **Cache API inside the fetch
+handler** — a store the Worker consults, downstream of the gate. The correct
+lesson is not "we were pessimistic"; it is that **a caching claim is only as good
+as the layer it names**, and this one named the wrong layer for five days. §4.1
+has the corrected version.
+
+**7.7 — "The copy carries `reminderDeliveryMethods` and `timeZone` for every
+copied player."** A comment in `convex/reminders.ts` said so as justification for
+the env gate being the only protection. False since `wt-ksh.7.32`: the policy
+module withholds both. But **the correction has a sting in it** — the restoration
+is asymmetric. Methods are sent explicitly empty and so are cleared by a re-run;
+`timeZone` is merely OMITTED, so a zone written by an early copy or a beta
+sign-in **survives every later copy, including the cutover one.** That is what
+§5.4 measures.
+
+**7.8 — "`REMINDERS_ENABLED` is OFF on beta and that is its designed resting
+state — the cron fires hourly and returns having done nothing."** Both halves
+are now false. It was read `true` on beta from the dashboard on 2026-09-11
+(a reading, not a history — when it was first set is not established here).
+The cron that sentence describes is gone: the hourly sweep was replaced by the
+daily `reminder maintenance` pass at 01:15 UTC (`wordle-teams-spcu`), which is
+not even gated on this flag. See §2.3 and §5.5 for what actually protects
+beta's copied rows (the allowlist, not the enable flag) and for the ordering
+this now requires at cutover.
+
+---
+
+## 8. Known open items at cutover
+
+Not blockers unless you decide otherwise; each is filed.
+
+**Refreshed 2026-09-04.** Six of the seven originally listed here closed during
+Phase 7's walk — `wt-ksh.8.45`, `wt-ksh.8.46`, `wt-ksh.8.55`,
+`wordle-teams-82zq`, `wordle-teams-d2oc`, `wordle-teams-cog5` and
+`wordle-teams-vmya` are all done and are **not** things to check on the day. What
+is genuinely still open:
+
+| Issue | What |
+| --- | --- |
+| `wordle-teams-4yt` | **Owner's call, and legal copy** — see the row below |
+| `wordle-teams-fv2s` | The version-keyed cache rotation in §8b is **claimed, not measured.** Only matters if you need a corrected document out the same day |
+| `wordle-teams-ao7j` | `GET /api/funnel` returns 200 HTML instead of 404 — a soft 404 masked only by `robots.txt`, which the apex serves differently |
+| `wordle-teams-1kiy` | `/manifest.json` is `application/json` where production sends `application/manifest+json` |
+| `wordle-teams-k501` | Folded into §5.4 as a step. Do not treat it as a pre-cutover cleanup |
+
+### 8a. Two Polar cases the sandbox pass could NOT reach
+
+Phase 5's sandbox pass (2026-09-03) closed all six acceptance criteria against
+observed evidence. **These two were not among them**, and are written here so a
+green pass is not read as covering them. Both are pinned by unit tests only.
+
+- [ ] **THE v1-uuid IDENTITY CASE — the one that touches every existing paying
+      customer.** A fresh v2 account has no `legacyId`, so the sandbox cannot
+      reproduce what happens to a **migrated** subscriber on revocation. The
+      dual-namespace lookup in `getCustomerPortalUrl` and the identity
+      resolution in `convex/polar.ts` are what carry it, and they are exercised
+      by unit tests and by nothing else.
+
+      **This is the highest-risk untested path at cutover**, because every
+      current subscriber is exactly this shape: a copied row with a `legacyId`,
+      whose Polar customer was created against the v1 uuid. Watch the first real
+      revocation after the flip, and check the player is downgraded rather than
+      silently missed. `wordle-teams-7xl` already covers confirming the first
+      real checkout; this is its counterpart on the other end of the lifecycle.
+
+- [ ] **THE OWNERSHIP-REASSIGNMENT PATH.** `downgradeTeamRemovalFor` reassigns
+      `owner: remaining[0]` when a dropped team was one the player owned. Owned
+      teams sort FIRST in the keep list, so this only fires for an owner of
+      three or more teams — the sandbox account owned exactly the two it kept,
+      so the branch never ran. Unit-tested only.
+
+      The consequence if it is wrong is not data loss but a **team nobody can
+      administer**: V2-ADDENDUM records that an owner-less team cannot be edited
+      by anyone, which is why the code reassigns rather than clearing.
+| `wordle-teams-4yt` | **Owner's call, and legal copy:** privacy policy and terms name **Apple and Facebook** as sign-in providers. Neither has ever been offered. The policy also claims a **username** is collected; no such field exists in either codebase. Already wrong in v1, so not a regression — but cutover is when these pages start being served from the new stack |
+
+### 8b. The staleness window after a deploy, and which half is solved
+
+`wt-ksh.8.46` asked for one of three: a purge step in the deploy, a shortened
+`s-maxage`, or the window recorded here as accepted. **The first happened by
+construction and the third covers what is left**, so this is the record.
+
+**THE EDGE HALF IS SOLVED BY CONSTRUCTION — AND THE MEASUREMENT IS ONE PATH
+SHORT.** `wordle-teams-fqeq` keys the Cache API entry on
+`CF_VERSION_METADATA.id`, so a new deployment should MISS on every key and render
+fresh, with orphaned entries ageing out unread. That is the "purge step" branch
+satisfied without a purge, and without a zone token this repo does not hold. A
+redeploy on 2026-09-02 returned `x-doc-cache: MISS` against a cache holding the
+previous version.
+
+> **`wordle-teams-fv2s` is open on exactly this claim.** On 2026-09-04, two var
+> edits (each of which mints a version) left `/home` reporting MISS while
+> `/maintenance` — warmed to HIT shortly before, and never gated — still
+> reported HIT. **A clean key rotation should have missed both.** Ordinary Cache
+> API eviction is the likely explanation for the mixed result, but it was not
+> established, and two paths is too few to tell rotation from eviction. Calibration
+> from the same session: once warm, `x-doc-cache` is not noisy — 12/12 HIT on
+> each path with monotonically advancing `Age` — so the mixed reading is not
+> sampling noise. **If you need a corrected document live the same day, do not
+> assume the deploy rotated the key; warm several paths, deploy, and check they
+> all MISS.**
+
+**THE BROWSER HALF IS NOT, AND IS ACCEPTED.** The header is
+`public, max-age=0, s-maxage=86400, stale-while-revalidate=604800`. `max-age=0`
+makes the response immediately stale to a browser, and `stale-while-revalidate`
+then permits that browser to serve its cached copy **for up to seven days**
+while revalidating in the background. No purge, no version key and no deploy
+reaches a private browser cache.
+
+**So the worst case is: a returning visitor who loaded a marketing page within
+the last seven days sees the old one once, and the correct one thereafter.** It
+costs one stale view per visitor per change, not a persistent wrong page.
+
+- [ ] **If a copy fix must be seen immediately by everyone**, shortening
+      `stale-while-revalidate` in `src/lib/cache-policy.ts` is the only lever,
+      and it has to ship *before* the change it is meant to expedite — a shorter
+      window does not shorten one a browser has already been given.
+
+**DO NOT DEBUG A "FIX THAT DID NOT SHIP" FOR A WEEK.** That is the failure mode
+`wt-ksh.8.46` was filed to prevent, and it is why this is written down rather
+than left to be rediscovered by someone watching a corrected page fail to change.

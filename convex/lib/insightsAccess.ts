@@ -1,0 +1,282 @@
+/**
+ * WHICH INSIGHT LAYERS A PLAYER MAY SEE, and when their trial clock starts.
+ *
+ * THIS FILE HAS NO IMPORTS, for the reason chatLimits.ts exists: the insights
+ * surface needs these rules in the browser, and reaching them through
+ * ../access.ts would drag auth.ts — the whole Better Auth server surface — into
+ * the client chunk. That used to KILL the chunk, via a module-scope SITE_URL
+ * throw a5d5c3f0 moved into `createAuth`; it is now silent weight, which is
+ * harder to notice rather than less wrong. chatLimits.ts's banner has the
+ * measurement. If you are about to add an import here, you are about to ship
+ * that bug again.
+ *
+ * The DECISION lives here as a pure function and the Convex wrapper only
+ * supplies the inputs, because nothing in this repo can drive an authed wrapper
+ * (wordle-teams-obw) — so a rule left inside one is a rule no test can execute.
+ */
+
+/**
+ * WHEN v2 BECOMES THE REAL SITE. The trial clock is measured from a player's
+ * first board AFTER this instant.
+ *
+ * ⚠️ THIS IS A PLACEHOLDER AND THE OWNER MUST SET IT. It is 2099, which is not a
+ * date anyone could mistake for the real one — the task required a placeholder
+ * that is OBVIOUSLY one rather than a plausible wrong date, because a plausible
+ * wrong date would start trials early and silently.
+ *
+ * IT FAILS SAFE, WHICH IS WHY 2099 RATHER THAN 1970. No board can be entered
+ * after it, so `shouldStartTrial` is false for everyone and NO trial is ever
+ * stamped while this value stands. The feature is inert rather than wrong, and
+ * `fails safe: while it is the placeholder, no board can start a trial` below
+ * is the test that says so out loud. Setting this to the real cutover instant
+ * is the single edit that switches it on.
+ *
+ * ONE CONSTANT, NOT A DATE THREADED THROUGH CALL SITES, so correcting it is one
+ * line rather than a search.
+ */
+export const LAUNCH_AT = Date.UTC(2099, 0, 1)
+
+/**
+ * THE SENTINEL EVERY PLACEHOLDER CHECK IN THIS FILE COMPARES AGAINST — defined
+ * exactly once so LAUNCH_AT_IS_PLACEHOLDER and trialCanStart's own gate read
+ * the same constant rather than each spelling out the comparison by hand and
+ * risking drift between the two. LAUNCH_AT above is the CURRENT value and is
+ * the line the owner edits before cutover (wordle-teams-kc8c: "IT MUST BE SET
+ * BEFORE THE CUTOVER"); this is the fixed value that means "still unset" and
+ * must never itself change.
+ *
+ * KEPT AS A SEPARATE LITERAL FROM LAUNCH_AT'S OWN — not folded into it as
+ * `export const LAUNCH_AT = PLACEHOLDER_LAUNCH_AT` — because that would make
+ * LAUNCH_AT_IS_PLACEHOLDER trivially true forever: LAUNCH_AT would always
+ * equal the very thing it is being compared against, and the check would stop
+ * being able to say anything. Two literals — LAUNCH_AT's current value and
+ * this sentinel — are the floor here, because they answer different
+ * questions ("what is the value now" vs "what value means unset"); this is
+ * still the ONE place either question is spelled out as a comparison target,
+ * which is the property that matters — nothing downstream repeats the literal
+ * to ask "is this the placeholder".
+ *
+ * EXPORTED so a test can assert against it directly rather than against
+ * `LAUNCH_AT`, a value the owner's cutover edit is expected to change out from
+ * under any test that names it.
+ */
+export const PLACEHOLDER_LAUNCH_AT = Date.UTC(2099, 0, 1)
+
+/** True while LAUNCH_AT is still the placeholder rather than a real cutover. */
+export const LAUNCH_AT_IS_PLACEHOLDER = LAUNCH_AT === PLACEHOLDER_LAUNCH_AT
+
+/** One month of Layers 2 and 3, per the spec's tier section. */
+export const INSIGHTS_TRIAL_DAYS = 30
+
+const MS_PER_DAY = 86_400_000
+
+/**
+ * Whether entering a board now should start this player's trial.
+ *
+ * TWO CONDITIONS, AND BOTH ARE THE POINT:
+ *
+ * - `trialEndsAt === undefined` — the field is written ONCE. A second board must
+ *   not extend the trial, so this is the only thing standing between a daily
+ *   player and a permanent free tier.
+ * - `enteredAt >= launchAt` — the clock starts at the first board AFTER launch,
+ *   never at launch itself. A calendar window anchored to launch expires while a
+ *   dormant player is still dormant, and dormant returners are exactly who the
+ *   launch email is aimed at. This one comparison covers them and every future
+ *   signup with a single rule.
+ *
+ * A player whose only boards predate launch gets no clock — correctly, because
+ * they have not come back yet. The moment they do, they get a full month.
+ */
+export function shouldStartTrial({
+  trialEndsAt,
+  enteredAt,
+  launchAt = LAUNCH_AT,
+}: {
+  trialEndsAt: number | undefined
+  enteredAt: number
+  launchAt?: number
+}): boolean {
+  if (trialEndsAt !== undefined) return false
+  return enteredAt >= launchAt
+}
+
+/**
+ * Whether the product is offering a trial AT ALL, right now — as distinct from
+ * whether any particular player qualifies for one.
+ *
+ * `shouldStartTrial`'s TIMING HALF, PLUS A GATE `shouldStartTrial` DOES NOT
+ * HAVE. Pulled out because /pricing needs to answer it before any player
+ * exists to check: `shouldStartTrial` also refuses a player who already holds
+ * a trial (`trialEndsAt !== undefined`), which is a fact about that PLAYER,
+ * not about whether launch has happened, and a marketing page has no player
+ * to ask — dropping that half is exactly right. But this function ALSO
+ * refuses whenever the effective `launchAt` is still the placeholder sentinel
+ * (see below), which `shouldStartTrial` has no notion of at all. That
+ * addition is why the two are not simply "the same rule minus one condition"
+ * — see WHY THIS DOES NOT COLLAPSE below for the one instant where it shows.
+ *
+ * `now >= launchAt`, MATCHING `shouldStartTrial` EXACTLY, so the two cannot
+ * disagree about the timing half: the moment a board entered right now would
+ * start a trial is the same moment this reports the trial as offered.
+ *
+ * THE PLACEHOLDER SENTINEL IS CHECKED AGAINST `launchAt` (the effective clock
+ * in play), NOT AGAINST THE EXPORTED `LAUNCH_AT_IS_PLACEHOLDER` FLAG. The two
+ * agree whenever `launchAt` is left at its default, which is the only case
+ * that runs in production. But `LAUNCH_AT_IS_PLACEHOLDER` is fixed by the real
+ * `LAUNCH_AT` and cannot be flipped from a test without editing that constant
+ * (out of scope, and rightly so — wordle-teams-kc8c is the owner's edit to
+ * make). Gating on it directly would make the `>=` comparison below
+ * unreachable in every test WHILE `LAUNCH_AT` IS THE PLACEHOLDER — which is
+ * indistinguishable from not having it, since that is every test run before
+ * cutover: the suite could not tell `>=` from `>` in the boundary test.
+ * Recomputing the sentinel check from `launchAt` — reading the same
+ * `PLACEHOLDER_LAUNCH_AT` constant `LAUNCH_AT_IS_PLACEHOLDER` itself compares
+ * against, rather than a second inline copy of that comparison — keeps the
+ * same "fails safe by default" behavior while leaving the comparison
+ * something a test — passing an explicit `launchAt`, exactly as
+ * `shouldStartTrial`'s own tests do — can actually exercise.
+ *
+ * WHY THIS DOES NOT COLLAPSE TO `shouldStartTrial`'S OWN COMPARISON, EVEN WHEN
+ * `launchAt` EQUALS THE SENTINEL: at `now === PLACEHOLDER_LAUNCH_AT` with
+ * `launchAt` also `PLACEHOLDER_LAUNCH_AT`, `shouldStartTrial` reports `true` —
+ * `enteredAt >= launchAt` holds, and it has no placeholder concept, it only
+ * compares timestamps. This function reports `false` at that same instant,
+ * on ANY call where the effective `launchAt` is the sentinel, regardless of
+ * what `LAUNCH_AT` currently holds — its gate does not reopen just because
+ * `now` caught up to the value the sentinel represents. That is deliberate,
+ * not a bug the agreement property should be widened to catch: while the
+ * effective `launchAt` IS the placeholder, the product is not offering a
+ * trial AT ALL, so /pricing saying nothing is the safe direction. In
+ * production this instant is additionally unreachable in practice, because
+ * `launchAt` defaults to `LAUNCH_AT` and 2099 is chosen so no real visitor's
+ * `now` gets there before the owner edits `LAUNCH_AT` to something else — but
+ * the test below does not rely on that timing; it asserts the sentinel
+ * property directly, with `PLACEHOLDER_LAUNCH_AT` passed explicitly, so it
+ * stays true no matter what `LAUNCH_AT` is edited to. The test `diverges from
+ * shouldStartTrial at the literal placeholder instant, deliberately` pins
+ * this on purpose, so it reads as an intentional boundary rather than
+ * something to "fix" into agreement.
+ */
+export function trialCanStart({
+  now,
+  launchAt = LAUNCH_AT,
+}: {
+  now: number
+  launchAt?: number
+}): boolean {
+  const launchAtIsPlaceholder = launchAt === PLACEHOLDER_LAUNCH_AT
+  return !launchAtIsPlaceholder && now >= launchAt
+}
+
+/** When a trial started by a board entered at `enteredAt` runs out. */
+export function trialEndsAtFor(enteredAt: number): number {
+  return enteredAt + INSIGHTS_TRIAL_DAYS * MS_PER_DAY
+}
+
+/**
+ * What a player can see of one layer.
+ *
+ * 'free' is NOT a lesser 'full' — it is a specific, deliberately chosen slice:
+ * Layer 1's most recent board, Layer 3's one team fact for today. The spec picks
+ * those rather than leaving free open, so the type names them apart.
+ */
+export type LayerAccess = 'none' | 'free' | 'full'
+
+export type InsightsAccess = {
+  /** Public benchmark. Free sees their most recent board; pro sees all history. */
+  layer1: LayerAccess
+  /** Personal history. Pro or trial only. */
+  layer2: LayerAccess
+  /** Team analytics. Free sees today's team fact; pro sees the full surface. */
+  layer3: LayerAccess
+  /** Global comparison. Pro only, and still per-slice gated on >=30 elsewhere. */
+  layer4: LayerAccess
+  /** Whether a trial is running right now. */
+  trialActive: boolean
+  /** When the running trial ends, or null if none is running. */
+  trialEndsAt: number | null
+  /**
+   * A trial ran and is over, and the player did not upgrade.
+   *
+   * NOT simply `!trialActive`: someone who never started a trial has no trial to
+   * be told about, and a Pro player who converted must not be nagged about the
+   * trial they converted from. This field is the difference between a prompt
+   * aimed at one person and a banner shown to everybody.
+   */
+  trialExpired: boolean
+}
+
+/**
+ * The single resolver.
+ *
+ * THE TRIAL GRANTS LAYERS 2 AND 3 ONLY, which is the spec's wording taken
+ * literally ("One month of Layers 2 and 3") rather than loosened to "everything".
+ * The visible consequence, recorded so it is a decision rather than a surprise:
+ * a player mid-trial gets the full personal history and the full team surface but
+ * still sees Layer 1 as a free user — their most recent board rather than all of
+ * it — and Layer 4 not at all. If that reads wrong to the owner, this function is
+ * the one place to change it.
+ *
+ * NOTHING PREVIOUSLY FREE MOVES BEHIND THE PAYWALL. That is a hard constraint in
+ * the spec, not a preference, because the launch email goes to people who already
+ * gave up once. Insights is entirely new surface, so the constraint holds by
+ * construction here — but the shape that protects it is that a free player is
+ * never 'none' on Layers 1 and 3. They always have something to look at.
+ */
+export function insightsAccess({
+  isPro,
+  trialEndsAt,
+  now,
+}: {
+  isPro: boolean
+  trialEndsAt: number | undefined
+  now: number
+}): InsightsAccess {
+  // Strictly after: a trial is over at the instant it ends, not a millisecond
+  // later. Tested on both sides, because a threshold tested in one direction is
+  // vacuous.
+  const trialActive = trialEndsAt !== undefined && now < trialEndsAt
+  const paid = isPro || trialActive
+
+  return {
+    layer1: isPro ? 'full' : 'free',
+    layer2: paid ? 'full' : 'none',
+    layer3: paid ? 'full' : 'free',
+    layer4: isPro ? 'full' : 'none',
+    trialActive,
+    trialEndsAt: trialActive ? (trialEndsAt ?? null) : null,
+    trialExpired: trialEndsAt !== undefined && !trialActive && !isPro,
+  }
+}
+
+/**
+ * Does this caller get the WHOLE team month, or only today's one fact?
+ *
+ * THE SINGLE DEFINITION OF THAT QUESTION (wordle-teams-iht.3.1). It was spelled
+ * out as a `layer3` comparison in three separate places, and
+ * components/insights/team-section.tsx already carried a comment warning that
+ * two of them "MUST KEEP MIRRORING" each other. Three was already one too many;
+ * the fourth is about to be the SERVER's payload gate (wordle-teams-iht.3.2),
+ * and unlike the others its divergence would not be a rendering bug — it would
+ * quietly ship the entire month to a free viewer. So the question gets a name
+ * and one implementation, and the literal stops being copyable.
+ *
+ * NAMED FOR THE QUESTION, NOT THE TIER, on purpose. `isPro` is a different
+ * question and would be the wrong one here: insightsAccess deliberately refuses
+ * to collapse the tiers into one flag, because A TRIAL IS 'full' ON LAYER 3 AND
+ * 'free' ON LAYER 1 at the same time. Anything reading this as "is a paying
+ * customer" will get trials wrong in whichever direction it guesses.
+ *
+ * TAKES THE LAYER, NOT THE WHOLE ACCESS OBJECT, because every caller has the
+ * layer and only some have the object — team-section.tsx and insights-panel.ts
+ * both receive `layer3` as a bare prop, and widening this to the object would
+ * make them thread one just to ask.
+ *
+ * `layer3` IS NEVER 'none' TODAY — insightsAccess returns 'full' or 'free' and
+ * nothing else — but this is written against the full LayerAccess union rather
+ * than as `=== 'free'`, so a third value added later fails CLOSED here (no full
+ * month) instead of silently opening the payload.
+ */
+export function hasFullTeamMonth(layer3: LayerAccess): boolean {
+  return layer3 === 'full'
+}

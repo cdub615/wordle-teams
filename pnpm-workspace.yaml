@@ -1,10 +1,28 @@
-overrides:
-  '@types/react': 19.0.12
-  '@types/react-dom': 19.0.4
+# MERGED 2026-09-28 when v2 moved to the repository root (wordle-teams-4m96.2).
+# The old root file also carried `overrides` pinning @types/react and
+# @types/react-dom for the v1 Next.js app; those went with it.
+
+# Pre-approve build scripts for the packages that need them: `workerd` downloads
+# the platform binary, and `esbuild`, `sharp` (via miniflare) and `lightningcss`
+# download or build native bindings. Without these, pnpm 11+ aborts the install
+# with ERR_PNPM_IGNORED_BUILDS.
 allowBuilds:
-  '@sentry/cli': true
-  '@swc/core': true
-  '@vercel/speed-insights': true
   esbuild: true
+  workerd: true
   sharp: true
-  unrs-resolver: true
+  lightningcss: true
+
+  # '@sentry/cli': false IS STILL CORRECT, BUT ITS OLD REASON WAS NOT.
+  #
+  # The comment here used to say the binary was "only needed for source-map
+  # upload — skipped in Phase 0". Source maps have been uploaded on every deploy
+  # since wordle-teams-p1as, so that reason expired. The VALUE is unchanged
+  # because the upload does not go through this binary: @sentry/vite-plugin
+  # performs it, and beta has been deploying with maps uploaded and this build
+  # script disabled the whole time. Checked rather than assumed, because the
+  # obvious reading of a stale comment is to flip the flag.
+  #
+  # If the plugin ever starts shelling out to sentry-cli, the symptom is a
+  # warn-and-skip upload — the same silent shape p1as was filed for — so the
+  # thing to watch is Sentry having no maps for a release, not a failed build.
+  '@sentry/cli': false

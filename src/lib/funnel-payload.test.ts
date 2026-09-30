@@ -1,0 +1,235 @@
+import { describe, expect, test } from 'vitest'
+import {
+  MAX_FUNNEL_BODY_BYTES,
+  declaresOversizedBody,
+  toLogSnagPayload,
+} from './funnel-payload.ts'
+import type { FunnelEvent } from './funnel.ts'
+
+// /api/funnel is public and unauthenticated, so these allowlists are the only
+// thing stopping it being an open relay into the project's LogSnag.
+
+describe('toLogSnagPayload', () => {
+  test('maps each known event to its LogSnag name', () => {
+    expect(toLogSnagPayload({ name: 'login_view' }, 'beta')?.event).toBe('Login viewed')
+    expect(toLogSnagPayload({ name: 'login_code_requested' }, 'beta')?.event).toBe(
+      'Login code requested',
+    )
+    expect(toLogSnagPayload({ name: 'login_callback_arrived' }, 'beta')?.event).toBe(
+      'Login completed',
+    )
+  })
+
+  test('rejects an unknown event name', () => {
+    expect(toLogSnagPayload({ name: 'totally_made_up' }, 'beta')).toBeNull()
+    expect(toLogSnagPayload({ name: '__proto__' }, 'beta')).toBeNull()
+  })
+
+  test('rejects a body with no name, and non-objects', () => {
+    expect(toLogSnagPayload({ provider: 'google' }, 'beta')).toBeNull()
+    expect(toLogSnagPayload(null, 'beta')).toBeNull()
+    expect(toLogSnagPayload('login_view', 'beta')).toBeNull()
+    expect(toLogSnagPayload(42, 'beta')).toBeNull()
+  })
+
+  test('keeps a known provider and drops an unknown one', () => {
+    expect(
+      toLogSnagPayload({ name: 'login_provider_click', provider: 'github' }, 'beta')?.tags,
+    ).toEqual({ env: 'beta', provider: 'github' })
+    expect(
+      toLogSnagPayload({ name: 'login_provider_click', provider: 'evilcorp' }, 'beta')?.tags,
+    ).toEqual({ env: 'beta' })
+  })
+
+  test('keeps a known method and drops an unknown one', () => {
+    expect(
+      toLogSnagPayload({ name: 'login_callback_arrived', method: 'oauth' }, 'beta')?.tags,
+    ).toEqual({ env: 'beta', method: 'oauth' })
+    expect(
+      toLogSnagPayload({ name: 'login_callback_arrived', method: 'sneaky' }, 'beta')?.tags,
+    ).toEqual({ env: 'beta' })
+  })
+
+  test('every method lib/funnel.ts can emit survives the allowlist', () => {
+    // THE HOLE THIS CLOSES IS SILENT AND ONE-DIRECTIONAL. A method that
+    // `FunnelEvent` permits but METHODS drops is not rejected — `toLogSnagPayload`
+    // returns a payload with no `method` tag, so the event arrives at LogSnag
+    // and simply cannot be attributed to a sign-in method. Nothing throws, no
+    // gate notices, and the loss is only visible as a chart that stops adding
+    // up. wordle-teams-wty4.1.7.4 added 'passkey' to both; this is the pairing.
+    // A `Record` KEYED ON THE UNION, NOT AN ARRAY LITERAL, AND THAT IS THE
+    // WHOLE MECHANISM. An array can be written short — a fourth method added to
+    // `FunnelEvent` and forgotten here is a list that still type-checks and a
+    // loop that still passes. A Record demands every key, so the omission is a
+    // typecheck failure naming the missing method before this ever runs.
+    const everyMethod: Record<
+      Extract<FunnelEvent, { name: 'login_callback_arrived' }>['method'],
+      true
+    > = { oauth: true, otp: true, passkey: true }
+
+    for (const method of Object.keys(everyMethod) as Array<keyof typeof everyMethod>) {
+      expect(
+        toLogSnagPayload({ name: 'login_callback_arrived', method }, 'beta')?.tags,
+        `${method} is emittable but is dropped by the allowlist`,
+      ).toEqual({ env: 'beta', method })
+    }
+  })
+
+  test('never forwards arbitrary tags, and never PII', () => {
+    const tags = toLogSnagPayload(
+      {
+        name: 'login_view',
+        email: 'someone@example.com',
+        userId: 'abc123',
+        tags: { injected: 'yes' },
+        provider: { toString: () => 'google' },
+      },
+      'beta',
+    )?.tags
+    expect(tags).toEqual({ env: 'beta' })
+    expect(JSON.stringify(tags)).not.toContain('example.com')
+  })
+
+  test('env is passed through to the tag', () => {
+    expect(toLogSnagPayload({ name: 'login_view' }, 'production')?.tags.env).toBe('production')
+  })
+})
+
+describe('onboarding events', () => {
+  test('onboarding_view carries the incomplete task set', () => {
+    const payload = toLogSnagPayload({ name: 'onboarding_view', tasks: 'board,team' }, 'beta')
+    expect(payload?.event).toBe('Onboarding viewed')
+    expect(payload?.tags.tasks).toBe('board,team')
+    expect(payload?.tags.env).toBe('beta')
+  })
+
+  test('onboarding_task_click carries the task', () => {
+    const payload = toLogSnagPayload({ name: 'onboarding_task_click', task: 'invite' }, 'prod')
+    expect(payload?.event).toBe('Onboarding task clicked')
+    expect(payload?.tags.task).toBe('invite')
+  })
+
+  test('onboarding_complete and onboarding_dismiss are allowed', () => {
+    expect(toLogSnagPayload({ name: 'onboarding_complete' }, 'beta')?.event).toBe(
+      'Onboarding complete',
+    )
+    expect(toLogSnagPayload({ name: 'onboarding_dismiss' }, 'beta')?.event).toBe(
+      'Onboarding dismissed',
+    )
+  })
+
+  test('onboarding_insights_click is allowed, and carries no task tag', () => {
+    // THE GRADUATION CTA'S OWN EVENT. It is not an onboarding_task_click with
+    // an 'insights' task precisely so it stays out of the activation
+    // denominators (see lib/funnel.ts), and it names no task — so a body that
+    // arrives carrying one must not grow a tag from it either.
+    expect(toLogSnagPayload({ name: 'onboarding_insights_click' }, 'beta')?.event).toBe(
+      'Onboarding insights clicked',
+    )
+    // 'insights' MUST NOT BE AN ALLOWLISTED TASK ID. Adding it to TASK_IDS is
+    // the one-line change that would put this browse nudge back inside the
+    // `task` dimension the activation funnel is sliced by, and nothing else in
+    // the repo would go red.
+    const tagged = toLogSnagPayload({ name: 'onboarding_insights_click', task: 'insights' }, 'beta')
+    expect(tagged?.tags.task).toBeUndefined()
+    expect(tagged?.tags.env).toBe('beta')
+  })
+
+  test('an unknown task id is dropped, not passed through', () => {
+    // /api/funnel is public and unauthenticated. Tags are BUILT from
+    // allowlists, never forwarded, or anyone could write arbitrary tags into
+    // the project's LogSnag.
+    const payload = toLogSnagPayload({ name: 'onboarding_task_click', task: 'evil' }, 'beta')
+    expect(payload).not.toBeNull()
+    expect(payload?.tags.task).toBeUndefined()
+  })
+
+  test('unknown ids inside a task set are filtered out', () => {
+    const payload = toLogSnagPayload({ name: 'onboarding_view', tasks: 'board,evil' }, 'beta')
+    expect(payload?.tags.tasks).toBe('board')
+  })
+
+  test('a task set of only unknown ids sets no tag at all', () => {
+    const payload = toLogSnagPayload({ name: 'onboarding_view', tasks: 'evil,worse' }, 'beta')
+    expect(payload?.tags.tasks).toBeUndefined()
+  })
+
+  test('a repeated id cannot inflate the tag', () => {
+    const payload = toLogSnagPayload(
+      { name: 'onboarding_view', tasks: 'board,'.repeat(1000) },
+      'beta',
+    )
+    expect(payload?.tags.tasks).toBe('board')
+  })
+
+  test('prototype-chain keys are not allowlisted values', () => {
+    for (const hostile of ['__proto__', 'constructor', 'toString', 'valueOf']) {
+      expect(
+        toLogSnagPayload({ name: 'onboarding_task_click', task: hostile }, 'beta')?.tags.task,
+      ).toBeUndefined()
+      expect(
+        toLogSnagPayload({ name: 'onboarding_view', tasks: hostile }, 'beta')?.tags.tasks,
+      ).toBeUndefined()
+      expect(
+        toLogSnagPayload({ name: 'login_provider_click', provider: hostile }, 'beta')?.tags
+          .provider,
+      ).toBeUndefined()
+      expect(
+        toLogSnagPayload({ name: 'login_callback_arrived', method: hostile }, 'beta')?.tags
+          .method,
+      ).toBeUndefined()
+    }
+  })
+})
+
+describe('dashboard events', () => {
+  test('dashboard_insights_click is allowed, and carries no task tag', () => {
+    // A SEPARATE EVENT FROM onboarding_insights_click ON PURPOSE
+    // (wordle-teams-wty4.1.15) — see lib/funnel.ts for why. It names no task,
+    // so a body that arrives carrying one must not grow a tag from it either.
+    expect(toLogSnagPayload({ name: 'dashboard_insights_click' }, 'beta')?.event).toBe(
+      'Dashboard insights clicked',
+    )
+    const tagged = toLogSnagPayload({ name: 'dashboard_insights_click', task: 'insights' }, 'beta')
+    expect(tagged?.tags.task).toBeUndefined()
+    expect(tagged?.tags.env).toBe('beta')
+  })
+})
+
+describe('declaresOversizedBody', () => {
+  // wordle-teams-umeq. /api/funnel had no size bound at all: a 60MB body cost
+  // 1321ms of Worker CPU, of which JSON.parse was 18ms — the cost is receiving
+  // the bytes, not parsing them. This is the cheap half of the fix; the route's
+  // bounded read is the half that holds when the header is absent.
+
+  test('the cap leaves generous room for the largest real event', () => {
+    // The biggest body any known event produces, with every task id present.
+    // If a future event ever approaches the cap this is the assertion that
+    // should be reconsidered rather than the cap quietly raised.
+    const largest = JSON.stringify({ name: 'onboarding_view', tasks: 'board,team,invite' })
+    expect(largest.length).toBeLessThan(MAX_FUNNEL_BODY_BYTES / 10)
+  })
+
+  test('rejects a declared body over the cap', () => {
+    expect(declaresOversizedBody(String(MAX_FUNNEL_BODY_BYTES + 1))).toBe(true)
+    expect(declaresOversizedBody('62914560')).toBe(true) // the measured 60MB attack
+  })
+
+  test('allows anything at or under the cap', () => {
+    expect(declaresOversizedBody(String(MAX_FUNNEL_BODY_BYTES))).toBe(false)
+    expect(declaresOversizedBody('0')).toBe(false)
+    expect(declaresOversizedBody('64')).toBe(false)
+  })
+
+  test('an absent or unparseable header does NOT decide, in either direction', () => {
+    // The polarity is the whole risk here. Returning true would drop every
+    // chunked request — including legitimate ones — and returning true on
+    // garbage would let a caller disable the endpoint with a bad header.
+    // Returning false hands the decision to the route's bounded read, which is
+    // the thing that cannot be lied to.
+    expect(declaresOversizedBody(null)).toBe(false)
+    expect(declaresOversizedBody('')).toBe(false)
+    expect(declaresOversizedBody('not-a-number')).toBe(false)
+    expect(declaresOversizedBody('Infinity')).toBe(false)
+  })
+})

@@ -1,0 +1,1354 @@
+import { describe, expect, it } from 'vitest'
+import { clockTime } from '#/lib/clock-time.ts'
+import {
+  anchoredScrollTop,
+  AT_TOP_SLACK_PX,
+  AXIS_LOCK_SLOP_PX,
+  beforeForOlder,
+  chatDayIndex,
+  chatEntryLabel,
+  chatHeading,
+  chatLoadState,
+  dragAxis,
+  hasUnread,
+  hasUnreadElsewhere,
+  isAtTop,
+  isCurrentRequest,
+  isNearBottom,
+  isTouchGesture,
+  LONG_PRESS_MS,
+  LONG_PRESS_SLOP_PX,
+  mergeOlder,
+  messageRows,
+  movedOffPress,
+  NEAR_BOTTOM_SLACK_PX,
+  nextOlderOutcome,
+  nextSinceOutcome,
+  nextSyncAction,
+  opensMenuFromKey,
+  pausedNotice,
+  pointerFor,
+  pointerMode,
+  refreshDecision,
+  refreshLabel,
+  revealOffset,
+  revealSnapBackMs,
+  RUN_GAP_MS,
+  SEPARATOR_GAP_MS,
+  separatorBefore,
+  separatorLabel,
+  shouldDropSubscription,
+  shouldRefreshAfterSend,
+  shouldReleaseAfterRead,
+  shouldShowLoadOlder,
+  showsAuthorName,
+  startsRun,
+  teamPickerLabel,
+  TIME_REVEAL_PX,
+  unreadArgs,
+  unreadTeamIds,
+} from './use-chat-sync.ts'
+import type { ChatMessage, ScrollPosition } from './use-chat-sync.ts'
+import type { Id } from '../../../convex/_generated/dataModel'
+import { RECENT_WINDOW } from '../../../convex/lib/chatLimits.ts'
+
+const at = (lastMessageAt: number, revision: number) => ({ lastMessageAt, revision, degraded: false })
+
+describe('nextSyncAction', () => {
+  it('loads the window when we hold nothing', () => {
+    expect(nextSyncAction(null, at(500, 3), 0)).toEqual({ kind: 'window' })
+  })
+
+  it('does nothing when the pointer has not moved', () => {
+    expect(nextSyncAction(at(500, 3), at(500, 3), 500)).toEqual({ kind: 'none' })
+  })
+
+  // The ordinary case: a new message arrived, so fetch only what we lack.
+  it('appends from our newest when lastMessageAt advances', () => {
+    expect(nextSyncAction(at(500, 3), at(600, 4), 500)).toEqual({ kind: 'since', since: 500 })
+  })
+
+  // A DELETE looks like this: history changed, but the newest message did not
+  // move. We cannot know WHICH message went, so the window is refetched.
+  it('refetches the window when revision moves alone', () => {
+    expect(nextSyncAction(at(500, 3), at(500, 4), 500)).toEqual({ kind: 'window' })
+  })
+
+  // Both moved: a send and a delete coalesced into one delivered update. The
+  // append would miss the deletion, so the window wins.
+  it('prefers the window when both moved by more than one revision', () => {
+    expect(nextSyncAction(at(500, 3), at(600, 5), 500)).toEqual({ kind: 'window' })
+  })
+})
+
+describe('isCurrentRequest', () => {
+  it('is current when nothing has dispatched since', () => {
+    expect(isCurrentRequest(1, 1)).toBe(true)
+  })
+
+  // The ordinary race this guards against: a fetch dispatched as #1 is still
+  // resolving when the pointer fires again and dispatches #2. #1's answer, if
+  // applied, would overwrite whatever #2 goes on to set.
+  it('is stale once a later request has dispatched', () => {
+    expect(isCurrentRequest(1, 2)).toBe(false)
+  })
+
+  // Not merely "not equal": an id from the future never wins either, which is
+  // what keeps this a plain equality check rather than mine >= latest.
+  it('is stale when checked against an id from before it was dispatched', () => {
+    expect(isCurrentRequest(2, 1)).toBe(false)
+  })
+})
+
+describe('nextSinceOutcome', () => {
+  const message = (createdAt: number): ChatMessage => ({
+    _id: `msg_${createdAt}` as Id<'chatMessages'>,
+    playerId: 'player_1' as Id<'players'>,
+    body: 'hi',
+    createdAt,
+  })
+
+  it('appends the fetched messages onto what is held', () => {
+    const held = [message(100)]
+    expect(nextSinceOutcome(held, { gap: false, messages: [message(200)] })).toEqual({
+      kind: 'messages',
+      messages: [message(100), message(200)],
+    })
+  })
+
+  it('refetches the window on a gap', () => {
+    expect(nextSinceOutcome([message(100)], { gap: true })).toEqual({ kind: 'window' })
+  })
+
+  // Not merely equal contents — the SAME array reference, which is what lets
+  // setMessages bail out of the re-render via React's Object.is check instead
+  // of committing a fresh array with nothing new in it.
+  it('is a no-op, by reference, when nothing new came back', () => {
+    const held = [message(100)]
+    const outcome = nextSinceOutcome(held, { gap: false, messages: [] })
+    expect(outcome).toEqual({ kind: 'messages', messages: held })
+    expect(outcome.kind === 'messages' && outcome.messages).toBe(held)
+  })
+})
+
+// Scrollback's three pure decisions. Shared helper rather than three copies of
+// the one inside `nextSinceOutcome` above; `body` doubles as an identity label
+// in the assertions, which is why it varies here and does not there.
+const older = (createdAt: number, body = `m${createdAt}`): ChatMessage => ({
+  _id: `msg_${createdAt}` as Id<'chatMessages'>,
+  playerId: 'player_1' as Id<'players'>,
+  body,
+  createdAt,
+})
+
+describe('beforeForOlder', () => {
+  // NOT 0, and not "just fire it anyway". `olderMessages` is a metered,
+  // rate-limited mutation: a request that can only come back empty still
+  // spends one of the ten pages a minute the caller gets.
+  it('has nothing to page from when nothing is held', () => {
+    expect(beforeForOlder([])).toBeNull()
+  })
+
+  // The OLDEST held, not the newest: the server takes messages strictly
+  // before this timestamp, so anything else re-reads a page we already have.
+  it('pages from the oldest held message', () => {
+    expect(beforeForOlder([older(100), older(200), older(300)])).toBe(100)
+  })
+})
+
+describe('nextOlderOutcome', () => {
+  it('puts a fetched page ahead of the pages already held', () => {
+    expect(nextOlderOutcome([older(300)], [older(100), older(200)])).toEqual({
+      kind: 'pages',
+      pages: [older(100), older(200), older(300)],
+    })
+  })
+
+  // History only ever grows NEWER, so an empty page is proof there is nothing
+  // before this point — permanently, not just now. That is what lets the
+  // route retire the button rather than leave it there to spend rate-limit
+  // budget on a question already answered.
+  it('reports the start of history when a page comes back empty', () => {
+    expect(nextOlderOutcome([older(300)], [])).toEqual({ kind: 'start' })
+  })
+
+  it('stays oldest-first across successive pages', () => {
+    const first = nextOlderOutcome([], [older(300)])
+    const pages = first.kind === 'pages' ? first.pages : []
+    expect(nextOlderOutcome(pages, [older(100), older(200)])).toEqual({
+      kind: 'pages',
+      pages: [older(100), older(200), older(300)],
+    })
+  })
+})
+
+describe('mergeOlder', () => {
+  it('renders held pages ahead of the live window', () => {
+    expect(mergeOlder([older(100)], [older(200)])).toEqual([older(100), older(200)])
+  })
+
+  // THE DUPLICATE-KEY BUG THIS EXISTS TO PREVENT. The live window is the
+  // newest RECENT_WINDOW messages, refetched whole on every delete — so
+  // deleting a recent message pulls one older message INTO the window, and
+  // that message may already be sitting in a page scrollback fetched earlier.
+  // Rendered as-is that is the same `_id` twice in one <ol>. The live copy
+  // wins because it is the one the pointer keeps current.
+  it('drops an older copy of a message the live window has since taken in', () => {
+    const shown = mergeOlder([older(100), older(200)], [older(200, 'live'), older(300)])
+    expect(shown).toEqual([older(100), older(200, 'live'), older(300)])
+  })
+
+  // The same Object.is bail-out `nextSinceOutcome` protects: before anyone
+  // presses "load older" this runs on every single render of the list.
+  it('is the live window itself, by reference, when no page is held', () => {
+    const live = [older(200)]
+    expect(mergeOlder([], live)).toBe(live)
+  })
+})
+
+/**
+ * THE ARGUMENT THAT REPLACED A FULL `teams` SCAN (wordle-teams-w7g2), and the
+ * single thing standing between the badge and TWO Convex subscriptions.
+ *
+ * `unreadTeams` used to take no arguments, so every caller of it — the
+ * dashboard, the picker's trigger, each row badge — hashed to one TanStack
+ * query key for free. Now that it takes ids, the key IS the ids, and two
+ * callers that build the same set in a different order get two cache entries,
+ * two subscriptions and two server executions for one answer. Sorting is what
+ * makes the key a function of the SET rather than of the order somebody
+ * happened to render in.
+ */
+describe('unreadTeamIds', () => {
+  const alpha = 'team_alpha'
+  const beta = 'team_beta'
+  const gamma = 'team_gamma'
+
+  it('is the ids, in an order that does not depend on the caller', () => {
+    expect(unreadTeamIds([{ id: gamma }, { id: alpha }, { id: beta }])).toEqual([
+      alpha,
+      beta,
+      gamma,
+    ])
+  })
+
+  // THE PROPERTY THE SINGLE SUBSCRIPTION RESTS ON, stated directly rather than
+  // implied by the case above: the same teams in any order are the same key.
+  it('is the same array for the same teams however they arrive', () => {
+    expect(unreadTeamIds([{ id: beta }, { id: alpha }])).toEqual(
+      unreadTeamIds([{ id: alpha }, { id: beta }]),
+    )
+  })
+
+  it('does not reorder the caller\'s own list', () => {
+    // TeamPicker renders `teams` in createdAt order and the menu must keep it.
+    // `.sort()` mutates in place, so building the ids without copying first
+    // would silently re-sort the picker alphabetically.
+    const teams = [{ id: gamma }, { id: alpha }]
+    unreadTeamIds(teams)
+    expect(teams).toEqual([{ id: gamma }, { id: alpha }])
+  })
+
+  /**
+   * `undefined` IN, `undefined` OUT, WHICH IS NOT THE SAME AS `[]`.
+   *
+   * An unresolved TEAMS list is not an empty one. Collapsing it to `[]` would
+   * send a real query asking about no teams, get a real `[]` back, and
+   * `hasUnread` would then read that as the settled answer "nothing unread" —
+   * the badge asserting something it has not been told. `undefined` keeps the
+   * query skipped and leaves `hasUnread` in its own not-loaded branch.
+   */
+  it('stays unresolved while the teams list is', () => {
+    expect(unreadTeamIds(undefined)).toBeUndefined()
+  })
+
+  it('is empty for someone with no teams, which IS an answer', () => {
+    expect(unreadTeamIds([])).toEqual([])
+  })
+})
+
+/**
+ * THE BADGE'S HALF OF THE DEGRADATION VALVE (wordle-teams-pnhe).
+ *
+ * Part 1 shed the chat pointer and left this subscription running — the one
+ * held on /app by essentially every authenticated session, whose read set
+ * covers `chatMeta` for every team the caller is on, so a send in any of their
+ * teams re-fired it while chat was supposedly degraded. It is also the one the
+ * meter cannot see: a Convex `query` has a read-only `db` and structurally
+ * cannot charge `chatBudget`, so shedding is the only lever there is.
+ *
+ * THIS FUNCTION IS ONLY HALF THE FIX, AND SAYING SO IS THE POINT. `'skip'`
+ * compiles to `enabled: false`, which removes the OBSERVER and leaves
+ * @convex-dev/react-query's websocket watch open for a full gcTime. The other
+ * half is `removeQueries`, and it is pinned against the real library in
+ * use-unread-teams.hook.test.ts, because no assertion on this return value can
+ * see a socket.
+ */
+describe('unreadArgs', () => {
+  const alpha = 'team_alpha' as Id<'teams'>
+  const beta = 'team_beta' as Id<'teams'>
+
+  it('asks about the caller\'s teams while the month is inside its budget', () => {
+    expect(unreadArgs([alpha, beta], 'live')).toEqual({ teamIds: [alpha, beta] })
+  })
+
+  it('asks nothing at all while chat is degraded, ids or no ids', () => {
+    expect(unreadArgs([alpha, beta], 'manual')).toBe('skip')
+  })
+
+  // The older of the two reasons to skip, and it must survive the newer one:
+  // an unresolved teams list is not an empty one, and `{ teamIds: [] }` would
+  // fetch a genuine `[]` that `hasUnread` reads as the settled answer "nothing
+  // unread" about a list nobody has seen.
+  it('asks nothing before the teams list resolves', () => {
+    expect(unreadArgs(undefined, 'live')).toBe('skip')
+  })
+
+  it('asks nothing when both reasons hold at once', () => {
+    expect(unreadArgs(undefined, 'manual')).toBe('skip')
+  })
+
+  // The empty list IS a question — "these zero teams" — and the caller is on
+  // the dashboard holding a subscription that has to be sheddable, so it is
+  // asked rather than skipped. unreadBadgeFor answers the degraded flag for it.
+  it('asks about an empty team list, which is a real question', () => {
+    expect(unreadArgs([], 'live')).toEqual({ teamIds: [] })
+  })
+})
+
+/**
+ * ONE RULE FOR BOTH SUBSCRIPTIONS. `pointerMode` decides whether to hold the
+ * chat pointer AND whether to hold the unread badge, from the same `degraded`
+ * flag published on the same month-keyed row — which is what makes them shed
+ * together on the single write that flips it.
+ */
+describe('pointerMode, applied to the badge answer', () => {
+  const alpha = 'team_alpha' as Id<'teams'>
+
+  it('holds the badge subscription while the month is inside its budget', () => {
+    expect(pointerMode({ unread: [alpha], degraded: false })).toBe('live')
+  })
+
+  it('drops it on the same flag the pointer drops on', () => {
+    expect(pointerMode({ unread: [alpha], degraded: true })).toBe('manual')
+  })
+
+  // A dashboard that has heard nothing yet must open the subscription, because
+  // hearing the flag is the only way to learn it should not be holding one.
+  // The exposure is one wake wide, exactly as it is for the pointer.
+  it('is live before anything has been heard', () => {
+    expect(pointerMode(null)).toBe('live')
+  })
+})
+
+describe('hasUnread', () => {
+  const alpha = 'team_alpha' as Id<'teams'>
+  const beta = 'team_beta' as Id<'teams'>
+
+  it('shows a dot for a team in the unread list', () => {
+    expect(hasUnread([alpha, beta], alpha)).toBe(true)
+  })
+
+  it('shows no dot for a team that is not in it', () => {
+    expect(hasUnread([beta], alpha)).toBe(false)
+  })
+
+  // THE "NOT LOADED YET" BRANCH, and the reason this is a function rather than
+  // an inline `.includes`. `undefined` is TanStack's pre-resolution state, not
+  // an answer; `[]` is the real "nothing unread". Reading the unknown state as
+  // unread would flash a dot on every team on every page load.
+  it('shows no dot while the query has not resolved', () => {
+    expect(hasUnread(undefined, alpha)).toBe(false)
+  })
+
+  it('shows no dot when nothing at all is unread', () => {
+    expect(hasUnread([], alpha)).toBe(false)
+  })
+})
+/**
+ * The dashboard's "Team chat" control names its own unread state, because the
+ * dot inside it cannot: `aria-label` replaces an element's content in the
+ * accessibility tree, `UnreadBadge`'s `role="img"` label included.
+ */
+describe('chatEntryLabel', () => {
+  it('names the unread state, since the badge inside the button is not read out', () => {
+    expect(chatEntryLabel(true)).toBe('Team chat, unread messages')
+  })
+
+  it('is the plain control name when there is nothing unread', () => {
+    expect(chatEntryLabel(false)).toBe('Team chat')
+  })
+
+  // THE PAIR IS THE POINT, not either string on its own: a constant label —
+  // which is what this control had before wordle-teams-qix.25, and what every
+  // other icon-collapsing button in the app correctly has — passes lint,
+  // typecheck, build and every rendering test, and silently takes the badge
+  // away from anyone not looking at the screen.
+  it('says something different in the two states', () => {
+    expect(chatEntryLabel(true)).not.toBe(chatEntryLabel(false))
+  })
+})
+/**
+ * THE TRIGGER DOT'S WHOLE QUESTION, and it is not the same one `hasUnread`
+ * answers. Radix unmounts TeamPicker's menu content when the menu is closed, so
+ * the per-team dots do not exist at rest; this is what decides whether the
+ * closed trigger says anything at all.
+ */
+describe('hasUnreadElsewhere', () => {
+  const alpha = 'team_alpha' as Id<'teams'>
+  const beta = 'team_beta' as Id<'teams'>
+  const gamma = 'team_gamma' as Id<'teams'>
+
+  it('lights up when a team other than the selected one is unread', () => {
+    expect(hasUnreadElsewhere([beta], alpha)).toBe(true)
+  })
+
+  it('stays dark when the ONLY unread team is the one already on screen', () => {
+    // THE CASE THE WHOLE FUNCTION EXISTS FOR. The dashboard's "Team chat"
+    // button beside the picker already shows this team's unread, so a trigger
+    // dot here would draw two dots for one fact — and would sit lit while the
+    // reader is inside that very conversation, which is how a signal gets
+    // trained out of someone.
+    expect(hasUnreadElsewhere([alpha], alpha)).toBe(false)
+  })
+
+  it('lights up when the selected team is unread AND another one is too', () => {
+    expect(hasUnreadElsewhere([alpha, beta], alpha)).toBe(true)
+  })
+
+  it('counts every unread team as an "other" when nothing is selected', () => {
+    // A real state, not a defensive one: routes/app.tsx renders TeamPicker for
+    // the renders before useSearchSync fills `?team=` in, and a stale
+    // param can name a team the player has left.
+    expect(hasUnreadElsewhere([alpha, beta], undefined)).toBe(true)
+  })
+
+  // THE LOADED CHECK, INHERITED FROM `hasUnread` RATHER THAN REWRITTEN. Both
+  // "not resolved yet" and "resolved to nothing" must draw no dot, and only one
+  // of those two is an answer.
+  it('draws nothing while the query has not resolved', () => {
+    expect(hasUnreadElsewhere(undefined, alpha)).toBe(false)
+  })
+
+  it('draws nothing while the query has not resolved and nothing is selected', () => {
+    expect(hasUnreadElsewhere(undefined, undefined)).toBe(false)
+  })
+
+  it('draws nothing when no team at all is unread', () => {
+    expect(hasUnreadElsewhere([], alpha)).toBe(false)
+  })
+
+  it('is unmoved by which of the others is unread', () => {
+    expect(hasUnreadElsewhere([gamma], alpha)).toBe(true)
+  })
+})
+
+/**
+ * The trigger's accessible name, which has to carry the roll-up dot's meaning
+ * because `aria-label` replaces the content the dot lives in.
+ */
+describe('teamPickerLabel', () => {
+  it('is byte-for-byte the old name when nothing else is unread', () => {
+    // TWO E2E SPECS LOCATE THIS TRIGGER BY ITS EXACT ACCESSIBLE NAME
+    // (teams.spec.ts, billing.spec.ts) and Playwright matches the whole
+    // string. Their seeds post no chat messages, so this is the branch they
+    // run — pinned here so a change to it is a named failure in a suite CI
+    // runs, rather than a surprise in one it does not.
+    expect(teamPickerLabel('E2E Team', false)).toBe('Team: E2E Team')
+  })
+
+  it('says the unread is somewhere ELSE, never about the team it names', () => {
+    // "Team: Alpha, unread messages" would read as a claim about Alpha — the
+    // one team the dot is guaranteed NOT to be about.
+    expect(teamPickerLabel('Alpha', true)).toBe('Team: Alpha, other teams have unread messages')
+  })
+
+  it('keeps the FULL name in both states, never the truncated one', () => {
+    // team-picker.tsx paints `Some very long...` on the button and passes the
+    // whole name here; truncation is a visual affordance, not something a
+    // screen-reader user should have to sit through.
+    const long = 'Some very long team name'
+    expect(teamPickerLabel(long, true)).toContain(long)
+    expect(teamPickerLabel(long, false)).toContain(long)
+  })
+})
+/**
+ * The chat page's heading, which until now did not exist: /chat rendered a
+ * message list and a composer and never said whose conversation it was.
+ */
+describe('chatHeading', () => {
+  const alpha = 'team_alpha' as Id<'teams'>
+  const beta = 'team_beta' as Id<'teams'>
+  const teams = [
+    { id: 'team_alpha', name: 'White Famiglia' },
+    { id: 'team_beta', name: 'Wordle Wizards' },
+  ]
+
+  it('names the team once getMyTeams has answered', () => {
+    expect(chatHeading(teams, alpha)).toEqual({ kind: 'named', name: 'White Famiglia' })
+  })
+
+  it('picks the team in the URL, not the first one the player is on', () => {
+    // The push notification that lands someone here names a SPECIFIC team, and
+    // the whole point of the heading is confirming which conversation opened.
+    expect(chatHeading(teams, beta)).toEqual({ kind: 'named', name: 'Wordle Wizards' })
+  })
+
+  // THE DISTINCTION THE WHOLE TYPE EXISTS FOR, and the same one `hasUnread`
+  // draws: `undefined` is TanStack's pre-resolution state, not an answer.
+  // Rendering a name from it is impossible, but rendering the OTHER state's
+  // answer — a permanent generic title — would be wrong in the opposite
+  // direction, since the name is about to arrive.
+  it('is pending while getMyTeams has not resolved', () => {
+    expect(chatHeading(undefined, alpha)).toEqual({ kind: 'pending' })
+  })
+
+  it('is unnamed for a team the player is not on, which is the outsider case', () => {
+    // e2e/chat.spec.ts drives exactly this: a signed-in account opening
+    // /chat?team=<someone else's team>. It asserts nothing of that
+    // conversation leaks — the NAME included, which is why this is not
+    // "pending" and not a name.
+    expect(chatHeading(teams, 'team_gamma' as Id<'teams'>)).toEqual({ kind: 'unnamed' })
+  })
+
+  it('is unnamed, not pending, for a player on no teams at all', () => {
+    // `[]` is a real answer, exactly as it is for hasUnread.
+    expect(chatHeading([], alpha)).toEqual({ kind: 'unnamed' })
+  })
+})
+
+/**
+ * THE SCROLL DECISIONS, WHICH ARE THE ONES MOST AT RISK OF NOT BEING TESTED AT
+ * ALL. Every one of them is read from a live DOM element and acted on in an
+ * effect, so the obvious place to write them is inline in message-list.tsx.
+ * Taking the three numbers as a plain object is what makes them assertable as
+ * decisions; the component keeps only the reading and the scrolling.
+ *
+ * NOT BECAUSE THE COMPONENT CANNOT BE RENDERED. This used to call message-list.tsx
+ * "a `.tsx` file this suite (edge-runtime, no DOM, `*.test.ts` only) cannot
+ * render at any price", and only the `.test.ts` clause was ever true — the
+ * include pattern in vitest.config.ts takes `.test.ts` and not `.test.tsx`,
+ * which is why render tests here build their trees with `createElement`.
+ * edge-runtime is the DEFAULT and not the ceiling: 53 *.hook.test.ts files
+ * declare `// @vitest-environment jsdom` and render (wordle-teams-1vbb). What
+ * survives is the reason that was always the better one — a number read off a
+ * live element inside an effect is a decision worth pinning directly, rather
+ * than inferred from whatever a scrolled jsdom container reports.
+ */
+const position = (partial: Partial<ScrollPosition>): ScrollPosition => ({
+  scrollTop: 0,
+  scrollHeight: 1000,
+  clientHeight: 400,
+  ...partial,
+})
+
+describe('isNearBottom', () => {
+  it('follows a reader sitting at the very bottom', () => {
+    expect(isNearBottom(position({ scrollTop: 600 }))).toBe(true)
+  })
+
+  // THE CASE THE WHOLE FUNCTION EXISTS FOR. Someone reading an hour-old
+  // message must not be yanked to the newest one because a teammate typed.
+  it('leaves a reader who has scrolled up to read history where they are', () => {
+    expect(isNearBottom(position({ scrollTop: 0 }))).toBe(false)
+  })
+
+  // Fractional scrollTop on a non-integer-DPR display, plus a rounded
+  // scrollHeight, routinely puts a reader who IS at the bottom a pixel or two
+  // short of it. An exact comparison would stop following there.
+  it('counts a reader a hair short of the bottom as being at it', () => {
+    expect(isNearBottom(position({ scrollTop: 600 - NEAR_BOTTOM_SLACK_PX }))).toBe(true)
+    expect(isNearBottom(position({ scrollTop: 600 - NEAR_BOTTOM_SLACK_PX - 1 }))).toBe(false)
+  })
+
+  // A freshly opened conversation with four messages in it. There is nothing
+  // to scroll, so "scrolled away" is not a state it can be in — and reading it
+  // as one would leave the first arriving message unfollowed.
+  it('treats a list shorter than its own panel as being at the bottom', () => {
+    expect(isNearBottom(position({ scrollTop: 0, scrollHeight: 120, clientHeight: 400 }))).toBe(true)
+  })
+})
+
+describe('isAtTop', () => {
+  it('is true at the start of what is loaded', () => {
+    expect(isAtTop(position({ scrollTop: 0 }))).toBe(true)
+  })
+
+  it('is false anywhere else in the conversation', () => {
+    expect(isAtTop(position({ scrollTop: 300 }))).toBe(false)
+  })
+
+  it('allows the same sub-pixel slack, on its own smaller budget', () => {
+    expect(isAtTop(position({ scrollTop: AT_TOP_SLACK_PX }))).toBe(true)
+    expect(isAtTop(position({ scrollTop: AT_TOP_SLACK_PX + 1 }))).toBe(false)
+  })
+
+  // With fewer messages than fill the panel there is no gesture that could
+  // ever report arriving at the top, so a rule that waited for one would hide
+  // "Load older" in exactly the case where it is the only way to see more.
+  it('treats a list that cannot scroll as being at its top', () => {
+    expect(isAtTop(position({ scrollTop: 0, scrollHeight: 120, clientHeight: 400 }))).toBe(true)
+  })
+})
+
+describe('shouldShowLoadOlder', () => {
+  const showing = (overrides: Partial<Parameters<typeof shouldShowLoadOlder>[0]> = {}) =>
+    shouldShowLoadOlder({ canLoadOlder: true, windowLength: RECENT_WINDOW, atTop: true, ...overrides })
+
+  it('offers history at the top of a full window', () => {
+    expect(showing()).toBe(true)
+  })
+
+  // EXACTLY A FULL BATCH IS THE ONE THAT MUST STILL OFFER. `recentMessagesFor`
+  // takes RECENT_WINDOW, so a window of exactly that size is the only shape
+  // that can have more behind it — a `>` would retire the button on precisely
+  // the conversations that have history.
+  it('treats exactly a full window as possibly having more behind it', () => {
+    expect(showing({ windowLength: RECENT_WINDOW })).toBe(true)
+    expect(showing({ windowLength: RECENT_WINDOW + 1 })).toBe(true)
+  })
+
+  // A SHORT BATCH IS PROOF, NOT A HINT. The window is the newest
+  // RECENT_WINDOW messages; coming back with fewer means that is the entire
+  // history. Asking anyway spends one of the ten metered pages a minute on a
+  // request that can only come back empty.
+  it('does not offer history behind a window that came back short', () => {
+    expect(showing({ windowLength: RECENT_WINDOW - 1 })).toBe(false)
+  })
+
+  it('offers nothing at all before any message has loaded', () => {
+    expect(showing({ windowLength: 0 })).toBe(false)
+    expect(showing({ windowLength: 0, canLoadOlder: false, atTop: false })).toBe(false)
+  })
+
+  // The caller's existing withholding rule — `atStart` set, or nothing held to
+  // page back from — still wins on its own. This function narrows that
+  // decision; it never overrides it.
+  it('respects the route having already retired the control', () => {
+    expect(showing({ canLoadOlder: false })).toBe(false)
+  })
+
+  // It sat above the newest messages, unconditionally, offering history to
+  // everyone reading the live end of a conversation.
+  it('stays out of the way of a reader at the live end', () => {
+    expect(showing({ atTop: false })).toBe(false)
+  })
+})
+
+describe('anchoredScrollTop', () => {
+  // THE BUG (wordle-teams-9ozu): a scrollback page inserts above the reader
+  // while the browser holds `scrollTop` constant, so what they were reading is
+  // pushed down the viewport by the full height of the inserted page. 4200 -
+  // 3000 is a page and a half of a 390x844 phone's message panel.
+  it('moves the reader down by exactly what was inserted above them', () => {
+    expect(anchoredScrollTop({ scrollTop: 0, scrollHeight: 3000 }, 4200)).toBe(1200)
+  })
+
+  // The reader is not always at 0 when the page lands — `isAtTop` allows a few
+  // pixels of slack, and a fast scroll can be mid-flick.
+  it('preserves an offset that was not exactly the top', () => {
+    expect(anchoredScrollTop({ scrollTop: 6, scrollHeight: 3000 }, 4200)).toBe(1206)
+  })
+
+  // A page that came back empty inserts nothing, and the correction must then
+  // be a no-op rather than a nudge.
+  it('leaves the reader alone when nothing was inserted', () => {
+    expect(anchoredScrollTop({ scrollTop: 120, scrollHeight: 3000 }, 3000)).toBe(120)
+  })
+
+  // A delete landing in the same commit can shrink the list past the reader's
+  // offset. The browser coerces a negative scrollTop to 0 anyway; agreeing with
+  // it here keeps the value we compute and the value the element holds the same
+  // number.
+  it('clamps to the top rather than going negative', () => {
+    expect(anchoredScrollTop({ scrollTop: 50, scrollHeight: 3000 }, 2000)).toBe(0)
+  })
+})
+
+/**
+ * THE TIMEZONE IS PINNED EXPLICITLY IN EVERY ONE OF THESE, AND THAT IS NOT
+ * DECORATION. This repo has shipped a date test that killed its mutant on the
+ * author's machine and passed under `TZ=UTC`, which is what CI runs. The
+ * mechanism here is a parameter rather than an env var or a mock: `separatorLabel`
+ * and `chatDayIndex` take `timeZone`, so every assertion below names the zone it
+ * is asserting in and the host's zone cannot reach any of them. The app passes
+ * `undefined` and gets the reader's own zone, which is the only "today" a label
+ * can honestly mean.
+ *
+ * AND EVERY TIMESTAMP IS AN ABSOLUTE INSTANT — `Date.parse` of a `Z` string, not
+ * a local-time literal — so the fixtures are the same instants no matter where
+ * they are read.
+ *
+ * NO CASE HERE IS DERIVED FROM THE CURRENT DATE, deliberately. The suite's test
+ * count has drifted across a date rollover before; a fixed `now` fixture is both
+ * a fixed count and a fixed set of expected strings.
+ */
+const utc = (iso: string) => Date.parse(iso)
+
+// 2026-08-20 is a Thursday. Every relative label below is measured from noon on
+// that day.
+const NOW = utc('2026-08-20T12:00:00Z')
+
+describe('separatorLabel', () => {
+  it('says Today for a message on the same calendar day', () => {
+    expect(separatorLabel(utc('2026-08-20T14:05:00Z'), NOW, 'UTC', 'en-GB')).toBe('Today 14:05')
+  })
+
+  // MIDNIGHT, WHICH USED TO BE THE `hourCycle: 'h23'` PIN'S TEST AND IS NOW THE
+  // LOCALE'S. A 24-hour locale writes it `00:05` — not `24:05`, which some ICU
+  // builds produce from `hour12: false`, and not `0:05`, which is what
+  // `{ hour: 'numeric' }` produces and is not how a 24-hour clock is written.
+  it('renders midnight as 00:xx in a 24-hour locale', () => {
+    expect(separatorLabel(utc('2026-08-20T00:05:00Z'), NOW, 'UTC', 'en-GB')).toBe('Today 00:05')
+  })
+
+  // THE OWNER'S BUG. An American reader was shown `Today 14:00`, which is not a
+  // clock anyone in that locale reads. Nothing in this file decides 12 versus
+  // 24; the locale does, and these two assertions are the whole proof.
+  it('writes the same instant as a 12-hour clock where that is customary', () => {
+    expect(separatorLabel(utc('2026-08-20T14:05:00Z'), NOW, 'UTC', 'en-US')).toBe('Today 2:05 PM')
+    expect(separatorLabel(utc('2026-08-20T00:05:00Z'), NOW, 'UTC', 'en-US')).toBe('Today 12:05 AM')
+    expect(separatorLabel(utc('2026-08-19T23:58:00Z'), NOW, 'UTC', 'en-US')).toBe(
+      'Yesterday 11:58 PM',
+    )
+  })
+
+  // THE WORDS DO NOT MOVE WITH THE CLOCK. "Today", the weekday and the date are
+  // CHAT_LABEL_LOCALE's, because the app is written in English and half a
+  // translation is worse than none; only the time follows the reader.
+  it('keeps the weekday and the date in the app locale whatever the clock does', () => {
+    expect(separatorLabel(utc('2026-08-18T09:12:00Z'), NOW, 'UTC', 'de-DE')).toBe('Tuesday 09:12')
+    expect(separatorLabel(utc('2026-08-13T09:12:00Z'), NOW, 'UTC', 'en-US')).toBe(
+      'Aug 13, 2026 9:12 AM',
+    )
+  })
+
+  it('says Yesterday for the calendar day before, however few hours ago that is', () => {
+    // 23:58 the previous evening is twelve hours ago and is NOT "Today" — the
+    // whole reason the comparison is on day indices rather than elapsed ms.
+    expect(separatorLabel(utc('2026-08-19T23:58:00Z'), NOW, 'UTC', 'en-GB')).toBe('Yesterday 23:58')
+  })
+
+  it('names the weekday inside the last week', () => {
+    expect(separatorLabel(utc('2026-08-18T09:12:00Z'), NOW, 'UTC', 'en-GB')).toBe('Tuesday 09:12')
+    expect(separatorLabel(utc('2026-08-14T09:12:00Z'), NOW, 'UTC', 'en-GB')).toBe('Friday 09:12')
+  })
+
+  // SEVEN DAYS IS THE EDGE, AND IT IS THE DATE SIDE OF IT. A weekday name only
+  // identifies one day while there is one of it in living memory; "Thursday"
+  // for a message exactly a week old names today as much as it names then.
+  it('falls back to the date at exactly a week, and beyond it', () => {
+    expect(separatorLabel(utc('2026-08-13T09:12:00Z'), NOW, 'UTC', 'en-GB')).toBe('Aug 13, 2026 09:12')
+    expect(separatorLabel(utc('2025-12-31T23:00:00Z'), NOW, 'UTC', 'en-GB')).toBe('Dec 31, 2025 23:00')
+  })
+
+  // Small clock skew between the sender's device and the reader's is real, and
+  // a message stamped a few minutes ahead on the same day is still "Today".
+  it('reads a slightly-future stamp on the same day as Today', () => {
+    expect(separatorLabel(utc('2026-08-20T12:03:00Z'), NOW, 'UTC', 'en-GB')).toBe('Today 12:03')
+  })
+
+  it('names the date for a stamp far enough ahead to be strange', () => {
+    expect(separatorLabel(utc('2026-08-25T08:00:00Z'), NOW, 'UTC', 'en-GB')).toBe('Aug 25, 2026 08:00')
+  })
+
+  // THE POINT OF THREADING THE ZONE THROUGH AT ALL. One instant, two zones, two
+  // different true answers — and neither of them is the host's.
+  it('answers in the zone it is given, not in the one the host is in', () => {
+    const instant = utc('2026-08-20T02:30:00Z')
+    expect(separatorLabel(instant, NOW, 'UTC', 'en-GB')).toBe('Today 02:30')
+    expect(separatorLabel(instant, NOW, 'America/New_York', 'en-GB')).toBe('Yesterday 22:30')
+  })
+
+  // DST, WHICH IS WHY chatDayIndex GOES THROUGH Date.UTC ON RESOLVED PARTS
+  // RATHER THAN SUBTRACTING 86_400_000. 2026-11-01 is the Sunday US DST ends,
+  // so the local day before it is 25 hours long; an elapsed-ms rule calls this
+  // pair the same day.
+  it('counts a 25-hour local day as one day', () => {
+    const sunday = utc('2026-11-01T12:00:00Z')
+    expect(separatorLabel(sunday, sunday, 'America/New_York', 'en-GB')).toBe('Today 07:00')
+    expect(separatorLabel(utc('2026-10-31T12:00:00Z'), sunday, 'America/New_York', 'en-GB')).toBe(
+      'Yesterday 08:00',
+    )
+  })
+})
+
+/**
+ * THE ONE clockTime CASE THAT STAYED HERE. Everything else about that function
+ * moved to lib/clock-time.test.ts with the function itself (wordle-teams-8klr);
+ * this case is not about clockTime at all — it is about separatorLabel being
+ * COMPOSED of it, which is a fact about this file.
+ */
+describe('the separator and the timestamp under it agree', () => {
+  // THE HALF THE SWIPE-REVEAL DEPENDS ON. The per-message timestamp under a
+  // swipe and the separator above it are the same instant rendered twice; if
+  // they disagreed about 12 versus 24 hours the list would contradict itself.
+  it('is exactly the clock half of the separator it sits under', () => {
+    const instant = utc('2026-08-20T14:05:00Z')
+    for (const locale of ['en-US', 'en-GB', 'de-DE']) {
+      expect(separatorLabel(instant, NOW, 'UTC', locale)).toBe(
+        `Today ${clockTime(instant, 'UTC', locale)}`,
+      )
+    }
+  })
+})
+
+describe('chatDayIndex', () => {
+  it('is one apart for two adjacent calendar days in the given zone', () => {
+    expect(
+      chatDayIndex(utc('2026-08-20T00:30:00Z'), 'UTC') -
+        chatDayIndex(utc('2026-08-19T23:30:00Z'), 'UTC'),
+    ).toBe(1)
+  })
+
+  // The same two instants are an hour apart and on the SAME local day in a zone
+  // where neither has crossed midnight yet.
+  it('is zero for two instants that share a calendar day in that zone', () => {
+    expect(
+      chatDayIndex(utc('2026-08-20T00:30:00Z'), 'America/New_York') -
+        chatDayIndex(utc('2026-08-19T23:30:00Z'), 'America/New_York'),
+    ).toBe(0)
+  })
+})
+
+// A message fixture with a controllable author and stamp. `older` above is
+// single-author by design; runs are entirely about the author changing.
+const said = (playerId: string, createdAt: number): ChatMessage => ({
+  _id: `msg_${playerId}_${createdAt}` as Id<'chatMessages'>,
+  playerId: playerId as Id<'players'>,
+  body: `${playerId}@${createdAt}`,
+  createdAt,
+})
+
+const ME = 'player_me' as Id<'players'>
+const THEM = 'player_them'
+
+describe('separatorBefore', () => {
+  it('always dates the oldest message on screen, which has nothing above it', () => {
+    expect(separatorBefore(said(THEM, NOW), undefined, NOW, 'UTC', 'en-GB')).toBe('Today 12:00')
+  })
+
+  it('stays out of the way of a continuing conversation', () => {
+    const first = said(THEM, NOW - 10 * 60_000)
+    expect(separatorBefore(said(ME, NOW), first, NOW, 'UTC', 'en-GB')).toBeNull()
+  })
+
+  it('interrupts once the pause is longer than the separator gap', () => {
+    const first = said(THEM, NOW - SEPARATOR_GAP_MS)
+    expect(separatorBefore(said(THEM, NOW), first, NOW, 'UTC', 'en-GB')).toBe('Today 12:00')
+  })
+
+  // A DAY BOUNDARY IS AN INDEPENDENT TRIGGER, not a consequence of the hour.
+  // Five minutes across midnight is five minutes AND a different date, and the
+  // second fact is the one a reader scrolling back needs.
+  it('interrupts across midnight even five minutes apart', () => {
+    const before = utc('2026-08-19T23:58:00Z')
+    const after = utc('2026-08-20T00:03:00Z')
+    expect(separatorBefore(said(THEM, after), said(THEM, before), NOW, 'UTC', 'en-GB')).toBe('Today 00:03')
+  })
+
+  // ...and the same pair is NOT a boundary in a zone where neither instant has
+  // crossed midnight, which is the zone parameter doing real work rather than
+  // being threaded through for symmetry.
+  it('does not interrupt across a midnight the reader is not at yet', () => {
+    const before = utc('2026-08-19T23:58:00Z')
+    const after = utc('2026-08-20T00:03:00Z')
+    expect(
+      separatorBefore(said(THEM, after), said(THEM, before), NOW, 'America/New_York', 'en-GB'),
+    ).toBeNull()
+  })
+})
+
+describe('startsRun', () => {
+  it('opens a run at the top of the list', () => {
+    expect(startsRun(said(THEM, NOW), undefined, false)).toBe(true)
+  })
+
+  it('keeps one author talking in a single run', () => {
+    expect(startsRun(said(THEM, NOW), said(THEM, NOW - 60_000), false)).toBe(false)
+  })
+
+  it('opens a run when the author changes, however fast the reply', () => {
+    expect(startsRun(said(ME, NOW), said(THEM, NOW - 1_000), false)).toBe(true)
+  })
+
+  // EXACTLY THE GAP IS STILL THE SAME RUN; past it is a new one.
+  it('opens a run once one author has paused longer than the run gap', () => {
+    const previous = said(THEM, NOW - RUN_GAP_MS)
+    expect(startsRun(said(THEM, NOW), previous, false)).toBe(false)
+    expect(startsRun(said(THEM, NOW), said(THEM, NOW - RUN_GAP_MS - 1), false)).toBe(true)
+  })
+
+  // THE HALF THAT IS EASY TO MISS. A separator is a rule drawn through the
+  // conversation; a run split across one would put the tail on the bubble above
+  // it and leave the bubble below it unnamed.
+  it('always opens a run below a separator, whatever the gap says', () => {
+    expect(startsRun(said(THEM, NOW), said(THEM, NOW - 1_000), true)).toBe(true)
+  })
+})
+
+describe('showsAuthorName', () => {
+  it('names another person once, at the top of their run', () => {
+    expect(showsAuthorName(true, false)).toBe(true)
+    expect(showsAuthorName(false, false)).toBe(false)
+  })
+
+  // NEVER OVER YOUR OWN. The right-hand green column is already the whole of
+  // that claim, and labelling it costs the asymmetry that identifies the other
+  // side as somebody else.
+  it('never names you to yourself', () => {
+    expect(showsAuthorName(true, true)).toBe(false)
+    expect(showsAuthorName(false, true)).toBe(false)
+  })
+})
+
+describe('messageRows', () => {
+  const shape = (rows: ReturnType<typeof messageRows>) =>
+    rows.map((row) => ({
+      mine: row.mine,
+      startsRun: row.startsRun,
+      endsRun: row.endsRun,
+      showsName: row.showsName,
+      separator: row.separator,
+    }))
+
+  it('groups a run and tails only its last bubble', () => {
+    const rows = messageRows(
+      [said(THEM, NOW - 120_000), said(THEM, NOW - 60_000), said(THEM, NOW)],
+      ME,
+      NOW,
+      'UTC',
+      'en-GB',
+    )
+    expect(shape(rows)).toEqual([
+      { mine: false, startsRun: true, endsRun: false, showsName: true, separator: 'Today 11:58' },
+      { mine: false, startsRun: false, endsRun: false, showsName: false, separator: null },
+      { mine: false, startsRun: false, endsRun: true, showsName: false, separator: null },
+    ])
+  })
+
+  it('starts a new run, and a new tail, when the other person replies', () => {
+    const rows = messageRows([said(THEM, NOW - 60_000), said(ME, NOW)], ME, NOW, 'UTC', 'en-GB')
+    expect(shape(rows)).toEqual([
+      { mine: false, startsRun: true, endsRun: true, showsName: true, separator: 'Today 11:59' },
+      { mine: true, startsRun: true, endsRun: true, showsName: false, separator: null },
+    ])
+  })
+
+  it('breaks the run at a separator and names the same author again below it', () => {
+    const rows = messageRows(
+      [said(THEM, NOW - SEPARATOR_GAP_MS - 60_000), said(THEM, NOW)],
+      ME,
+      NOW,
+      'UTC',
+      'en-GB',
+    )
+    expect(rows[0].endsRun).toBe(true)
+    expect(rows[1].startsRun).toBe(true)
+    expect(rows[1].showsName).toBe(true)
+    expect(rows[1].separator).toBe('Today 12:00')
+  })
+
+  // THE LOADED-STATE BRANCH getMyPlayerId FORCES. `undefined` compares unequal
+  // to every author, so without this every bubble would sit in the left column
+  // for the first paint — which is what this asserts, rather than a crash.
+  it('claims nothing is yours until getMyPlayerId has answered', () => {
+    const rows = messageRows([said(THEM, NOW - 1_000), said('player_me', NOW)], undefined, NOW, 'UTC', 'en-GB')
+    expect(rows.map((row) => row.mine)).toEqual([false, false])
+    // ...and `null`, its real "no player" answer, means the same thing here.
+    expect(messageRows([said('player_me', NOW)], null, NOW, 'UTC', 'en-GB')[0].mine).toBe(false)
+  })
+
+  it('holds an empty conversation without inventing a row', () => {
+    expect(messageRows([], ME, NOW, 'UTC', 'en-GB')).toEqual([])
+  })
+
+  // The last message on screen always closes its run, since there is nothing
+  // below it to continue one.
+  it('tails the newest message whatever came before it', () => {
+    const rows = messageRows([said(ME, NOW - 60_000), said(ME, NOW)], ME, NOW, 'UTC', 'en-GB')
+    expect(rows[rows.length - 1].endsRun).toBe(true)
+  })
+})
+
+
+/* ---------------------------------------------------------------------------
+ * The two iMessage gestures. Everything a pointer handler in message-list.tsx
+ * would otherwise have decided inline, where nothing could assert it.
+ * ------------------------------------------------------------------------ */
+
+describe('isTouchGesture', () => {
+  it('arms for a finger and a stylus', () => {
+    expect(isTouchGesture('touch')).toBe(true)
+    expect(isTouchGesture('pen')).toBe(true)
+  })
+
+  // THE DESKTOP DECISION, AS AN ASSERTION. A mouse never arms a press timer —
+  // it has a right button, and `contextmenu` opens the same menu — and it never
+  // drags the conversation sideways, because a horizontal drag with a mouse is
+  // a text selection.
+  it('does not arm for a mouse, or for a pointer type it has never heard of', () => {
+    expect(isTouchGesture('mouse')).toBe(false)
+    expect(isTouchGesture('')).toBe(false)
+    expect(isTouchGesture('trackpad')).toBe(false)
+  })
+})
+
+describe('movedOffPress', () => {
+  const origin = { x: 100, y: 200 }
+
+  it('holds the press through a finger\'s own jitter', () => {
+    expect(movedOffPress(origin, { x: 100, y: 200 })).toBe(false)
+    expect(movedOffPress(origin, { x: 104, y: 197 })).toBe(false)
+  })
+
+  // THE BUG THIS WHOLE FUNCTION EXISTS FOR: scrolling a conversation is a press
+  // on a bubble that lasts far longer than the timer.
+  it('cancels the press once the finger is plainly scrolling', () => {
+    expect(movedOffPress(origin, { x: 100, y: 260 })).toBe(true)
+    expect(movedOffPress(origin, { x: 40, y: 200 })).toBe(true)
+  })
+
+  // STRAIGHT-LINE DISTANCE, NOT PER-AXIS: neither axis clears the slop on its
+  // own here, and the movement is still 12.7px.
+  it('measures the diagonal rather than either axis alone', () => {
+    expect(movedOffPress(origin, { x: 109, y: 209 })).toBe(true)
+  })
+
+  // The threshold is exclusive, so exactly the slop is still a press.
+  it('treats exactly the slop as a press and one pixel past it as a drag', () => {
+    expect(movedOffPress(origin, { x: 100 + LONG_PRESS_SLOP_PX, y: 200 })).toBe(false)
+    expect(movedOffPress(origin, { x: 100 + LONG_PRESS_SLOP_PX + 1, y: 200 })).toBe(true)
+  })
+
+  it('takes the slop as an argument so the caller is not the only thing that knows it', () => {
+    expect(movedOffPress(origin, { x: 103, y: 200 }, 2)).toBe(true)
+    expect(movedOffPress(origin, { x: 103, y: 200 }, 40)).toBe(false)
+  })
+
+  // THE TWO THRESHOLDS MUST RESOLVE IN THIS ORDER. A drag that has committed to
+  // an axis has already travelled past the axis lock; if the press slop were
+  // the smaller of the two, a swipe could open a menu on the way out.
+  it('is a looser threshold than the axis lock, so a committed drag has already cancelled', () => {
+    expect(LONG_PRESS_SLOP_PX).toBeGreaterThan(AXIS_LOCK_SLOP_PX)
+  })
+
+  it('presses for half a second, faster than Radix\'s own 700ms context-menu timer', () => {
+    expect(LONG_PRESS_MS).toBe(500)
+  })
+})
+
+describe('opensMenuFromKey', () => {
+  // THE KEYBOARD PATH THE REMOVED DELETE LINK USED TO BE. These are the three
+  // keys Radix's own menu triggers answer to, so chat's bubble menu opens the
+  // same way the app menu and the team picker do.
+  it('opens on the three keys every other menu in the app opens on', () => {
+    expect(opensMenuFromKey('Enter')).toBe(true)
+    expect(opensMenuFromKey(' ')).toBe(true)
+    expect(opensMenuFromKey('ArrowDown')).toBe(true)
+  })
+
+  it('leaves every other key to the browser', () => {
+    for (const key of ['Escape', 'Tab', 'ArrowUp', 'a', 'Spacebar', 'Space', '']) {
+      expect(opensMenuFromKey(key)).toBe(false)
+    }
+  })
+})
+
+describe('dragAxis', () => {
+  // NOTHING IS DECIDED UNTIL THE MOVEMENT IS UNAMBIGUOUS, which is what stops
+  // the first few pixels of every swipe from being eaten as a scroll.
+  it('withholds an answer inside the slop', () => {
+    expect(dragAxis(0, 0)).toBe('undecided')
+    expect(dragAxis(-7, 3)).toBe('undecided')
+    expect(dragAxis(AXIS_LOCK_SLOP_PX, AXIS_LOCK_SLOP_PX)).toBe('undecided')
+  })
+
+  it('commits to horizontal for a swipe', () => {
+    expect(dragAxis(-40, 6)).toBe('horizontal')
+    expect(dragAxis(40, -6)).toBe('horizontal')
+  })
+
+  // THE HALF THAT KEEPS THE LIST SCROLLABLE. A scroll is a vertical drag and
+  // must never translate the conversation sideways, however much sideways drift
+  // a thumb adds.
+  it('commits to vertical for a scroll, drift and all', () => {
+    expect(dragAxis(6, -80)).toBe('vertical')
+    expect(dragAxis(-20, 90)).toBe('vertical')
+  })
+
+  // TIES GO TO VERTICAL: a reveal that did not open costs a reader nothing, a
+  // scroll that did not happen is the app refusing to move.
+  it('gives a perfectly diagonal drag to the scroll', () => {
+    expect(dragAxis(30, 30)).toBe('vertical')
+    expect(dragAxis(-30, -30)).toBe('vertical')
+  })
+
+  it('takes the slop as an argument', () => {
+    expect(dragAxis(-5, 0, 2)).toBe('horizontal')
+    expect(dragAxis(-5, 0, 40)).toBe('undecided')
+  })
+})
+
+describe('revealOffset', () => {
+  it('follows the finger one-to-one while there is strip left to open', () => {
+    expect(revealOffset(-1)).toBe(1)
+    expect(revealOffset(-24)).toBe(24)
+    expect(revealOffset(-TIME_REVEAL_PX)).toBe(TIME_REVEAL_PX)
+  })
+
+  // CLAMPED: past this the conversation would slide off screen to reveal
+  // something already fully visible.
+  // AGAINST THE CONSTANT, NOT AGAINST A COPY OF IT. This read `-57` when the
+  // strip was 56px wide, which is a test that stops testing the clamp the
+  // moment the width moves — and it did move, from 56 to 72, when the widest
+  // label the formatter can emit turned out not to fit in the old one.
+  it('clamps at the strip\'s width however far the finger goes', () => {
+    expect(revealOffset(-(TIME_REVEAL_PX + 1))).toBe(TIME_REVEAL_PX)
+    expect(revealOffset(-400)).toBe(TIME_REVEAL_PX)
+    expect(revealOffset(-4000)).toBe(TIME_REVEAL_PX)
+  })
+
+  // LEFTWARD ONLY. There is nothing on the left of a message to reveal, and
+  // dragging right would open a strip of empty background.
+  it('refuses to open anything for a rightward drag', () => {
+    expect(revealOffset(0)).toBe(0)
+    expect(revealOffset(1)).toBe(0)
+    expect(revealOffset(500)).toBe(0)
+  })
+
+  it('takes the width as an argument rather than only reading the constant', () => {
+    expect(revealOffset(-100, 20)).toBe(20)
+    expect(revealOffset(-10, 20)).toBe(10)
+  })
+})
+
+describe('revealSnapBackMs', () => {
+  it('animates the release for everyone who has not asked otherwise', () => {
+    expect(revealSnapBackMs(false)).toBe(180)
+  })
+
+  // NOT MERELY SHORTER. The drag itself still follows the finger — that is the
+  // gesture, not an animation — and only the release is the app moving
+  // something on its own, so only the release is switched off.
+  it('snaps back instantly under prefers-reduced-motion', () => {
+    expect(revealSnapBackMs(true)).toBe(0)
+  })
+})
+
+/* ---------------------------------------------------------------------------
+ * The degradation valve (wordle-teams-vd1j).
+ *
+ * The server meters bytes and publishes `degraded`; these five functions are
+ * the whole of what the CLIENT does about it. They are the mechanism standing
+ * between a busy month and Convex refusing mutations app-wide, so every one of
+ * them is asserted here rather than left inline in a hook or in JSX.
+ * ------------------------------------------------------------------------ */
+
+const degraded = (lastMessageAt: number, revision: number) => ({
+  lastMessageAt,
+  revision,
+  degraded: true,
+})
+
+describe('pointerMode', () => {
+  // THE CHICKEN AND THE EGG. `degraded` only ever arrives ON the pointer, so a
+  // client that has never read one has to open the subscription to find out
+  // whether it should be holding one.
+  it('subscribes before anything is known', () => {
+    expect(pointerMode(null)).toBe('live')
+  })
+
+  it('keeps the subscription while the month is inside its budget', () => {
+    expect(pointerMode(at(500, 3))).toBe('live')
+  })
+
+  it('drops to manual refresh once a pointer says degraded', () => {
+    expect(pointerMode(degraded(500, 3))).toBe('manual')
+  })
+
+  // SELF-HEALING, AND THIS IS THE ASSERTION THAT SAYS SO. The mode is derived
+  // from the LAST POINTER SEEN, wherever it came from — so a manual refresh
+  // that comes back clean puts the client straight back on the live
+  // subscription with nothing else to reset.
+  it('returns to live the moment a refreshed pointer comes back clean', () => {
+    expect(pointerMode(at(900, 9))).toBe('live')
+  })
+
+  // A NEW MONTH HAS NO chatDegraded ROW AT ALL, and chatPointerFor reads an
+  // absent row as `false` — so the month boundary recovers through the same
+  // path a raised threshold does, with no client-side calendar anywhere.
+  it('recovers at a month boundary, where the flag row does not exist', () => {
+    expect(pointerMode({ lastMessageAt: 500, revision: 3, degraded: false })).toBe('live')
+  })
+})
+
+describe('pointerFor', () => {
+  const alpha = 'team_alpha' as Id<'teams'>
+  const beta = 'team_beta' as Id<'teams'>
+
+  it('has nothing before a pointer has been read', () => {
+    expect(pointerFor(null, alpha)).toBeNull()
+  })
+
+  it('hands back the pointer read for the team on screen', () => {
+    expect(pointerFor({ teamId: alpha, value: at(500, 3) }, alpha)).toEqual(at(500, 3))
+  })
+
+  // A REVISION IS TEAM-SPECIFIC. Comparing one team's against another's does
+  // not produce a stale sync action, it produces a confident and wrong one —
+  // which is why the team is carried with the value rather than assumed.
+  it('refuses another team\'s pointer outright', () => {
+    expect(pointerFor({ teamId: beta, value: at(500, 3) }, alpha)).toBeNull()
+  })
+
+  // AND THAT ALSO RESETS THE MODE, which is the whole reason this is checked
+  // before `pointerMode` rather than after: a client degraded on one team opens
+  // a live subscription for the next one rather than inheriting manual refresh
+  // from a conversation it has left.
+  it('leaves a client degraded on another team subscribing to this one', () => {
+    expect(pointerMode(pointerFor({ teamId: beta, value: degraded(500, 3) }, alpha))).toBe('live')
+  })
+})
+
+describe('shouldDropSubscription', () => {
+  // THE POINT OF THE WHOLE VALVE. `enabled: false` alone leaves the websocket
+  // watch alive until TanStack garbage-collects the cache entry (gcTime, five
+  // minutes by default) — see @convex-dev/react-query, which unsubscribes on
+  // the cache's `removed` event and explicitly NOT on `observerRemoved`. The
+  // caller removes the query outright on this transition, so the subscription
+  // is dropped rather than merely ignored.
+  it('drops the held subscription when degradation begins', () => {
+    expect(shouldDropSubscription('live', 'manual')).toBe(true)
+  })
+
+  it('drops nothing when degradation ends', () => {
+    expect(shouldDropSubscription('manual', 'live')).toBe(false)
+  })
+
+  // ON THE TRANSITION, NOT ON THE STATE. Removing the query on every render
+  // while manual would fight the one-shot refresh, which fetches under that
+  // very key.
+  it('drops nothing while the mode is unchanged', () => {
+    expect(shouldDropSubscription('live', 'live')).toBe(false)
+    expect(shouldDropSubscription('manual', 'manual')).toBe(false)
+  })
+})
+
+describe('refreshDecision', () => {
+  it('reads the pointer again when a degraded client asks', () => {
+    expect(refreshDecision({ mode: 'manual', inFlight: false })).toEqual({ kind: 'fetch' })
+  })
+
+  // A SECOND TAP MUST NOT DISPATCH A SECOND READ: the refresh removes its own
+  // cache entry when it settles, so two in flight would have the first one's
+  // teardown land under the second one's fetch.
+  it('refuses a second read while one is in flight', () => {
+    expect(refreshDecision({ mode: 'manual', inFlight: true })).toEqual({
+      kind: 'skip',
+      reason: 'in-flight',
+    })
+  })
+
+  // REFUSING IN LIVE MODE IS A SAFETY INTERLOCK, not tidiness. The one-shot
+  // read shares a query key with the live subscription and removes it on the
+  // way out, so refreshing while live would tear down the very subscription
+  // that makes refreshing unnecessary.
+  it('refuses while the live subscription is held', () => {
+    expect(refreshDecision({ mode: 'live', inFlight: false })).toEqual({
+      kind: 'skip',
+      reason: 'live',
+    })
+    expect(refreshDecision({ mode: 'live', inFlight: true })).toEqual({
+      kind: 'skip',
+      reason: 'live',
+    })
+  })
+})
+
+describe('pausedNotice', () => {
+  it('says nothing at all while updates are live', () => {
+    expect(pausedNotice('live')).toBeNull()
+  })
+
+  // HONEST, AND NOT THE READER'S FAULT. It names what stopped (live updates),
+  // why (this month's usage), and what still works (sending) — with no
+  // apology, no alarm, and no second person doing anything wrong.
+  it('tells a degraded reader what stopped and what still works', () => {
+    expect(pausedNotice('manual')).toBe(
+      'Live updates are paused to stay within this month’s usage limit. Sending still works — refresh to see new messages.',
+    )
+  })
+})
+
+describe('refreshLabel', () => {
+  it('names the action at rest', () => {
+    expect(refreshLabel(false)).toBe('Refresh')
+  })
+
+  it('reports the read in flight rather than going silent', () => {
+    expect(refreshLabel(true)).toBe('Refreshing…')
+  })
+})
+
+describe('chatLoadState', () => {
+  it('is pending until the first pointer lands', () => {
+    expect(chatLoadState({ seen: null, isPending: true, hasError: false })).toBe('pending')
+  })
+
+  // THE OUTSIDER CASE, WHICH e2e/chat.spec.ts DRIVES: chat.pointer throws for a
+  // non-member, nothing is ever seen, and the route's "Could not load chat."
+  // is the honest answer.
+  it('is an error when the pointer refused and nothing was ever seen', () => {
+    expect(chatLoadState({ seen: null, isPending: false, hasError: true })).toBe('error')
+  })
+
+  it('is ready once a pointer value is held', () => {
+    expect(chatLoadState({ seen: at(500, 3), isPending: false, hasError: false })).toBe('ready')
+  })
+
+  // THE BUG THIS FUNCTION EXISTS FOR. A skipped query is `enabled: false` with
+  // no data of its own, so TanStack reports it pending FOREVER — reading that
+  // directly would leave a degraded client staring at "Loading…" with a full
+  // conversation already in hand.
+  it('is ready from a manually refreshed pointer even though the skipped query reports pending', () => {
+    expect(chatLoadState({ seen: degraded(500, 3), isPending: true, hasError: false })).toBe('ready')
+  })
+
+  // A LATER FAILURE DOES NOT THROW THE CONVERSATION AWAY. Once a pointer has
+  // been seen there are messages on screen, and replacing them with an error
+  // page because one refresh failed loses more than it reports; the route
+  // toasts a failed refresh instead.
+  it('stays ready when a refresh fails after a pointer was already held', () => {
+    expect(chatLoadState({ seen: at(500, 3), isPending: false, hasError: true })).toBe('ready')
+  })
+})
+
+describe('shouldRefreshAfterSend', () => {
+  // SENDING KEEPS WORKING IS THE SERVER'S HALF; SEEING WHAT YOU SENT IS THIS
+  // ONE. With no subscription held, nothing would bring the sender's own
+  // message back to their screen — a conversation cut off from the one end the
+  // spec promises stays open. The send already charged the meter for a wake
+  // nobody received, so this read is inside what was paid for.
+  it('re-reads the pointer after a send while degraded', () => {
+    expect(shouldRefreshAfterSend('manual')).toBe(true)
+  })
+
+  it('leaves the live subscription to do it otherwise', () => {
+    expect(shouldRefreshAfterSend('live')).toBe(false)
+  })
+})
+
+describe('shouldReleaseAfterRead', () => {
+  it('drops the one-shot read\'s cache entry when nothing is watching it', () => {
+    expect(shouldReleaseAfterRead(0)).toBe(true)
+  })
+
+  // THE RACE: switch teams away and back while a refresh is in flight and the
+  // returning render re-opens a real subscription under the key the read is
+  // about to clean up. Tearing that down would leave the client quiet with no
+  // notice — worse than leaving one cache entry behind.
+  it('leaves a key alone while a live subscription is watching it', () => {
+    expect(shouldReleaseAfterRead(1)).toBe(false)
+    expect(shouldReleaseAfterRead(2)).toBe(false)
+  })
+})

@@ -1,0 +1,617 @@
+name: Deploy v2
+
+# Builds and deploys the app. Since wordle-teams-4m96 this repository IS the app:
+# v2 came up from v2/ to the root and v1's Next.js source was deleted, so there is
+# no second pipeline to stay out of the way of. Vercel's git integration is
+# disconnected; its last production deployment still serves wordleteams.com until
+# the DNS flip, but nothing here builds it.
+#
+# TWO ENVIRONMENTS SINCE wordle-teams-qjh3.6, selected from the branch:
+#
+#   dev                  -> the dev Convex deployment + wordle-teams-v2-dev
+#                           (dev.wordleteams.com), via wrangler's env.dev
+#   main                 -> production, unchanged
+#   feat/v2-replatform   -> production, unchanged
+#
+# THE LAST LINE IS DELIBERATE AND IS NOT AN OVERSIGHT. The working branch keeps
+# deploying to the deployment that BECOMES production, exactly as it did before
+# this change, because that deployment is what cutover is rehearsed against
+# (epic decision 11). Moving it to dev would leave nothing keeping prod-to-be
+# current before the flip. The switch to the final model — dev -> dev,
+# main -> prod, this branch retired — belongs to cutover, not here.
+#
+# ONE VARIABLE DRIVES EVERYTHING: CLOUDFLARE_ENV, below. It selects the wrangler
+# environment at BUILD time, which is the only time it can be selected — the
+# vite plugin bakes the resolved config into dist/server/wrangler.json and
+# wrangler refuses a --env that disagrees with it. Empty means the top level.
+
+on:
+  push:
+    branches: [dev, main, feat/v2-replatform]
+    # INVERTED BY THE MOVE (wordle-teams-4m96.4). This was `paths: ['v2/**']`,
+    # which selected the app when the app was a subdirectory. The app is now the
+    # whole repository, so an allow-list would mean "everything" — and listing
+    # everything is how a new top-level directory silently stops deploying.
+    # A deny-list is the shape that keeps working: anything not named here is
+    # app code and deploys, which is also the safe direction to be wrong in.
+    paths-ignore:
+      - '.beads/**'
+      - 'docs/**'
+      - 'supabase/**'
+      - '**.md'
+  # PULL REQUESTS RUN THE GATES AND DEPLOY NOTHING. Every deploy step below is
+  # guarded on `github.event_name == 'push'`, and that guard is load-bearing
+  # rather than tidy: this repository is PUBLIC, so without it a fork's pull
+  # request would run `convex deploy` and `wrangler deploy` against real
+  # credentials.
+  pull_request:
+    branches: [dev, main]
+    paths-ignore:
+      - '.beads/**'
+      - 'docs/**'
+      - 'supabase/**'
+      - '**.md'
+  workflow_dispatch:
+
+# Two pushes in quick succession would otherwise race two `convex deploy` runs
+# at the same deployment and two `wrangler deploy` runs at the same Worker,
+# leaving whichever finished last in charge regardless of which was newer.
+# Queue them instead — and do NOT cancel in progress: a half-applied Convex
+# schema push is worse than a slightly delayed one.
+#
+# PER-ENVIRONMENT SINCE wordle-teams-qjh3.6, and the group name is the whole
+# point. A single `deploy-v2` group made a push to dev QUEUE BEHIND a production
+# deploy, which the reason above does not justify: the race it exists to prevent
+# is two runs against the SAME deployment, and two different deployments cannot
+# race each other.
+#
+# PULL REQUESTS GET A GROUP OF THEIR OWN, per PR. They deploy nothing, so
+# putting them in a deploy group would make an expensive gate run block a real
+# deploy for no benefit.
+concurrency:
+  group: deploy-v2-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || (github.ref_name == 'dev' && 'dev' || 'production') }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # THE ONE SWITCH. Read by @cloudflare/vite-plugin to choose the wrangler
+  # environment, and by scripts/print-build-env.mjs to choose which vars block to
+  # export, so the Worker's config and the client bundle's inlined values cannot
+  # name different Convex deployments. EMPTY IS MEANINGFUL: it selects the top
+  # level, which is production. Both readers treat '' as "no environment".
+  CLOUDFLARE_ENV: ${{ (github.event_name == 'push' && github.ref_name == 'dev') && 'dev' || '' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    # WHICH SECRETS THIS RUN CAN SEE. An ENVIRONMENT secret SHADOWS a repository
+    # secret of the same name, which is what makes this a one-line change rather
+    # than a migration: the `dev` environment holds its own CONVEX_DEPLOY_KEY and
+    # wins for dev runs, while `production` holds none and falls through to the
+    # repository-level CONVEX_DEPLOY_KEY that has been deploying beta all along.
+    # THE WORKING PRODUCTION SECRET IS THEREFORE NOT TOUCHED by this change.
+    #
+    # 'production' RESOLVES TO THE EXISTING 'Production' environment. GitHub
+    # treats environment names case-insensitively and keeps the first casing —
+    # measured on a throwaway name rather than assumed (see wordle-teams-qjh3.6).
+    # That environment was created by the Vercel link in 2023 and holds no
+    # secrets and no protection rules; vercel[bot] still writes v1 deployment
+    # records into it, which is why its history will show two products until
+    # cutover. Vercel reads nothing from GitHub environment secrets, so sharing
+    # it cannot affect v1.
+    #
+    # EMPTY ON A PULL REQUEST, so a PR neither claims an environment nor leaves a
+    # deployment record that reads as "this was deployed". PRs deploy nothing.
+    environment: ${{ github.event_name == 'push' && (github.ref_name == 'dev' && 'dev' || 'production') || '' }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Must precede setup-node: `cache: pnpm` needs the pnpm binary to exist
+      # before it can resolve the store path.
+      #
+      # No `version:` on purpose — the version comes from packageManager in
+      # package.json, and passing both is a hard error ("Multiple versions of
+      # pnpm specified").
+      #
+      # THE `package_json_file:` LINE THAT USED TO BE HERE IS GONE, and it is
+      # unnecessary rather than merely simplified (wordle-teams-4m96.4). It
+      # existed because the ROOT manifest pinned pnpm@11.13.0 — a release pnpm
+      # marked broken and CI's self-installer refuses outright — so the action had
+      # to be pointed at v2/package.json instead. The root manifest IS that
+      # manifest now, pinning pnpm@11.20.0, so there is nothing to route around.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      # Ahead of the tests because it is the cheaper failure, and because the
+      # rule it exists for is a deploy-safety one: nothing but convex/email.ts
+      # may import the Resend client, which is what keeps real mail away from
+      # throwaway e2e addresses (wordle-teams-96l, wordle-teams-9lh). A lint
+      # config nobody runs enforces nothing, which is why this step exists at
+      # all rather than just the config.
+      - name: Lint
+        run: pnpm lint
+
+      # NOTHING ELSE HERE TYPECHECKS. `vite build` transpiles and strips types,
+      # it does not check them, so before this step a type error reached beta so
+      # long as the tests passed — the only thing catching one was somebody
+      # remembering to run tsc by hand (wordle-teams-px4).
+      #
+      # It also catches a stale routeTree.gen.ts: the vite plugin regenerates it
+      # on build, so a new route that was never committed typechecks green
+      # locally after a build and fails here, which is the right way round.
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test:once
+
+      # ---------------------------------------------------------------------
+      # END TO END, AND WHY IT IS HERE AT ALL (wordle-teams-z6v4).
+      #
+      # Until this landed, Playwright ran in NO workflow. Seven mutants were
+      # planted against the onboarding card's dashboard wiring and FIVE survived
+      # every gate above — the card could be deleted from /app outright and lint,
+      # typecheck, vitest and build all stayed green. The e2e suite was the only
+      # thing that could see it, and it was a thing somebody ran by hand.
+      #
+      # IT SITS BEFORE EVERY DEPLOY STEP ON PURPOSE. A red spec must stop the
+      # deploy, not be discovered after beta already has the bundle.
+      #
+      # NO SECRETS AND NO CLOUD BACKEND. The whole sequence was measured on
+      # wordle-teams-es9c: CONVEX_AGENT_MODE=anonymous provisions a LOCAL Convex
+      # backend, and the suite passes against it with neither BETTER_AUTH_SECRET
+      # nor RESEND_API_KEY nor any POLAR_* or VAPID_* value set. billing.spec.ts
+      # included — no spec has to be excluded, and no live Polar token goes near
+      # this pipeline.
+      # ---------------------------------------------------------------------
+
+      - name: Cache the Convex local backend binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/convex
+          key: convex-backend-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: convex-backend-${{ runner.os }}-
+
+      - name: Install the Chromium Playwright drives
+        run: pnpm exec playwright install --with-deps chromium
+
+      # THREE THINGS HERE COST A CI RUN EACH TO FIND. Do not simplify any of them
+      # without reading wordle-teams-es9c.
+      #
+      # 1. `convex init` SCAFFOLDS convex/tsconfig.json, a file this repo does
+      #    not have and does not want. It sets no allowImportingTsExtensions,
+      #    and convex/ imports with explicit .ts extensions throughout, so the
+      #    push dies with dozens of TS5097 errors. Delete it; `convex dev` does
+      #    not write it back.
+      #
+      # 2. SITE_URL IS SET BEFORE THE FUNCTIONS ARE PUSHED. This USED to be
+      #    load-bearing for the push itself: convex/auth.ts threw at MODULE
+      #    SCOPE when SITE_URL was falsy, and a push evaluates the module, so
+      #    the reverse order died as auth.ts loaded. a5d5c3f0 moved that check
+      #    into `createAuth` (the Better Auth component imports
+      #    `createAuthOptions` and gets no deployment env vars), so the push no
+      #    longer evaluates a throw. KEEP THE ORDER ANYWAY: `createAuth` throws
+      #    without SITE_URL on every request that builds auth, the first spec
+      #    signs in as soon as the backend answers, and setting it afterwards
+      #    leaves a window in which the backend is serving without it.
+      #    E2E_TEST_MODE=true or every signIn() fails at testOtps.takeFor.
+      #
+      # 3. THE BACKEND DOES NOT SURVIVE A STEP BOUNDARY, which is why the suite
+      #    runs in this step rather than the next one. `convex dev --once` pushes
+      #    and exits and its backend dies with the step; SSR then answers 500
+      #    with `Network connection lost.` and Playwright reports it three
+      #    minutes later as a webServer timeout naming nothing useful. What
+      #    disguises it is that any convex CLI command STARTS the backend on
+      #    demand — so a `convex env list` in a following step silently revives
+      #    one, prints the variables and lets it die again, making provisioning
+      #    look perfectly healthy. Hence a watcher held open here, and an
+      #    explicit assertion that 3210 answers before anything runs.
+      - name: End-to-end against a local Convex backend
+        env:
+          CONVEX_AGENT_MODE: anonymous
+        run: |
+          set -euo pipefail
+
+          pnpm exec convex init
+          rm -f convex/tsconfig.json
+          pnpm exec convex env set SITE_URL http://localhost:3000
+          pnpm exec convex env set E2E_TEST_MODE true
+
+          pnpm exec convex dev > /tmp/convex-dev.log 2>&1 &
+
+          for i in $(seq 1 90); do
+            if grep -q 'Convex functions ready' /tmp/convex-dev.log 2>/dev/null; then
+              echo "backend ready and functions pushed after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+          curl -sf --max-time 10 http://127.0.0.1:3210/version > /dev/null
+          echo "backend answering on 3210"
+
+          set +e
+          pnpm e2e
+          E2E_STATUS=$?
+          set -e
+
+          # useLocalCapture SWALLOWS a failed write by design, so a rejected
+          # mutation is indistinguishable from an effect that never ran unless
+          # the server log is visible. Printing it is what ruled the environment
+          # out when settings.spec.ts failed in CI and nowhere else.
+          echo "=================== convex dev log ==================="
+          tail -80 /tmp/convex-dev.log || true
+          exit $E2E_STATUS
+
+      - name: Keep the Playwright report when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+
+      # THE MOST DANGEROUS LINE IN THIS FILE IS THE ONE THAT WOULD BE MISSING
+      # HERE. `convex init` above WRITES .env.local, and it points at the
+      # local backend:
+      #
+      #     CONVEX_DEPLOYMENT=anonymous:anonymous-agent
+      #     VITE_CONVEX_URL=http://127.0.0.1:3210
+      #     VITE_CONVEX_SITE_URL=http://127.0.0.1:3211
+      #
+      # Vite loads .env.local in EVERY mode, production included. Left in place,
+      # the `pnpm build` inside the deploy step below would inline
+      # http://127.0.0.1:3210 into the client bundle and beta would ship pointing
+      # at a backend that exists only on a dead runner — every request failing
+      # for every visitor, with a green pipeline.
+      #
+      # A fresh checkout has no .env.local at all, so deleting it restores
+      # exactly the state the deploy step was written against: build-time values
+      # come from the committed .env.production, and the Convex URL from
+      # --cmd-url-env-var-name. This is a RESTORATION, not a workaround.
+      - name: Remove the local-backend env before anything is built or deployed
+        run: |
+          set -euo pipefail
+          rm -f .env.local
+          test ! -e .env.local
+          echo "removed .env.local — the build below uses .env.production"
+
+      # THE ONLY GATE A PULL REQUEST WAS MISSING (wordle-teams-tkqr). Every
+      # deploy step here is guarded on `github.event_name == 'push'`, because
+      # this repository is PUBLIC and a fork's PR must never reach real
+      # credentials. `vite build` is not a step of its own — it runs inside
+      # `convex deploy --cmd 'pnpm build'` — so that guard also meant a pull
+      # request never COMPILED the production bundle, and a change that breaks
+      # only the production build (an import vite dev tolerates, a plugin that
+      # fails under build.ssr, anything in scripts/build-sw.mjs) went green on
+      # the PR and red on the push that merged it. The merge into main IS the
+      # deploy, so that is the worst place to find out.
+      #
+      # IT NEEDS NO SECRET, which is the whole reason it can run here. The
+      # deploy step takes VITE_CONVEX_URL from the deploy key so the bundle can
+      # never be built against the wrong Convex; a PR build is thrown away and
+      # never served, so it takes the same value from the committed
+      # .env.production that supplies every other build-time value. The step
+      # above has already removed the local-backend .env.local, which Vite would
+      # otherwise load in production mode too.
+      #
+      # ONE DIFFERENCE FROM THE PUSH BUILD, stated so nobody reads this as
+      # equivalent: with no SENTRY_AUTH_TOKEN the Sentry plugin warns and skips
+      # the upload. It still deletes the client maps, so the two checks below
+      # hold — measured on a tokenless local build: 0 maps in dist/client, the
+      # corpus present as a static file and not inlined. What a PR does not
+      # exercise is the upload itself, which the push-only token check covers.
+      - name: Build the production bundle (pull requests only)
+        if: github.event_name == 'pull_request'
+        run: pnpm build
+
+      # Pushes schema + functions, then runs the client build with
+      # VITE_CONVEX_URL set to the deployment this key points at, so the bundle
+      # can never be built against the wrong Convex. The other build-time values
+      # come from the committed v2/.env.production.
+      # THE UPLOAD FAILS SILENTLY WITHOUT THIS, which is why it is a step and not
+      # a comment. The Sentry plugin warns and skips when it has no token, and it
+      # DELETES THE CLIENT MAPS ANYWAY -- deletion is not conditional on the
+      # upload succeeding. So the whole pipeline goes green, beta serves correctly,
+      # nothing leaks, and Sentry quietly has no maps. That is the worst shape of
+      # failure and it already happened once, on the commit that added the plugin.
+      #
+      # WHAT THIS DOES AND DOES NOT CATCH, stated so nobody trusts it further than
+      # it goes: it catches an ABSENT token -- secret deleted, renamed, or (the
+      # actual cause) never passed into the build step's env. It does NOT catch an
+      # INVALID or expired token, which would still warn-and-skip. Asserting that
+      # would mean querying Sentry with sentry-cli, which is present only as a
+      # transitive dependency with no bin link.
+      - name: The Sentry auth token must be present before the build
+        if: github.event_name == 'push'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+            echo "::error::SENTRY_AUTH_TOKEN is empty, so source maps will be built,"
+            echo "deleted, and never uploaded -- silently. Set the repository secret."
+            echo "See vite.config.ts (sentryTanstackStart) and wordle-teams-p1as."
+            exit 1
+          fi
+          echo "present: SENTRY_AUTH_TOKEN is set (validity is not checked here)"
+
+      # THE BUILD VALUES COME FROM wrangler.jsonc, NOT FROM A SECOND FILE
+      # (wordle-teams-qjh3.5). scripts/print-build-env.mjs prints the selected
+      # environment's VITE_ vars as shell assignments and `set -a` exports them,
+      # so vite inlines them into the client bundle — process.env beats
+      # .env.production in vite's loadEnv, which is what makes this work without
+      # a per-environment .env file or a mode change.
+      #
+      # VITE_CONVEX_URL IS THEN OVERWRITTEN BY convex deploy, deliberately.
+      # --cmd-url-env-var-name injects the URL of whatever deployment the deploy
+      # key points at, and that value wins for the build subprocess. The two are
+      # supposed to be identical, and vite.config.ts's convexDeploymentGuard
+      # FAILS THE BUILD if they are not — which is the case where this job
+      # selected one environment while holding the other's key, and would
+      # otherwise produce a working-looking bundle aimed at the wrong backend.
+      - name: Deploy Convex and build the client
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          set -a
+          eval "$(node scripts/print-build-env.mjs "${CLOUDFLARE_ENV:-}")"
+          set +a
+          echo "building for ${CLOUDFLARE_ENV:-(top level)} against $VITE_CONVEX_SITE_URL"
+          pnpm exec convex deploy --cmd 'pnpm build' --cmd-url-env-var-name VITE_CONVEX_URL
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          # THE SOURCE MAP UPLOAD HAPPENS INSIDE THIS STEP, because it is a Vite
+          # plugin and this is where `pnpm build` runs. A repository secret is
+          # NOT automatically visible to a step, so without this line the plugin
+          # warns "No auth token provided", skips the upload -- AND STILL DELETES
+          # THE MAPS, because the deletion is not conditional on the upload
+          # succeeding. That combination is silent: every gate passes, beta is
+          # correct, no map leaks, and Sentry simply has nothing. It happened
+          # exactly once, on the commit that added the plugin (wordle-teams-p1as).
+          #
+          # The token is a REAL secret, unlike SENTRY_DSN which is public by
+          # design and lives in wrangler.jsonc. Org and project slugs are not
+          # secret and are inline in vite.config.ts.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+      # RETIRED 2026-09-13 (wordle-teams-dt6t). A step called "The auth module
+      # must not reach the client bundle" stood here — "THE CHECK THAT WOULD
+      # HAVE CAUGHT THE 2026-09-06 BETA OUTAGE" — and it grepped dist/client for
+      # 'SITE_URL is not set'. It is gone, not moved: the check now lives in
+      # src/frontend-import-graph.test.ts and runs in the vitest gate above,
+      # walking the import graph from every file under src/ and failing with the
+      # chain named. THE FULL ACCOUNT — the incident, the control measurement
+      # and both its arms — is on convex/lib/chatLimits.ts, where the seven
+      # other comments on this rule already point. What follows is only what a
+      # person standing in THIS file needs before re-adding a bundle check.
+      #
+      # WHY IT COULD NO LONGER FAIL. convex/auth.ts used to throw at MODULE
+      # SCOPE without process.env.SITE_URL. That one throw made a frontend
+      # import reaching auth.ts fatal AND left the fingerprint this step
+      # grepped for. a5d5c3f0 moved it into `createAuth`, and had to:
+      # `convex/betterAuth/adapter.ts` imports `createAuthOptions` from auth.ts,
+      # COMPONENT CODE RECEIVES NO DEPLOYMENT ENVIRONMENT VARIABLES, and the
+      # module-scope throw made the component unpushable (`Failed to analyze
+      # adapter.js: Uncaught Error: SITE_URL is not set`, with SITE_URL set on
+      # the deployment). The string stopped existing in the source at all, so
+      # this step printed "clean: no module-scope auth throw in dist/client" on
+      # every deploy and read as evidence. A check that cannot fail is worse
+      # than no check.
+      #
+      # WHY IT WAS NOT SIMPLY REPOINTED AT ANOTHER STRING. Measured with a
+      # control on 2026-09-13: auth.ts is now tree-shaken out of the client
+      # graph ENTIRELY, so there is no mark left in the bundle to look for. Two
+      # candidate fingerprints were measured and rejected —
+      # 'schema-generation.invalid' lives INSIDE createAuthOptions and vanishes
+      # to the same tree-shaking, and the `better-auth` package id is already
+      # legitimately in dist/client (assets/login-*.js: the login route uses the
+      # Better Auth CLIENT), so it would fire on every deploy. The fault is also
+      # no longer an outage but silent bundle bloat, which is a thing to catch
+      # in source rather than in a build artefact.
+      #
+      # AND DO NOT RESURRECT THE GREP AS WRITTEN, whatever string it is given:
+      # the pattern 'SITE_URL is not set' also matches src/lib/auth-server.ts's
+      # 'VITE_CONVEX_SITE_URL is not set', which IS in dist/server today. It
+      # could fire for a reason unrelated to the bug it names.
+
+      # The insights corpus is ~79 KB and must stay a STATIC FILE the CDN serves,
+      # fetched only when the insights route renders. `import`ing it instead would
+      # inline it into a JS chunk and every visitor would download the corpus
+      # whether or not they ever open insights -- invisibly, with every gate green.
+      # insights-corpus.test.ts catches the cause (an import in the source); this
+      # catches the effect, which is the thing that actually ships.
+      # THE SOURCE MAPS ARE UPLOADED TO SENTRY AND THEN DELETED, and dist/client
+      # is the PUBLIC asset directory (dist/server/wrangler.json sets
+      # assets.directory to "../client"). So a .map surviving here is the entire
+      # source tree on a public URL — the one way wordle-teams-p1as could make
+      # things worse instead of better.
+      #
+      # The deletion is the Sentry plugin's `filesToDeleteAfterUpload`, and it
+      # runs even when the upload is skipped (verified locally with no auth
+      # token). This guards the case where that stops being true: a plugin
+      # upgrade, someone setting `sourcemaps.disable`, or the option being
+      # dropped while `build.sourcemap` stays on — which is exactly the
+      # combination that switches the automatic deletion off.
+      #
+      # dist/server maps are DELIBERATELY KEPT and are not checked here: that
+      # directory is worker code, served to nobody, and its maps are what
+      # wrangler's `upload_source_maps` finally has to upload.
+      # NO LONGER PUSH-ONLY (wordle-teams-tkqr): a pull request now builds, so
+      # there is a dist/client for this to read. It was guarded only because
+      # there was nothing to check, never because a PR should be exempt.
+      #
+      # THE CONDITION NAMES BOTH EVENTS RATHER THAN BEING DROPPED, because
+      # `workflow_dispatch` is a third trigger and it builds NOTHING — every
+      # build step above is gated on push or pull_request. An unguarded step
+      # here would `find dist/client` under `set -euo pipefail` on a manual run
+      # and fail the workflow on a directory that was never meant to exist.
+      - name: No source map may reach the client bundle
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          found=$(find dist/client -name '*.map' | head -20)
+          if [ -n "$found" ]; then
+            echo "::error::Source maps survived into the PUBLIC asset directory."
+            echo "$found"
+            echo "These would be served from beta/production and expose the source."
+            echo "See vite.config.ts: sentryTanstackStart's filesToDeleteAfterUpload."
+            exit 1
+          fi
+          echo "clean: no .map in dist/client"
+
+      # NO LONGER PUSH-ONLY (wordle-teams-tkqr): a pull request now builds, so
+      # there is a dist/client for this to read. It was guarded only because
+      # there was nothing to check, never because a PR should be exempt.
+      #
+      # THE CONDITION NAMES BOTH EVENTS RATHER THAN BEING DROPPED, because
+      # `workflow_dispatch` is a third trigger and it builds NOTHING — every
+      # build step above is gated on push or pull_request. An unguarded step
+      # here would `find dist/client` under `set -euo pipefail` on a manual run
+      # and fail the workflow on a directory that was never meant to exist.
+      - name: The insights corpus must not reach the client bundle
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          if [ ! -f dist/client/insights/benchmark-openers.json ]; then
+            echo "::error::dist/client/insights/benchmark-openers.json is missing."
+            echo "public/insights/ is checked in and copied by vite. Run"
+            echo "  node scripts/build-insights-corpus.mjs"
+            echo "and commit the result."
+            exit 1
+          fi
+          # The first three openers in rank order. Present in a JS asset means the
+          # artifact was inlined rather than fetched.
+          if grep -rl 'slantclastalist' dist/client/assets/ 2>/dev/null; then
+            echo "::error::A client chunk contains the packed opener corpus."
+            echo "Something imports public/insights/benchmark-openers.json instead"
+            echo "of fetching it. Use loadInsightsBenchmark() in src/lib/insights-benchmark.ts."
+            exit 1
+          fi
+          echo "clean: insights corpus is a static file, not a bundled chunk"
+
+      # ASSERTS THE CONVEX DEPLOYMENT'S OWN ENVIRONMENT VARIABLES
+      # (wordle-teams-qjh3.7). Three cutover checklist items stop being things
+      # somebody remembers at 6am: E2E_TEST_MODE absent on production
+      # (wordle-teams-7az), Polar never pointed at real checkouts from dev, and
+      # SITE_URL present or every authenticated request throws.
+      #
+      # BEFORE THE WORKER DEPLOY, NOT AFTER IT, and the order is the point. The
+      # variables belong to the Convex deployment that `convex deploy` has just
+      # updated, so this is the last moment a bad one can stop the Worker from
+      # shipping. An earlier draft of this step sat after the Worker deploy,
+      # which would have reported the problem only once it was live.
+      #
+      # IT MATCHES TEXT, NEVER AN EXIT CODE. `convex env get` exits 0 whether or
+      # not the variable exists — measured, and recorded in the cutover runbook's
+      # section 0. A check built on `$?` would read every absent variable as
+      # present-and-empty, which for E2E_TEST_MODE is exactly the wrong answer.
+      #
+      # IT NAMES NO DEPLOYMENT. CONVEX_DEPLOY_KEY is the same key `convex deploy`
+      # used moments ago, so the deployment asserted about and the deployment just
+      # deployed to are the same by construction.
+      #
+      # THIS STEP FAILED ONCE ALREADY, on run 36474279805, with
+      # `You do not have permission to perform this operation
+      # (deployment:env:view)`. The repository secret was a deploy key created
+      # 2026-08-03; a key minted since can read environment variables (measured
+      # 2026-09-28 against a throwaway key). The secret was regenerated. If this
+      # step ever returns that error again, the key is the thing to look at — not
+      # the script.
+      - name: The deployment's variables must match the environment
+        if: github.event_name == 'push'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: node scripts/check-deployment-env.mjs "${CLOUDFLARE_ENV:-}"
+
+      # Publishes the Worker and keeps the beta.wordleteams.com custom domain
+      # binding declared in wrangler.jsonc. Uploads dist/ from the build above.
+      - name: Deploy the Worker
+        if: github.event_name == 'push'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+
+      # RENAMED FROM "Smoke test beta", AND THE NAME IS HALF THE FIX. This proves
+      # that ONE signed-out route renders its own content, and nothing whatever
+      # about any authenticated screen. The old name invited exactly the reading
+      # that let /chat stay dead on beta with this step green.
+      #
+      # IT USED TO ASSERT ONLY A STATUS CODE, WHICH A BROKEN APP RETURNS. A React
+      # error boundary catching a thrown ConvexError still answers 200 carrying
+      # an error page, and the body — the only place the evidence lives — went to
+      # /dev/null. So it now keeps the body and asserts on it: the sign-in form's
+      # own copy must be present, and neither error boundary's heading may be.
+      # ("Something went wrong!" is TanStack's default, rendered by any route
+      # without an errorComponent; "Ruh roh, something went wrong!" is
+      # src/components/dashboard-error.tsx. One case-insensitive substring
+      # catches both.)
+      #
+      # -a ON EVERY grep, and it is not decoration: the served HTML carries bytes
+      # grep reads as binary (typographic ellipses in the copy), and without -a
+      # it prints "binary file matches" and reports a match count of 0.
+      #
+      # WHY NOT AN AUTHENTICATED CHECK, which is the other half of the hole.
+      # Signing in from CI would need to read an OTP back through
+      # convex/testOtps.ts, which is gated on E2E_TEST_MODE — and that flag is
+      # deliberately NOT set on beta (see convex/reminders.ts, which names it as
+      # what stands between a config slip and mailing real people, and
+      # convex/e2eSeed.ts, which says the same). Turning it on to make this step
+      # possible would trade a real mail-safety guarantee for a smoke test. The
+      # alternative, parking a genuine account's credentials in CI secrets, puts
+      # a standing login for the live app in the deploy pipeline. Neither is
+      # worth it, so the check stays signed-out — and the step above is what
+      # actually catches the class of bug an authenticated one was wanted for,
+      # earlier and without any of that.
+      #
+      # THE /chat PROBE IS DELIBERATELY MODEST. A 307 to /login proves the route
+      # exists and its beforeLoad guard ran — that the non-split half of the
+      # route module loads server-side and refuses an anonymous visitor. It says
+      # NOTHING about the lazily loaded component chunk, which is where the
+      # 2026-09-06 fault actually was. Do not read it as "chat works".
+      # THE HOSTNAME IS READ FROM THE BUILD OUTPUT, not from a branch expression
+      # repeated a third time (wordle-teams-qjh3.6). dist/server/wrangler.json is
+      # the RESOLVED config the Worker was just deployed from, so its route is by
+      # construction the name this deployment actually claims. A literal here
+      # would be a fourth place the environment mapping lives, and the one nobody
+      # would think to update.
+      - name: Smoke test the deployed host (signed-out routes only)
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+
+          host=$(node -p "require('./dist/server/wrangler.json').routes[0].pattern")
+          test -n "$host"
+          echo "smoke testing https://$host"
+
+          body=$(mktemp)
+          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 "https://$host/login")
+          echo "$host/login -> $code"
+          test "$code" = "200"
+
+          if grep -aqi 'something went wrong' "$body"; then
+            echo "::error::/login answered 200 but rendered an error boundary."
+            exit 1
+          fi
+          grep -aq 'Sign in' "$body"
+          grep -aq 'Send code' "$body"
+          echo "/login rendered the sign-in form, not an error page"
+
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "https://$host/chat")
+          echo "$host/chat (no session) -> $code"
+          test "$code" = "307"

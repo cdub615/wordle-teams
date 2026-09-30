@@ -1,0 +1,440 @@
+import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Loader2 } from 'lucide-react'
+import { useState } from 'react'
+import { toast } from 'sonner'
+import { api } from '../../../convex/_generated/api'
+import { REMINDER_TIMES } from '../../../convex/lib/reminders.ts'
+import { Label } from '#/components/ui/label.tsx'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '#/components/ui/select.tsx'
+import { Separator } from '#/components/ui/separator.tsx'
+import { Switch } from '#/components/ui/switch.tsx'
+import { clockTime } from '#/lib/clock-time.ts'
+import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { applyPushToggle, browserPush } from '#/lib/push-subscribe.ts'
+import { canonicalTimeZone, TIME_ZONE_GROUPS, unlistedZoneOption } from '#/lib/time-zones.ts'
+import { useMediaQuery } from '#/lib/use-media-query.ts'
+import type { SubscribeFailureReason } from '#/lib/push-subscribe.ts'
+
+/**
+ * '13:00:00' -> '1:00 PM' for a US reader, '13:00' for a British or German one.
+ * Display only; never sent to the server.
+ *
+ * IT ASKS CLDR RATHER THAN DOING THE ARITHMETIC (wordle-teams-8klr). This used
+ * to slice the hour out, compare it to 12 and append a hardcoded 'AM'/'PM',
+ * which stamps a US 12-hour clock on every reader on earth — the same bug the
+ * chat separator shipped pointed the other way, where a pinned `hourCycle:
+ * 'h23'` printed 14:00 on an American phone. `clockTime` passes no opinion
+ * about 12 versus 24 and lets the locale decide, which is the only answer that
+ * is right in more than one country. It lives in lib/ precisely so this file
+ * can reach it: it was written for components/chat/, and a settings component
+ * importing out of the chat module would drag that module's imports in behind
+ * it.
+ *
+ * A FIXED UTC INSTANT CARRIES THE WALL CLOCK, and the zone is pinned to 'UTC'
+ * for that reason. The stored value is a wall-clock time in the PLAYER'S OWN
+ * zone already (convex/lib/reminders.ts's LocalTime) — 18:00:00 means six in
+ * the evening wherever they are — so re-resolving it into any zone at all,
+ * including the browser's, would shift the number the player themselves chose.
+ * The date is arbitrary and never shown. The LOCALE, by contrast, is left
+ * undefined so it follows the reader; tests pass one explicitly.
+ *
+ * ONLY FOR A VALUE REMINDER_TIMES ACTUALLY OFFERS. A value outside that list
+ * — reachable only from data older than updateReminderTimeFor's validation,
+ * since nothing this UI writes can produce one — is returned RAW rather than
+ * formatted: '23:30:00' run through the old on-the-hour arithmetic printed
+ * '11 PM', a plausible-looking, on-the-hour string that is neither what is
+ * stored nor one of the eighteen times REMINDER_TIMES offers. Showing the raw
+ * string is honest about that; a confident-looking wrong answer is worse than
+ * an odd-looking right one.
+ */
+export function label(time: string, locale?: string): string {
+  if (!REMINDER_TIMES.includes(time)) return time
+  const hour = Number(time.slice(0, 2))
+  const minute = Number(time.slice(3, 5))
+  return clockTime(Date.UTC(2026, 0, 1, hour, minute), 'UTC', locale)
+}
+
+/**
+ * The time zone trigger's own text: `shortLabel` below 640px, `label` above —
+ * v1's behaviour (user-dialog.tsx's `displayValue`, `useMediaQuery('(max-width:
+ * 640px)')`). Falls back to a placeholder while nothing is stored yet, which
+ * is the ordinary state for a player who has never opened this tab.
+ *
+ * TAKES THE CANONICAL ZONE, ALREADY RUN THROUGH `canonicalTimeZone` — see that
+ * function's doc comment. Passing the raw stored value here would silently
+ * fall through to the placeholder for any copied row still carrying v1's
+ * Postgres spelling, telling a player their time zone is unset when it is
+ * not.
+ */
+function timeZoneDisplay(canonicalZone: string | null, isSmallScreen: boolean): string {
+  for (const group of TIME_ZONE_GROUPS) {
+    const found = group.items.find((item) => item.value === canonicalZone)
+    if (found) return isSmallScreen ? found.shortLabel : found.label
+  }
+  // A STORED ZONE THE CURATED LIST DOES NOT OFFER STILL GETS SHOWN, derived from
+  // the identifier itself (wordle-teams-54s). Reaching the placeholder below
+  // used to tell 57-zones-worth of copied players their time zone was unset
+  // when it was set and working.
+  const unlisted = unlistedZoneOption(canonicalZone)
+  if (unlisted) return isSmallScreen ? unlisted.shortLabel : unlisted.label
+  return 'Select a time zone'
+}
+
+/**
+ * What to say when a subscribe attempt did not produce something we can store.
+ *
+ * A SEPARATE STRING PER REASON, and none of them is `mutationErrorMessage`'s
+ * generic fallback, because these three are the only failures on this tab the
+ * player can actually do something about — and the actions differ: 'denied' is
+ * fixed in site settings, 'unavailable' cannot be fixed at all and points at
+ * the Email switch instead, and 'no-keys' is worth one retry.
+ *
+ * TOTAL OVER SubscribeFailureReason on purpose — the parameter is that union
+ * rather than a bare `string`, and the `default` branch assigns to `never` — so
+ * adding a reason in push-subscribe.ts stops compiling here instead of silently
+ * falling through to a message written for a different failure.
+ */
+export function pushFailureMessage(reason: SubscribeFailureReason): string {
+  switch (reason) {
+    case 'denied':
+      // Covers a dismissed prompt as well as a refusal — see subscribeToPush.
+      // Deliberately does not say "you denied it": on a second attempt Chrome
+      // never re-prompts and the player has to change it in site settings, so
+      // naming that is the only useful thing this message can do.
+      return 'Notifications are blocked for this site. Allow them in your browser settings to turn this on.'
+    case 'unavailable':
+      return "This browser can't deliver push notifications. Email reminders still work."
+    case 'no-keys':
+      // Should be unreachable from a real browser. Says what to do rather than
+      // explaining a cause nobody outside this file could act on.
+      return 'Your browser did not return a usable subscription. Try again, or use email reminders.'
+    default: {
+      const exhaustive: never = reason
+      return exhaustive
+    }
+  }
+}
+
+/**
+ * Timezone select, reminder-time select, Email switch. Notifications tab of
+ * the settings dialog (Phase 6, Task 6) — the only one of the dialog's pieces
+ * with real behaviour; install-guide-tab.tsx is static copy.
+ *
+ * EVERY CONTROL IS FIRE-AND-REPORT, matching current-team-card.tsx:
+ * `toast.success` on success, `mutationErrorMessage` routed to `toast.error`
+ * on failure — never a thrown error left for React to render as a crashed
+ * tab. UNLIKE current-team-card.tsx's buttons, though, a pending control here
+ * stays MOUNTED and merely `disabled`, with the spinner beside it rather than
+ * replacing it — matching Header.tsx's UPGRADE button, which keeps its own
+ * label mounted and swaps only the icon. (This said "Billing" until
+ * 2026-09-13, and had been wrong since wordle-teams-lyab moved Billing into
+ * app-menu.tsx, where it renders a persistent `<span>` with an APPENDED
+ * spinner rather than a swapped icon — a different shape from the one this
+ * sentence is pointing at.) Swapping the whole control out (an
+ * earlier version of this file did) breaks the `<Label htmlFor>` association
+ * for exactly as long as the mutation is in flight, since the element the
+ * `id` lives on stops existing.
+ */
+export default function NotificationsTab() {
+  const { data: settings, error } = useQuery(convexQuery(api.settings.mySettings, {}))
+  const isSmallScreen = useMediaQuery('(max-width: 640px)')
+
+  const updateTimeZone = useMutation({ mutationFn: useConvexMutation(api.settings.updateTimeZone) })
+  const updateReminderTime = useMutation({ mutationFn: useConvexMutation(api.settings.updateReminderTime) })
+  const setReminderMethod = useMutation({ mutationFn: useConvexMutation(api.settings.setReminderMethod) })
+
+  // THE WHOLE OF RULE 1: no key, no switch. `publicKey` is a query rather than
+  // a `VITE_` variable precisely so this can be decided from the deployment
+  // that would have to send the notification (convex/push.ts), and `undefined`
+  // — still loading, or the query itself failed — hides the switch too. A
+  // control that cannot work is worse than no control, and a control that
+  // appears a beat late is better than one that appears and then vanishes.
+  const { data: vapidPublicKey } = useQuery(convexQuery(api.push.publicKey, {}))
+  const savePushSubscription = useMutation({ mutationFn: useConvexMutation(api.push.savePushSubscription) })
+  const removePushSubscription = useMutation({ mutationFn: useConvexMutation(api.push.removePushSubscription) })
+
+  // Local rather than any mutation's `isPending`: the slow part of turning
+  // push on is the browser — the permission prompt and `pushManager.subscribe`
+  // — and neither is a mutation, so nothing in react-query knows the toggle is
+  // in flight. Without this the switch stays live while a prompt is open and a
+  // second click starts the whole flow again.
+  const [pushPending, setPushPending] = useState(false)
+
+  // mySettings calls requirePlayer, which throws NO_PLAYER for a signed-in
+  // session with no players row yet — and Header.tsx mounts globally,
+  // including on /complete-profile, where that is the expected state (see
+  // players.ts's `myName` doc comment, which chose `currentPlayer` over
+  // `requirePlayer` for the exact same reason). Reading `error` here rather
+  // than only `data` is what stops that from being a silent, permanent
+  // "loading" spinner with no way out: NO_PLAYER's own copy — "Finish setting
+  // up your profile to continue." — happens to be exactly right for this
+  // screen too.
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-sm text-muted-foreground">
+        {mutationErrorMessage(error, 'Could not load your notification settings.')}
+      </div>
+    )
+  }
+
+  // Radix's Select is UNCONTROLLED once it mounts: `defaultValue` is read only
+  // on the FIRST render. Mounting before mySettings resolves would not freeze
+  // the VISIBLE text — SelectValue's children below are always this
+  // component's own computed string, never Radix's internal value — but it
+  // would freeze which item Radix marks selected internally (the checkmark,
+  // and where keyboard navigation starts) on whatever `defaultValue` happened
+  // to be at that first instant. v1 sidesteps the whole question by gating
+  // its block on `timeZone &&` (user-dialog.tsx:128).
+  //
+  // THE HARDER FAILURE, and the one that actually forces this early return:
+  // before `settings` resolves, `reminderDeliveryTime` is `undefined`, and
+  // `label(undefined)` calls `.slice` on it — an outright TypeError, not a
+  // display quirk. This is a loading state the tab cannot render without,
+  // not a guessed default it would be nice to avoid.
+  if (!settings) {
+    return (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+        <span className="sr-only">Loading notification settings…</span>
+      </div>
+    )
+  }
+
+  const { timeZone, reminderDeliveryTime, reminderDeliveryMethods } = settings
+  const canonicalZone = canonicalTimeZone(timeZone)
+  const unlistedZone = unlistedZoneOption(canonicalZone)
+
+  const handleTimeZoneChange = async (value: string) => {
+    try {
+      await updateTimeZone.mutateAsync({ timeZone: value })
+      toast.success('Time zone updated')
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, 'Failed to update time zone'))
+    }
+  }
+
+  const handleReminderTimeChange = async (value: string) => {
+    try {
+      await updateReminderTime.mutateAsync({ time: value })
+      toast.success('Delivery time updated')
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, 'Failed to update delivery time'))
+    }
+  }
+
+  // SENDS INTENT, NOT AN ARRAY (`wordle-teams-069`). Both switches write the
+  // same field, so this used to rebuild `reminderDeliveryMethods` from the copy
+  // it had rendered with — which lost an update whenever the OTHER switch was
+  // touched in between, and the window is long: the Push switch's permission
+  // prompt is MODAL and can stay open for minutes.
+  //
+  // `setReminderMethodFor` composes the array against the current row inside the
+  // mutation instead, so the from-scratch hazard this comment used to warn about
+  // — dropping a player's push method the first time they touched Email, leaving
+  // the subscription stored and nothing ever sent — is now unrepresentable
+  // rather than avoided by hand. The push handler is symmetric for the same
+  // reason.
+  const handleEmailToggle = async (checked: boolean) => {
+    try {
+      await setReminderMethod.mutateAsync({ method: 'email', enabled: checked })
+      toast.success('Delivery methods updated')
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, 'Failed to update delivery methods'))
+    }
+  }
+
+  /**
+   * WIRING ONLY — three mutations and two values. Every rule this switch has
+   * lives in `applyPushToggle` (push-subscribe.ts).
+   *
+   * NOTHING HERE DECIDES ANYTHING, and that is deliberate rather than tidy.
+   * 159eab4 left the browser-availability decision in this file, inside two
+   * closures, and the code-quality review reintroduced the whole bug by
+   * reverting them with 869/869 still green — because no test in the suite
+   * could execute a closure defined in a React handler. `browser` and
+   * `applicationServerKey` are now passed as VALUES, so the asymmetry between
+   * on (blocked without a browser) and off (never blocked) is enforced where
+   * it can be asserted. What is left is the three things a pure function
+   * cannot do: read the globals, own the pending flag, and turn an outcome
+   * into a toast.
+   */
+  const handlePushToggle = async (checked: boolean) => {
+    setPushPending(true)
+    try {
+      const outcome = await applyPushToggle(checked, {
+        browser: browserPush(),
+        // `?? null`, never `vapidPublicKey!`: the switch only renders when
+        // this is a string, but a narrowing that lives in JSX is not one
+        // TypeScript can see here, and an assertion would turn a future
+        // regression into a subscription bound to the string "undefined".
+        // applyPushToggle rejects the null rather than trusting this.
+        applicationServerKey: vapidPublicKey ?? null,
+        save: (subscription) => savePushSubscription.mutateAsync(subscription),
+        removeStored: (endpoint) => removePushSubscription.mutateAsync({ endpoint }),
+        setMethod: (enabled) => setReminderMethod.mutateAsync({ method: 'push', enabled }),
+      })
+
+      if (!outcome.ok) {
+        toast.error(pushFailureMessage(outcome.reason))
+        return
+      }
+      if (outcome.unsubscribeError) {
+        // Not a toast and not Sentry: the player asked for push off and push
+        // is off. What survives is an inert browser-side subscription that the
+        // next 'on' reuses. console.warn is what the eslint config leaves open
+        // in src/ for exactly this (see register-sw.ts).
+        //
+        // THE ENDPOINT IS NOT LOGGED, and must not be added. A push endpoint
+        // is a capability URL: anyone holding it can send this player
+        // notifications until it expires. The console is copied into bug
+        // reports and read over shoulders.
+        console.warn('Push unsubscribe failed locally; the stored subscription was removed', {
+          message:
+            outcome.unsubscribeError instanceof Error
+              ? outcome.unsubscribeError.message
+              : String(outcome.unsubscribeError),
+        })
+      }
+      toast.success('Delivery methods updated')
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, 'Failed to update delivery methods'))
+    } finally {
+      setPushPending(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col space-y-6 py-4">
+      <div className="flex flex-col space-y-1.5">
+        <h3 className="text-lg font-semibold leading-none tracking-tight">Notification Settings</h3>
+        <p className="text-sm text-muted-foreground">Review and manage your notification settings</p>
+      </div>
+
+      <div className="flex items-center justify-between gap-4">
+        <Label htmlFor="time-zone-select">Time Zone</Label>
+        <div className="flex items-center gap-2">
+          <Select
+            onValueChange={handleTimeZoneChange}
+            defaultValue={canonicalZone ?? undefined}
+            disabled={updateTimeZone.isPending}
+          >
+            <SelectTrigger id="time-zone-select" className="w-[115px] md:w-[280px]">
+              <SelectValue>{timeZoneDisplay(canonicalZone, isSmallScreen)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent className="max-h-[300px] overflow-y-auto">
+              {/*
+                THE PLAYER'S OWN ZONE FIRST, WHEN THE CURATED LIST OMITS IT.
+                Without an option carrying this value the Select has nothing
+                matching `defaultValue`, so the stored zone is unrepresented and
+                any interaction replaces it with a neighbouring one — silently
+                moving when the daily reminder fires (wordle-teams-54s).
+              */}
+              {unlistedZone && (
+                <SelectGroup>
+                  <SelectLabel>Your time zone</SelectLabel>
+                  <SelectItem value={unlistedZone.value}>{unlistedZone.label}</SelectItem>
+                </SelectGroup>
+              )}
+              {TIME_ZONE_GROUPS.map((group) => (
+                <SelectGroup key={group.label}>
+                  <SelectLabel>{group.label}</SelectLabel>
+                  {group.items.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ))}
+            </SelectContent>
+          </Select>
+          {updateTimeZone.isPending && (
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+          )}
+        </div>
+      </div>
+
+      <Separator />
+
+      <div className="flex flex-col space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col space-y-1">
+            <Label htmlFor="reminder-time-select">Board Entry Reminder</Label>
+            <p className="text-sm text-muted-foreground">Daily reminder for incomplete boards</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select
+              onValueChange={handleReminderTimeChange}
+              defaultValue={reminderDeliveryTime}
+              disabled={updateReminderTime.isPending}
+            >
+              <SelectTrigger id="reminder-time-select" className="w-[100px]">
+                <SelectValue>{label(reminderDeliveryTime)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent className="max-h-[300px] overflow-y-auto">
+                {REMINDER_TIMES.map((time) => (
+                  <SelectItem key={time} value={time}>
+                    {label(time)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {updateReminderTime.isPending && (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <Label htmlFor="email-reminders">Email</Label>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="email-reminders"
+              checked={reminderDeliveryMethods.includes('email')}
+              onCheckedChange={handleEmailToggle}
+              disabled={setReminderMethod.isPending || pushPending}
+            />
+            {setReminderMethod.isPending && !pushPending && (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+            )}
+          </div>
+        </div>
+
+        {/*
+          RENDERED ONLY WHERE PUSH IS CONFIGURED. `vapidPublicKey` is null on a
+          deployment with no VAPID_PUBLIC_KEY set — including the local
+          anonymous backend the e2e suite runs against, which is what
+          e2e/settings.spec.ts asserts on. Nothing else on this tab is
+          conditional, and this one is: a switch that subscribes against a key
+          nobody holds looks like it worked and never delivers anything.
+        */}
+        {vapidPublicKey && (
+          <div className="flex items-center justify-between">
+            <Label htmlFor="push-reminders">Push</Label>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="push-reminders"
+                // FROM THE SERVER'S ARRAY, never from local state. This is what
+                // makes a denied permission leave the switch visibly off: the
+                // handler returns before writing 'push', so there is nothing
+                // for this to read back.
+                checked={reminderDeliveryMethods.includes('push')}
+                onCheckedChange={handlePushToggle}
+                disabled={pushPending || setReminderMethod.isPending}
+              />
+              {pushPending && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

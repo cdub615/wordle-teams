@@ -1,0 +1,93 @@
+import * as Sentry from '@sentry/tanstackstart-react'
+import { createRouter as createTanStackRouter } from '@tanstack/react-router'
+import { QueryClient, notifyManager } from '@tanstack/react-query'
+import { ConvexQueryClient } from '@convex-dev/react-query'
+import { setupRouterSsrQueryIntegration } from '@tanstack/react-router-ssr-query'
+import { routeTree } from './routeTree.gen'
+import { SENTRY_RELEASE, TRACES_SAMPLE_RATE, sentryEnvironment } from './lib/sentry-config'
+import { captureError } from './lib/sentry-capture'
+import { resolveConvexUrl } from './lib/convex-url'
+
+export function getRouter() {
+  if (typeof window !== 'undefined') {
+    notifyManager.setScheduler(window.requestAnimationFrame)
+  }
+
+  // The runtime var wins over the build-time literal, and the whole argument
+  // for that — plus the 500 it fixes — is in lib/convex-url.ts. The
+  // `import.meta.env` read stays HERE because vite substitutes that exact
+  // expression where it is written; moved into the helper it would resolve
+  // against the helper's own import.meta and inline as undefined.
+  const convexUrl = resolveConvexUrl(import.meta.env.VITE_CONVEX_URL)
+
+  const convexQueryClient = new ConvexQueryClient(convexUrl, { expectAuth: true })
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        queryKeyHashFn: convexQueryClient.hashFn(),
+        queryFn: convexQueryClient.queryFn(),
+      },
+    },
+  })
+  convexQueryClient.connect(queryClient)
+
+  const router = createTanStackRouter({
+    routeTree,
+    context: { queryClient, convexQueryClient },
+    scrollRestoration: true,
+    defaultPreload: 'intent',
+    defaultPreloadStaleTime: 0,
+    // Every route error that reaches a boundary without its own onCatch —
+    // loaders, beforeLoad, rendering — on the server as well as in the browser.
+    //
+    // Router-level rather than an onCatch on the root route: TanStack catches
+    // an error at the boundary of the route that threw, not at the root, so a
+    // root-only handler never fires for a child route. Verified the hard way on
+    // beta — a root onCatch produced no log line at all.
+    //
+    // This is what makes route errors visible at all. TanStack Start converts a
+    // throw into a response before it leaves the fetch handler, so the Sentry
+    // wrappers in server.ts never see it. See wordle-teams-7qa.
+    //
+    // KNOWN LIMIT, measured not assumed: this fires in the BROWSER, including
+    // for errors that originated during SSR — React does not run
+    // componentDidCatch while server rendering, so the boundary only catches
+    // once the client hydrates. A real visitor's SSR loader error is therefore
+    // reported (confirmed on beta); the same request made by curl or a crawler,
+    // which never hydrates, is not. Server route handlers are not affected —
+    // they report without a browser via withErrorCapture.
+    defaultOnCatch: (error) => captureError(error, { boundary: 'router' }),
+  })
+  setupRouterSsrQueryIntegration({ router, queryClient })
+
+  if (!router.isServer) {
+    Sentry.init({
+      dsn: import.meta.env.VITE_SENTRY_DSN,
+      // Derived from the hostname rather than a VITE_ var, because this bundle
+      // is one artifact served on every name its deployment answers to and
+      // import.meta.env is inlined at build time — see the argument on
+      // sentryEnvironment. Safe to read window here: this branch is already
+      // behind !router.isServer.
+      environment: sentryEnvironment(window.location.hostname),
+      // The worker filled this in for itself from CF_VERSION_METADATA.id; the
+      // browser had nothing, so no client error or pageload trace could be tied
+      // to a deploy (wordle-teams-b7av). Same value on both halves now, so the
+      // two spans of one trace agree.
+      release: SENTRY_RELEASE,
+      tracesSampleRate: TRACES_SAMPLE_RATE,
+      // Without a browser-tracing integration nothing on the client ever starts
+      // a span, so tracesSampleRate above would sample a population of zero.
+      // The TanStack variant is the one that knows about router navigations —
+      // the generic browserTracingIntegration only sees the initial pageload.
+      integrations: [Sentry.tanstackRouterBrowserTracingIntegration(router)],
+    })
+  }
+
+  return router
+}
+
+declare module '@tanstack/react-router' {
+  interface Register {
+    router: ReturnType<typeof getRouter>
+  }
+}

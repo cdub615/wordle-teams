@@ -1,0 +1,236 @@
+import { useState } from 'react'
+import { convexQuery } from '@convex-dev/react-query'
+import { useSuspenseQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
+import { api } from '../../convex/_generated/api'
+import { BoardEntryButton } from '#/components/board-entry/button.tsx'
+import { TodayPanelSkeleton } from '#/components/dashboard-skeletons.tsx'
+import { Button } from '#/components/ui/button.tsx'
+import { trackFunnel } from '#/lib/funnel.ts'
+import { useHydrated } from '#/lib/use-hydrated.ts'
+import { waitingOnSummary } from '#/lib/waiting-on.ts'
+import { displayNamesFor } from '#/lib/display-names.ts'
+import { cn } from '#/lib/utils.ts'
+import { monthContainsToday, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
+import type { Id } from '../../convex/_generated/dataModel'
+
+/** At most three names before the disclosure. The design's number, not a guess. */
+const NAME_LIMIT = 3
+
+/**
+ * "Did I play today", and "who are we waiting on" — the two jobs the month grid
+ * answers badly by asking you to locate a cell.
+ *
+ * NO NEW QUERY. This joins the `getTeamMonth` subscription that the dashboard
+ * already fetches for ScoresTable, TeamBoards and ScoringSystemCard, so it
+ * costs no round-trip and updates live with them. getTeamMonthFor maps over
+ * team.playerIds, so the payload carries EVERY MEMBER, not only those with
+ * scores — which is exactly what "who hasn't played" needs and is why no
+ * backend change is required.
+ *
+ * THE HYDRATION HAZARD IS THE REAL TRAP HERE, and it is why this component
+ * renders a skeleton rather than a value on the server. "Today" is a
+ * client-only fact; scores-table.tsx records the rule and the reason. That
+ * table can render a *neutral* pre-hydration state (every day reads "not yet
+ * due", which draws blanks rather than wrong values) because today is one
+ * detail of a month grid. This panel is ENTIRELY about today — there is no
+ * neutral version of it — so guessing would be a guaranteed mismatch, and a
+ * mismatch here is a minified React #418 in production.
+ *
+ * LONG NAMES USE THE TABLE'S RULE, IMPORTED. lib/display-names.ts is shared
+ * with scores-table.tsx so the two surfaces cannot call the same person two
+ * different things on one screen.
+ *
+ * CONSTANT HEIGHT AT ANY TEAM SIZE, UNTIL THE READER OPENS THE DISCLOSURE.
+ * Team membership is unbounded (FREE_TEAM_LIMIT caps teams per player, not
+ * members per team), so nothing here renders one element per member: the
+ * count and the bar are fixed, and the name list is capped by
+ * waitingOnSummary with the remainder behind a disclosure. Expanding that
+ * disclosure is a deliberate, user-initiated exception to the constant
+ * height, not an unbounded default — the reader who clicks "and N others" on
+ * a 40-person team is opting into a taller panel, and the same toggle folds
+ * it back.
+ */
+export function TodayPanel({
+  teamId,
+  month,
+  myPlayerId,
+  className,
+}: {
+  teamId: Id<'teams'>
+  month: string
+  myPlayerId?: Id<'players'>
+  className?: string
+}) {
+  const hydrated = useHydrated()
+  const [expanded, setExpanded] = useState(false)
+  const { data } = useSuspenseQuery(convexQuery(api.scores.getTeamMonth, { teamId, month }))
+
+  // Before hydration there is no honest answer — see the note above.
+  if (!hydrated) return <TodayPanelSkeleton className={className} />
+
+  const today = toPuzzleDay(new Date())
+  // Absent, not empty. A "Today" panel while browsing March is noise.
+  if (!monthContainsToday(month, today)) return null
+
+  const { players } = data
+  const played = new Set(
+    players.filter((p) => p.scores.some((s) => s.puzzleDay === today)).map((p) => p.id),
+  )
+  // THE SAME COLLISION RULE THE TABLE USES, imported rather than restated: two
+  // Adas on a team must not both read as "Ada" in a "waiting on" line that the
+  // table below disambiguates.
+  const displayNames = displayNamesFor(players)
+  const summary = waitingOnSummary(
+    players.map((p) => ({ id: p.id, label: displayNames.get(p.id) ?? p.firstName })),
+    played,
+    NAME_LIMIT,
+  )
+  const iPlayed = myPlayerId !== undefined && played.has(myPlayerId)
+  const pct = summary.total === 0 ? 0 : Math.round((summary.playedCount / summary.total) * 100)
+
+  return (
+    <section aria-label="Today" data-testid="today-panel" className={cn('rounded-md border p-4', className)}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold md:text-base">
+          {iPlayed ? "You've played today" : 'You have not played today'}
+        </h2>
+        {/* ONE CONTROL IN THIS SLOT, NEVER TWO, AND THE TERNARY IS WHAT MAKES
+            THAT A PROPERTY RATHER THAN A COINCIDENCE (wordle-teams-wty4.1.15).
+            Written as two predicates — `{iPlayed && …}` beside the
+            `{!iPlayed && …}` this replaced — "exactly one is on screen" would
+            be an invariant a later edit to either condition could silently
+            break. As one expression it cannot be.
+
+            `search={{ team: teamId }}`, AND DELIBERATELY NO `month`.
+            routes/insights.tsx's validateSearch records that these params name
+            what the page is showing and that the URL is the source of truth, so
+            the team travels with the link; routes/chat.tsx's back control
+            carries the reasoning for passing it explicitly rather than letting
+            the destination default. `month` would be noise rather than state:
+            this component has already returned null unless
+            monthContainsToday(month) above, so `month` here is the value
+            resolveInsightsSearch (lib/insights-search.ts) falls back to on its
+            own.
+
+            THE LABEL NAMES THE PAGE'S SUBJECT RATHER THAN A FIGURE. The
+            figures on that page are either not free — a personal average or
+            trend needs `layer2`, which is `paid ? 'full' : 'none'`
+            (convex/lib/insightsAccess.ts) — or not about today: the corpus
+            rates only globally completed days (insights/board-row.tsx), and the
+            opener rank is a fact about the opening word.
+            wordle-teams-wty4.1.15 holds the alternatives this ruled out.
+
+            WHAT SURVIVES THE SWAP, AND WHAT CHANGES BELOW md.
+            `variant="secondary"` matches BoardEntryButton's trigger in both of
+            its branches, so the slot keeps the same colour and border treatment
+            whichever control holds it. The WIDTH does not survive: below `md`
+            that button is an icon-only square while this link keeps its text. A
+            `+` glyph carries "add" on its own, which is why it can drop its
+            label at all; no glyph carries "how do you compare", and the app's
+            two other routes to this page spell the word out too (app-menu.tsx
+            pairs the chart icon with "Insights", and next-step-card.tsx's
+            GRADUATION_CTA is "See your insights"). So this control keeps its
+            text and leans on the row's `flex-wrap` above instead.
+
+            AND THAT WRAP WAS MEASURED, NOT ASSUMED (2026-09-25, Chromium at
+            390x844 on /app, the e2e account's one-member team). The link does
+            take a line of its own: the row goes from 40px to 72px and the link
+            starts at the heading's left edge rather than beside it. Nothing
+            scrolls sideways — row, card, body and document all reported zero
+            horizontal overflow, in this state and in the board-entry one.
+            NO TEST ASSERTS THOSE NUMBERS, deliberately: this row wraps by
+            design, so a pixel budget here would measure something structurally
+            different from the overflow hazard app.tsx's controls row carries
+            (wordle-teams-5jcn.22). e2e/board-entry.spec.ts holds the
+            behavioural half: that the real router serializes this `search`
+            into `?team=` and nothing else. */}
+        {iPlayed ? (
+          <Button variant="secondary" asChild>
+            <Link
+              to="/insights"
+              search={{ team: teamId }}
+              onClick={() => trackFunnel({ name: 'dashboard_insights_click' })}
+            >
+              How do you compare?
+            </Link>
+          </Button>
+        ) : (
+          /* A distinct accessible name from the toolbar's own "Board Entry"
+             (board-entry/button.tsx, wordle-teams-vgat) — both buttons can be
+             on screen at once, since this panel's !iPlayed and the toolbar's
+             unconditional render are independent, and two controls sharing one
+             name is ambiguous to a locator and to a screen reader alike. */
+          <BoardEntryButton teamId={teamId} month={month} label="Enter Today's Board" />
+        )}
+      </div>
+
+      <div className="mt-3">
+        <div className="flex items-baseline justify-between text-xs text-muted-foreground md:text-sm">
+          <span>
+            {summary.playedCount} of {summary.total} played
+          </span>
+          <span className="tabular-nums">{pct}%</span>
+        </div>
+        {/* A plain div, not <progress>: the role and the values are stated
+            explicitly so a screen reader gets the same sentence the sighted
+            reader does, without the UA's own styling to fight. */}
+        <div
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={summary.total}
+          aria-valuenow={summary.playedCount}
+          aria-label="Players who have entered a board today"
+          // The visible "N of M played" span beside this bar has no
+          // programmatic link to it, so without this a screen reader hears
+          // the label plus an AT-computed percentage while a sighted reader
+          // sees the count — aria-valuetext replaces that computed
+          // percentage with the same sentence the sighted reader gets.
+          aria-valuetext={`${summary.playedCount} of ${summary.total} played`}
+          className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted"
+        >
+          {/* bg-accent-solid, NOT bg-primary (wordle-teams-5jcn.21). --primary
+              maps to --text (styles.css), which is near-white in dark — the
+              owner flagged the fill as stark white on the live dashboard.
+              --accent-solid is the brand green already used for prose links
+              and the focus ring, and against this bar's bg-muted track
+              (--surface-sunken) it clears the 3:1 non-text contrast bar in
+              both themes — the same token pair styles.test.ts already
+              measures for the feature-card icons (4.56 light / 7.48 dark). */}
+          <div className="h-full rounded-full bg-accent-solid transition-[width]" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+
+      {summary.waiting.length > 0 && (
+        <p className="mt-3 text-xs text-muted-foreground md:text-sm">
+          Waiting on {(expanded ? summary.waiting : summary.shown).join(', ')}
+          {summary.othersCount > 0 && (
+            <>
+              {' '}
+              {/* STAYS MOUNTED ACROSS THE TOGGLE, in both directions — only
+                  its label and aria-expanded change. A conditionally
+                  rendered button here would unmount on the very click that
+                  activates it, throwing keyboard and screen-reader focus
+                  back to <body>. Staying mounted also gives the reader a way
+                  back to the compact view, which an expand-only control
+                  never did — on an unbounded team that one-way door left the
+                  panel permanently tall. */}
+              <Button
+                variant="link"
+                className="h-auto p-0 text-xs md:text-sm"
+                aria-expanded={expanded}
+                onClick={() => setExpanded((current) => !current)}
+              >
+                {expanded
+                  ? 'Show fewer'
+                  : `and ${summary.othersCount} other${summary.othersCount === 1 ? '' : 's'}`}
+              </Button>
+            </>
+          )}
+        </p>
+      )}
+    </section>
+  )
+}
+
+export default TodayPanel
