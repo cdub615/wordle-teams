@@ -92,8 +92,29 @@ Cutover day should leave exactly two actions: delete a block, press send.
 
       **A PO Box counts.** 16 CFR 316.2 accepts a post office box the sender has accurately
       registered with USPS, or a private mailbox from a commercial mail receiving agency —
-      so a home address is not the only lawful option. Canada's CASL wants a mailing address
-      too, so this is not US-only. Confirm the specifics for your own situation.
+      so a home address is not the only lawful option. A city/state/zip with no street line
+      is **not** one of the three accepted forms; the build rejects it, because it discloses
+      your area without satisfying the rule. Canada's CASL wants a mailing address too, so
+      this is not US-only. Confirm the specifics for your own situation.
+
+      **THE APP'S EXISTING MAIL IS NOT A PRECEDENT.** Reminders, OTP and invites carry no
+      postal address and are fine: the requirement is on *commercial* email, and those are
+      transactional under the primary-purpose test. A launch announcement is not, so the
+      exemption they rely on does not reach it. "It delivered fine" was never evidence
+      either way — nothing bounces for a missing address.
+
+      **To send without one anyway** — a real choice, and the owner's to make:
+
+      ```
+      node scripts/build-launch-email.mjs --all --no-address
+      ```
+
+      That **removes the line**, rather than leaving a blank or a bracketed placeholder.
+      Shipping the placeholder is the one outcome the build refuses outright. Note the
+      weighting: segment C is 331 people who never used the product, the highest
+      spam-complaint cohort on the list, sending from **the same domain that carries OTP and
+      reminders** — so this send, not the transactional mail, is where domain reputation is
+      actually exposed.
 
 - [ ] **1.4 Build all three broadcasts** from `emails/*.html`, **PWA block still in**,
       each pointed at its segment filter (§2).

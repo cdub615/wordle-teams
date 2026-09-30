@@ -14,6 +14,7 @@
  *   node scripts/build-launch-email.mjs a            # print segment A
  *   node scripts/build-launch-email.mjs a | wl-copy  # straight to the clipboard
  *   node scripts/build-launch-email.mjs --all        # write all three to ./build/emails
+ *   node scripts/build-launch-email.mjs --all --no-address   # omit the footer address
  *
  * IT DOES NOT TOUCH THE MERGE TAGS. {{{FIRST_NAME|there}}} and
  * {{{RESEND_UNSUBSCRIBE_URL}}} must reach Resend intact or the broadcast either
@@ -46,12 +47,53 @@ const ADDRESS_FILE = '.launch-postal-address'
 const escapeHtml = (value) =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-function postalAddress() {
-  const fromEnv = process.env.LAUNCH_POSTAL_ADDRESS?.trim()
-  if (fromEnv) return escapeHtml(fromEnv)
-  if (existsSync(ADDRESS_FILE)) {
-    const fromFile = readFileSync(ADDRESS_FILE, 'utf8').trim()
-    if (fromFile) return escapeHtml(fromFile)
+/**
+ * Reject an address mail could not actually be delivered to.
+ *
+ * 16 CFR 316.2 accepts three things and only three: a street address, a PO box
+ * registered with USPS, or a private mailbox registered with a CMRA. "Austin TX
+ * 78701" is none of them -- it discloses roughly where you live and still does not
+ * satisfy the rule, which is the worst of both trades and an easy one to make when
+ * you are trying to avoid publishing a home address.
+ *
+ * The heuristic is deliberately loose: a PO/PMB box token, or any component that
+ * STARTS with a number (a street number, here and in most of the world). Set
+ * LAUNCH_POSTAL_ADDRESS_UNCHECKED=1 for an address this cannot parse -- some are
+ * genuinely unusual, and a build script is the wrong place to be the final word.
+ */
+function looksDeliverable(address) {
+  if (/\b(p\.?\s?o\.?\s*box|post\s+office\s+box|pmb|private\s+mailbox)\b/i.test(address)) return true
+  return address.split(',').some((part) => /^\s*\d/.test(part))
+}
+
+function postalAddress(omit) {
+  // THE ONE OUTCOME THIS SCRIPT EXISTS TO PREVENT is a bracketed placeholder going
+  // out to 401 people. Whether to CARRY an address is the operator's call -- the
+  // reminders and OTP mail correctly carry none, being transactional -- so this is
+  // a real choice rather than a thing to route around. It is just not a silent one.
+  if (omit) {
+    process.stderr.write(
+      '  ! --no-address: the footer will carry NO postal address.\n' +
+        '    CAN-SPAM requires one in COMMERCIAL email; the exemption the app\'s\n' +
+        '    reminders and OTP rely on is for transactional mail and does not\n' +
+        '    extend to a launch announcement. Proceeding as instructed.\n',
+    )
+    return null
+  }
+  const raw = process.env.LAUNCH_POSTAL_ADDRESS?.trim() ||
+    (existsSync(ADDRESS_FILE) ? readFileSync(ADDRESS_FILE, 'utf8').trim() : '')
+  if (raw) {
+    if (!looksDeliverable(raw) && process.env.LAUNCH_POSTAL_ADDRESS_UNCHECKED !== '1') {
+      throw new Error(
+        `That does not look like a deliverable address:\n\n    ${raw}\n\n` +
+          '  16 CFR 316.2 accepts a street address, a PO box registered with USPS,\n' +
+          '  or a CMRA private mailbox. A city/state/zip with no street line is none\n' +
+          '  of those -- it discloses your area WITHOUT satisfying the requirement.\n\n' +
+          '  If this address really is deliverable and just formatted unusually:\n' +
+          '    LAUNCH_POSTAL_ADDRESS_UNCHECKED=1 node scripts/build-launch-email.mjs --all',
+      )
+    }
+    return escapeHtml(raw)
   }
   throw new Error(
     'No postal address.\n' +
@@ -78,7 +120,13 @@ function build(key, address) {
   if (!raw.includes(PLACEHOLDER)) {
     throw new Error(`${seg.file}: the postal-address placeholder is missing — has the footer been edited?`)
   }
-  const clean = stripComments(raw).split(PLACEHOLDER).join(address)
+  // `address === null` means the operator chose to omit it. The line is REMOVED,
+  // not left blank and not left as the placeholder -- see --no-address below.
+  const stripped = stripComments(raw)
+  const clean =
+    address === null
+      ? stripped.replace(new RegExp(`\\s*<p class="t-mute"[^>]*>\\s*${PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*</p>`), '')
+      : stripped.split(PLACEHOLDER).join(address)
   const bytes = Buffer.byteLength(clean, 'utf8')
 
   for (const tag of ['{{{FIRST_NAME|there}}}', '{{{RESEND_UNSUBSCRIBE_URL}}}']) {
@@ -100,7 +148,8 @@ function build(key, address) {
   return clean
 }
 
-const arg = (process.argv[2] ?? '').toLowerCase()
+const omitAddress = process.argv.includes('--no-address')
+const arg = (process.argv.find((a) => !a.startsWith('--') && a !== process.argv[0] && a !== process.argv[1]) ?? '').toLowerCase()
 
 // A MISSING ADDRESS IS AN OPERATOR ERROR, NOT A CRASH. The message it carries is
 // the whole point of the failure, and a Node stack trace buries it.
@@ -115,7 +164,7 @@ function main(arg) {
 if (arg === '--all') {
   const out = join('build', 'emails')
   mkdirSync(out, { recursive: true })
-  const address = postalAddress()
+  const address = postalAddress(omitAddress)
   process.stderr.write('Building all three:\n')
   for (const key of Object.keys(SEGMENTS)) {
     const dest = join(out, `launch-${key}.html`)
@@ -124,7 +173,7 @@ if (arg === '--all') {
   }
   process.stderr.write('\nPaste each into its Resend broadcast. build/ is gitignored.\n')
 } else if (arg in SEGMENTS) {
-  process.stdout.write(build(arg, postalAddress()))
+  process.stdout.write(build(arg, postalAddress(omitAddress)))
 } else {
   throw new Error('usage: node scripts/build-launch-email.mjs <a|b|c|--all>')
 }
