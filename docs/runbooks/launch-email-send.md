@@ -64,10 +64,11 @@ Cutover day should leave exactly two actions: delete a block, press send.
       repo. **Re-read the printed counts** — the segment sizes below are illustrative,
       the CSV is authoritative.
 
-- [ ] **1.2 Create the Resend Audience** and import the CSV. Confirm all five custom
-      properties survived the import: `membership_status`, `days_since_last_board`,
-      `signup_year`, `team_count`, `time_zone`. The segmentation is worthless without
-      `days_since_last_board`.
+- [ ] **1.2 Create the Resend Audience** and import the CSV. Confirm all six custom
+      properties survived the import: `segment`, `membership_status`,
+      `days_since_last_board`, `signup_year`, `team_count`, `time_zone`. **`segment` is
+      the one the send depends on** — create it with an empty fallback, and check its
+      three counts against what the export printed before trusting any broadcast.
 
 - [x] **1.3 The postal address — DECIDED 2026-09-30: send without one.**
 
@@ -245,17 +246,78 @@ It verifies both merge tags and the terms-change notice survived the strip, refu
 a file still carrying the address placeholder, and prints each subject line and segment
 filter. `--no-address` is the §1.3 decision. `build/` is gitignored.
 
-**2. Create the Audience** and import the CSV from §1.1. Confirm all five custom
-properties survived: `membership_status`, `days_since_last_board`, `signup_year`,
-`team_count`, `time_zone`.
+**2. Create the Audience** and import the CSV from §1.1. Confirm all six custom
+properties survived: `segment`, `membership_status`, `days_since_last_board`,
+`signup_year`, `team_count`, `time_zone` — and that **`segment` has no fallback value**,
+since a fallback would hand every contact a segment they did not earn.
 
-**3. Create three broadcasts**, one per segment, each with:
+**3. Build the three Segments — filter on `segment`, NOT on `days_since_last_board`.**
 
-| | Subject | Segment filter |
-|---|---|---|
-| A | Wordle Teams has been rebuilt | `days_since_last_board <= 30` |
-| B | Your Wordle Teams scoreboard is still there | `days_since_last_board > 30` |
-| C | It takes about ten seconds to get on the board | `days_since_last_board` is empty |
+| | Subject | Segment filter | ~n |
+|---|---|---|---|
+| A | Wordle Teams has been rebuilt | `segment` equals `active` | 8 |
+| B | Your Wordle Teams scoreboard is still there | `segment` equals `lapsed` | 62 |
+| C | It takes about ten seconds to get on the board | `segment` equals `never` | 331 |
+
+`segment` is a precomputed column the export now writes (`active` / `lapsed` / `never`).
+**The original plan filtered on `days_since_last_board` directly and that was a bad
+dependency**, for two reasons found while setting this up:
+
+- **Resend does not document which filter operators segments support.** Segment C was
+  specified as "`days_since_last_board` is empty", and nothing guarantees that condition
+  is expressible.
+- **Blank cells resolve to the property's fallback value.** Resend applies a Contact
+  Property's fallback when a contact has none — so a fallback of `0` on
+  `days_since_last_board` would make all 331 people who have **never played** read as
+  "played today" and send them the wrong email, silently and irreversibly.
+
+String equality is the one operator every segmentation engine has, and the export now
+asserts the three counts partition the audience exactly, so a contact cannot land in two
+segments or in none.
+
+**You must re-import for this.** Contacts loaded before this change have no `segment`
+property. Create it as a Contact Property first, **leave its fallback empty**, then
+re-import the fresh CSV from §1.1 — which you are re-running anyway, since the counts
+drift. Verify each segment's count against the export's printed numbers before sending.
+
+If you would rather use what is already loaded: open the segment builder and see whether
+`days_since_last_board` offers numeric comparison *and* an is-empty / is-not-set
+condition. If it does, and the three counts come out at 8 / 62 / 331, that works too.
+**Check the counts either way** — that is the actual test, not which field you filtered on.
+
+**4. Reply-To: set one, to a mailbox you actually read.**
+
+The From address is a send-only local part (`hello@` / `launch@`), and people *will*
+reply to this — especially segment C, where 331 people who never got started are being
+asked to try again. Those replies are the most valuable product feedback in the whole
+launch, and a reply that bounces or vanishes is a bad first impression from a message
+whose whole job is re-engagement. Set `Reply-To` to a monitored inbox.
+
+**5. Topics: optional here, and opt-in if you use one.**
+
+Topics are the recipient-facing preference layer; Segments are internal targeting.
+Resend's own framing: *"Segments are for targeting. Topics are for protecting
+preferences."* At broadcast time you pick a Segment, then optionally label the content
+with a Topic, and Resend excludes anyone globally unsubscribed **or opted out of that
+Topic**.
+
+**You do not need one for this send.** The three segments partition the audience, so
+every contact receives exactly one email — the repeat-send problem Topics solve does not
+arise here.
+
+**If you create one anyway, it MUST default to Opt-in.** An Opt-out Topic starts with
+nobody subscribed, so labelling a broadcast with one sends it to **zero people** — a
+failure that looks like a successful send. Opt-in means everyone is subscribed by
+default and can opt out, which is what a launch announcement to existing account holders
+wants.
+
+The argument *for* one Topic (say "Product news", opt-in) is future sends: it gives a
+later marketing email a preference channel, and lets someone mute product news without
+unsubscribing from the audience wholesale.
+
+**Unsubscribes here do not endanger sign-in mail.** Reminders, OTP and invites go out via
+`@convex-dev/resend` as direct sends, not against this Audience, so an audience-level
+unsubscribe does not gate them. Worth knowing before you worry about the 331.
 
 Paste the built HTML into the **code/HTML** view, not the visual editor — a WYSIWYG
 editor will rewrite the table markup and the media queries.
@@ -273,12 +335,12 @@ email still looks correct on a desktop in light mode. The test send in §1.5 is 
 check it. Their scaffold shipping a `prefers-color-scheme` query of its own is good
 evidence head styles are kept, but evidence is not the same as having seen it.
 
-**4. From address.** The transactional senders use `auth@`, `invites@` and `reminders@`
+**6. From address.** The transactional senders use `auth@`, `invites@` and `reminders@`
 on the verified `wordleteams.com` domain. A launch send wants its own local part
 (`hello@` or `launch@`) so a marketing unsubscribe never suppresses sign-in mail for the
 same address. Confirm SPF/DKIM are green on the domain before sending.
 
-**5. Test send each one to yourself** and check the list in §1.5 before any real send.
+**7. Test send each one to yourself** and check the list in §1.5 before any real send.
 
 ---
 
