@@ -62,3 +62,24 @@ export function formatMonthLabel(month: PuzzleMonth): string {
 export function formatDayLabel(day: PuzzleDay): string {
   return longDay.format(fromPuzzleDay(day))
 }
+
+/**
+ * 'October 30, 2026' — an absolute instant as a calendar date.
+ *
+ * SHARES `longDay` WITH formatDayLabel rather than constructing its own options,
+ * so the two cannot drift about what a long date looks like. The test asserts
+ * they agree on the same day.
+ *
+ * TAKES EPOCH MS, WHICH IS WHY IT EXISTS: every other export here is keyed to a
+ * PuzzleDay or PuzzleMonth string, and `trialEndsAt` (convex/lib/insightsAccess.ts)
+ * is a timestamp.
+ *
+ * THE ZONE IS THE RUNTIME'S, AND THAT IS CORRECT RATHER THAN SLOPPY. A trial
+ * ends at an instant; which calendar day that falls on genuinely differs by
+ * viewer, and each should see their own. It is safe from hydration mismatch only
+ * because its one caller renders from client-only useQuery data — see
+ * components/trial-active-card.tsx, which records that obligation.
+ */
+export function formatInstantLabel(instant: number): string {
+  return longDay.format(new Date(instant))
+}
