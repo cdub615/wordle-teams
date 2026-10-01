@@ -107,7 +107,7 @@ const panel = (
 
 describe('a free player on their first board', () => {
   const freeFirstBoard = {
-    access: { layer1: 'free' as const, layer2: 'none' as const, layer3: 'free' as const },
+    access: { layer1: 'free' as const, layer2: 'none' as const, layer3: 'free' as const, trialActive: false },
     boards: [{ puzzleDay: '2026-09-03', guesses: ['CRANE', 'SPEED'] }],
   }
 
@@ -194,7 +194,7 @@ describe('the absent states', () => {
    */
   test('an opener the corpus does not hold says so, and never shows a zero', () => {
     panel({
-      access: { layer1: 'free', layer2: 'none', layer3: 'free' },
+      access: { layer1: 'free', layer2: 'none', layer3: 'free', trialActive: false },
       boards: [{ puzzleDay: '2026-09-02', guesses: ['XXXXX'] }],
     })
     const board = screen.getByTestId('insights-board')
@@ -207,7 +207,7 @@ describe('the absent states', () => {
     // The most common case there is: today is never rated, because the source
     // aggregates only globally completed days.
     panel({
-      access: { layer1: 'free', layer2: 'none', layer3: 'free' },
+      access: { layer1: 'free', layer2: 'none', layer3: 'free', trialActive: false },
       boards: [{ puzzleDay: '2026-12-25', guesses: ['CRANE'] }],
     })
     const board = screen.getByTestId('insights-board')
@@ -221,7 +221,7 @@ describe('the absent states', () => {
 describe('a pro player', () => {
   test('sees every board and is not sold anything', () => {
     panel({
-      access: { layer1: 'full', layer2: 'full', layer3: 'full' },
+      access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false },
       boards: [
         { puzzleDay: '2026-09-03', guesses: ['CRANE'] },
         { puzzleDay: '2026-09-02', guesses: ['ORATE'] },
@@ -233,7 +233,7 @@ describe('a pro player', () => {
   })
 
   test('still sees the attribution, which is not a free-tier feature', () => {
-    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: [{ puzzleDay: '2026-09-01', guesses: ['SLANT'] }] })
+    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false }, boards: [{ puzzleDay: '2026-09-01', guesses: ['SLANT'] }] })
     expect(screen.getByTestId('insights-attribution').textContent).toContain('CC BY 4.0')
   })
 })
@@ -250,13 +250,13 @@ describe('Layer 2 — personal history', () => {
   test('is not rendered at all for a free player', () => {
     // The paywall. Layer 2 is pro or trial; a free player must not see it, and
     // must not see a locked shell of it either.
-    panel({ access: { layer1: 'free', layer2: 'none', layer3: 'free' }, boards: history(20) })
+    panel({ access: { layer1: 'free', layer2: 'none', layer3: 'free', trialActive: false }, boards: history(20) })
     expect(screen.queryByTestId('insights-personal')).toBeNull()
     expect(screen.queryByTestId('insights-personal-thin')).toBeNull()
   })
 
   test('leads with the join, which is the sentence worth paying for', () => {
-    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: history(12) })
+    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false }, boards: history(12) })
     const headline = screen.getByTestId('insights-headline').textContent ?? ''
     expect(headline).toContain('You have opened with')
     expect(headline).toContain('CRANE')
@@ -266,7 +266,7 @@ describe('Layer 2 — personal history', () => {
   })
 
   test('shows the repertoire, the streaks and the months', () => {
-    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: history(12) })
+    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false }, boards: history(12) })
     expect(screen.getByTestId('insights-repertoire')).not.toBeNull()
     expect(screen.getByTestId('insights-consistency')).not.toBeNull()
     expect(screen.getByTestId('insights-months')).not.toBeNull()
@@ -274,7 +274,7 @@ describe('Layer 2 — personal history', () => {
 
   test('an unranked opener reads as unranked, never as rank 0', () => {
     panel({
-      access: { layer1: 'full', layer2: 'full', layer3: 'full' },
+      access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false },
       boards: Array.from({ length: 6 }, (_, i) => ({
         puzzleDay: `2026-09-0${i + 1}`,
         guesses: ['XXXXX', 'SPEED'],
@@ -302,7 +302,7 @@ describe('Layer 2 — personal history', () => {
     could not check at all.
   */
   test('a thin history says so instead of showing a mean over two boards', () => {
-    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: history(2) })
+    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false }, boards: history(2) })
     const thin = screen.getByTestId('insights-personal-thin').textContent ?? ''
     expect(thin).toContain('Your history unlocks at 5 boards')
     expect(thin).toContain(
@@ -328,7 +328,7 @@ describe('the layout, so nothing is buried', () => {
    * History are buried below miles of daily insights".
    */
   test('the summaries come before the day-by-day list in the DOM', () => {
-    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: history(30) })
+    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false }, boards: history(30) })
 
     const personal = screen.getByTestId('insights-personal')
     const daily = screen.getByTestId('insights-daily')
@@ -337,7 +337,7 @@ describe('the layout, so nothing is buried', () => {
   })
 
   test('the day-by-day list is a bounded scroll container, not a wall', () => {
-    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: history(30) })
+    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false }, boards: history(30) })
 
     const scroller = screen.getByTestId('insights-daily-scroll')
     // overflow-y-auto does nothing without an explicit max height.
@@ -362,7 +362,7 @@ describe('the layout, so nothing is buried', () => {
   })
 
   test('and says how many it is showing, since a touch device has no scrollbar', () => {
-    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: history(30) })
+    panel({ access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false }, boards: history(30) })
     expect(screen.getByTestId('insights-daily-count').textContent).toBe('Showing 30 of 30 boards')
   })
 })
@@ -373,7 +373,15 @@ describe('the day-by-day filters', () => {
     { puzzleDay: '2026-09-02', guesses: ['ORATE', 'SPEED'], answer: 'SPEED' },
     { puzzleDay: '2026-08-30', guesses: ['CRANE', 'SPEED'], answer: 'SPEED' },
   ]
-  const pro = { access: { layer1: 'full' as const, layer2: 'full' as const, layer3: 'full' as const }, boards }
+  const pro = {
+    access: {
+      layer1: 'full' as const,
+      layer2: 'full' as const,
+      layer3: 'full' as const,
+      trialActive: false,
+    },
+    boards,
+  }
 
   test('filtering by month narrows the list and the count', () => {
     panel(pro)
@@ -412,7 +420,7 @@ describe('the day-by-day filters', () => {
   })
 
   test('no filters at all on a single board — furniture that explains nothing', () => {
-    panel({ access: { layer1: 'free', layer2: 'none', layer3: 'free' }, boards: [boards[0]] })
+    panel({ access: { layer1: 'free', layer2: 'none', layer3: 'free', trialActive: false }, boards: [boards[0]] })
     expect(screen.queryByTestId('insights-filter-month')).toBeNull()
     expect(screen.queryByTestId('insights-daily-count')).toBeNull()
   })
@@ -426,7 +434,7 @@ describe('the trial must not see Layer 1’s full history', () => {
    */
   test('a trialist sees one benchmark board and the full personal history', () => {
     panel({
-      access: { layer1: 'free', layer2: 'full', layer3: 'full' },
+      access: { layer1: 'free', layer2: 'full', layer3: 'full', trialActive: true },
       boards: Array.from({ length: 12 }, (_, i) => ({
         puzzleDay: `2026-09-${String(12 - i).padStart(2, '0')}`,
         guesses: ['CRANE', 'SPEED'],
@@ -454,7 +462,7 @@ describe('InsightsScope', () => {
   })
 
   test('renders nothing for an empty boards array', () => {
-    scope({ access: { layer1: 'full', layer2: 'full', layer3: 'full' }, boards: [] })
+    scope({ access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false }, boards: [] })
     expect(screen.queryByTestId('insights-scope')).toBeNull()
   })
 
@@ -465,7 +473,7 @@ describe('InsightsScope', () => {
   */
   test('finds the earliest board’s month, given boards not in chronological order', () => {
     scope({
-      access: { layer1: 'full', layer2: 'full', layer3: 'full' },
+      access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false },
       boards: [
         { puzzleDay: '2026-09-03', guesses: ['CRANE'] },
         { puzzleDay: '2026-08-15', guesses: ['ORATE'] },
@@ -477,7 +485,7 @@ describe('InsightsScope', () => {
 
   test('singular "board" for exactly one', () => {
     scope({
-      access: { layer1: 'free', layer2: 'none', layer3: 'free' },
+      access: { layer1: 'free', layer2: 'none', layer3: 'free', trialActive: false },
       boards: [{ puzzleDay: '2026-09-03', guesses: ['CRANE'] }],
     })
     expect(screen.getByTestId('insights-scope').textContent).toContain('1 board ·')
@@ -485,7 +493,7 @@ describe('InsightsScope', () => {
 
   test('plural "boards" otherwise', () => {
     scope({
-      access: { layer1: 'full', layer2: 'full', layer3: 'full' },
+      access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false },
       boards: [
         { puzzleDay: '2026-09-03', guesses: ['CRANE'] },
         { puzzleDay: '2026-09-02', guesses: ['ORATE'] },

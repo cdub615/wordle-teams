@@ -38,6 +38,27 @@ export type Boards = {
     layer1: 'none' | 'free' | 'full'
     layer2: 'none' | 'free' | 'full'
     layer3: 'none' | 'free' | 'full'
+    /**
+     * WHETHER THE CLOCK IS RUNNING, which the server has always sent and this
+     * type used to narrow away. convex/insights.ts's myBenchmarkBoards returns
+     * `insightsAccessFor`'s whole InsightsAccess; the three layers above were
+     * everything this module needed until the trial got a visible marker.
+     *
+     * REQUIRED RATHER THAN OPTIONAL, deliberately. All but one existing fixture
+     * is a free or pro player and means `false` — the exception is the
+     * 'the trial must not see Layer 1’s full history' fixture in
+     * src/routes/-insights.hook.test.ts, whose access shape (layer1 'free' with
+     * layer2 'full') is reachable only when a trial is running, so it means
+     * `true`. An optional field would have defaulted that one fixture to the
+     * wrong value silently, which is exactly the failure mode this field exists
+     * to refuse — and would let a NEW test about the marker forget it and
+     * silently assert the absence it was written to prove. tsc naming every
+     * construction site is the point.
+     *
+     * NOT 'isPro'. The marker is gated on this and never on `layer2 === 'full'`,
+     * which is equally true for a subscriber.
+     */
+    trialActive: boolean
   }
   boards: { puzzleDay: string; guesses: string[]; answer?: string }[]
 }
