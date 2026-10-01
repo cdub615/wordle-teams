@@ -21,6 +21,7 @@ import { TeamSection } from '#/components/insights/team-section.tsx'
 import { TrendPanel } from '#/components/insights/trend-panel.tsx'
 import { TrialActiveCard } from '#/components/trial-active-card.tsx'
 import { TrialEndedCard } from '#/components/trial-ended-card.tsx'
+import { TrialMarker } from '#/components/trial-marker.tsx'
 import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { UnlockPrompt } from '#/components/insights/unlock-prompt.tsx'
 import { InvitePlayerDialog } from '#/components/teams/invite-player-dialog.tsx'
@@ -479,6 +480,18 @@ export function InsightsPanel({
     <div className="space-y-3">
       {data.access.layer2 === 'full' && (
         <>
+          {/*
+            ABOVE BOTH BRANCHES, ON ONE CONDITION. Layer 2 is empty for 368 of
+            392 accounts, so the thin branch below is the common case — a marker
+            inside the full branch only would be invisible to most trialists.
+            Gating it as `trialActive && !isThin(...)` would also create a second
+            predicate that has to stay in step with the branch beside it, which
+            is the class of drift hasFullTeamMonth was extracted to end.
+
+            `trialActive`, NEVER `layer2 === 'full'`: that condition is already
+            true here and is equally true for a subscriber.
+          */}
+          {data.access.trialActive && <TrialMarker testId="trial-marker-personal" />}
           {/*
             THE THIN STATE IS A DESIGNED ONE, NOT A FAILURE — see isThin's own
             comment: Layer 2 is empty for 368 of 392 accounts and that is

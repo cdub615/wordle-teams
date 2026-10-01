@@ -594,3 +594,58 @@ describe('validateSearch, the shape gate on ?team= and ?month=', () => {
     })
   })
 })
+
+describe('the trial marker on the personal block', () => {
+  // Declared locally, matching the two existing blocks that each have their own.
+  // MIN_BOARDS_FOR_STATS is 5, so 20 clears the isThin branch and 2 lands in it.
+  const history = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      puzzleDay: `2026-09-${String(i + 1).padStart(2, '0')}`,
+      guesses: i % 3 === 0 ? ['ORATE', 'SPEED'] : ['CRANE', 'MOIST', 'SPEED'],
+    }))
+
+  test('appears for a trialist who has enough boards for the panels', () => {
+    panel({
+      access: { layer1: 'free', layer2: 'full', layer3: 'full', trialActive: true },
+      boards: history(20),
+    })
+
+    expect(screen.getByTestId('trial-marker-personal')).toBeTruthy()
+  })
+
+  test('appears for a trialist in the THIN state too, which is most of them', () => {
+    // Layer 2 is empty for 368 of 392 accounts (this route's own comment), so
+    // the thin branch is the common case and a marker only on the full branch
+    // would be invisible to the majority. One condition above both branches is
+    // also what stops it drifting from the isThin check beside it.
+    panel({
+      access: { layer1: 'free', layer2: 'full', layer3: 'full', trialActive: true },
+      boards: history(2),
+    })
+
+    expect(screen.getByTestId('insights-personal-thin')).toBeTruthy()
+    expect(screen.getByTestId('trial-marker-personal')).toBeTruthy()
+  })
+
+  test('is ABSENT for a pro player, whose layer2 is equally full', () => {
+    // THE ASSERTION THE WHOLE DESIGN TURNS ON. `layer2 === 'full'` is true for a
+    // subscriber, so a marker gated on the layer rather than on trialActive would
+    // tell a paying customer their panels are "in your trial". This is the test
+    // that fails if someone later "simplifies" the gate to the layer check.
+    panel({
+      access: { layer1: 'full', layer2: 'full', layer3: 'full', trialActive: false },
+      boards: history(20),
+    })
+
+    expect(screen.queryByTestId('trial-marker-personal')).toBeNull()
+  })
+
+  test('is absent for a free player, who has no personal block at all', () => {
+    panel({
+      access: { layer1: 'free', layer2: 'none', layer3: 'free', trialActive: false },
+      boards: history(20),
+    })
+
+    expect(screen.queryByTestId('trial-marker-personal')).toBeNull()
+  })
+})
