@@ -247,3 +247,59 @@ test.describe('the route itself', () => {
     expect(overshoot.scrollHeight).toBeLessThan(overshoot.bodyHeight + 400)
   })
 })
+
+/**
+ * THE RUNNING TRIAL SAYS SO (wordle-teams-a6pz).
+ *
+ * Nothing in src/ read `trialActive` before this epic, so the whole thirty-day
+ * trial ran with no surface and the first notice a player got was the card
+ * saying it had ENDED.
+ *
+ * THE PRO ROW IS WHY THIS IS AN e2e TEST AND NOT ONLY A UNIT ONE. Every layer
+ * predicate is identical between a subscriber and a trialist — insightsAccess
+ * computes `paid = isPro || trialActive` and hands both 'full' on Layers 2 and
+ * 3 — so what separates them is `trialActive` alone. Asserting the difference
+ * over real HTTP is what proves that flag actually travelled, rather than being
+ * reconstructed by a fixture that agrees with the component by construction.
+ *
+ * THE TEAM MARKER IS DELIBERATELY NOT ASSERTED HERE. It renders inside
+ * TeamSection's paid branch, which depends on a selected team and its own query;
+ * team-section.hook.test.ts pins it directly, including the pro-absence row, and
+ * e2e/team-insights.spec.ts is where this file's siblings put team state.
+ */
+test.describe('the running trial says so', () => {
+  test('a mid-trial player sees the card, the end date and the personal marker', async ({
+    page,
+  }) => {
+    const endsAt = Date.now() + 10 * DAY
+    await signInWithInsights(page, { boards: 20, pro: false, trialEndsAt: endsAt })
+    await openInsights(page)
+
+    await expect(page.getByTestId('trial-active')).toBeVisible()
+    await expect(page.getByTestId('trial-marker-personal')).toBeVisible()
+    // The raw timestamp reaching the screen is the failure worth catching: it
+    // renders as a 13-digit number and reads as a bug rather than a date.
+    await expect(page.getByTestId('trial-active')).not.toContainText(String(endsAt))
+    await expect(page.getByTestId('trial-ended')).toHaveCount(0)
+  })
+
+  test('a pro player sees neither the card nor the marker', async ({ page }) => {
+    await signInWithInsights(page, { boards: 20, pro: true })
+    await openInsights(page)
+
+    // The personal block IS there — this is not an absence of Layer 2, it is an
+    // absence of the trial language over it.
+    await expect(page.getByTestId('insights-personal')).toBeVisible()
+    await expect(page.getByTestId('trial-active')).toHaveCount(0)
+    await expect(page.getByTestId('trial-marker-personal')).toHaveCount(0)
+  })
+
+  test('an expired trial still gets the ended card and not the running one', async ({ page }) => {
+    await signInWithInsights(page, { boards: 20, pro: false, trialEndsAt: Date.now() - DAY })
+    await openInsights(page)
+
+    await expect(page.getByTestId('trial-ended')).toBeVisible()
+    await expect(page.getByTestId('trial-active')).toHaveCount(0)
+    await expect(page.getByTestId('trial-marker-personal')).toHaveCount(0)
+  })
+})

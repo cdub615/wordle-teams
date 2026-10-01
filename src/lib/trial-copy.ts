@@ -49,3 +49,69 @@ export const TRIAL_ENDED_BODY =
 
 /** A verb, so the button reads as an action rather than a label. */
 export const TRIAL_ENDED_CTA = 'See your history'
+
+/**
+ * WHAT THE RUNNING TRIAL SAYS — the counterpart to the TRIAL_ENDED_* trio above,
+ * and here for the same reason: the copy is the deliverable and the component is
+ * not.
+ *
+ * IT EXISTS BECAUSE NOTHING IN src/ READ `trialActive`. The trial ran silently
+ * for its whole thirty days and the first notice a player ever got was the card
+ * saying it had ended — which convex/insights.ts's own header on `myAccess`
+ * names as "the difference between a player who upgrades and a player who
+ * assumes the feature broke".
+ *
+ * IT SAYS *INSIGHTS* TRIAL, AND THAT IS THE WHOLE DESIGN. insightsAccess applies
+ * `paid = isPro || trialActive` to layer2 and layer3 ONLY: a trialist still sees
+ * Layer 1 as free, gets no Layer 4, and does not get the widened month window
+ * (access.ts: "The trial does not widen this window"). So four of the five
+ * PRO_BENEFITS entries — teams, scoring, import, months — are NOT in the trial.
+ * "A free month of Pro" would be a claim this product does not honour, and
+ * trial-copy.test.ts refuses the vocabulary of all four.
+ *
+ * THE END DATE IS NOT IN THESE STRINGS. It is per-player, arrives as epoch ms on
+ * `access.trialEndsAt`, and is rendered by `trialEndsOnLine` below from a date
+ * the CALLER formats — so this module stays free of both a clock and a locale.
+ */
+export const TRIAL_ACTIVE_TITLE = 'Your Insights trial is running'
+
+/**
+ * NAMES THE TWO LAYERS THE TRIAL ACTUALLY GRANTS, in the same order and the same
+ * voice as TRIAL_ENDED_BODY, so a player meeting both a month apart reads one
+ * product rather than two.
+ *
+ * "month by month" and "full month" are deliberate and are NOT the `months`
+ * benefit: Layer 2's trend is denominated in months and Layer 3 is a per-month
+ * team aggregate, whereas `months` is how far BACK a player may browse — which a
+ * trial does not widen. TRIAL_ENDED_BODY already draws the same distinction in
+ * the same words.
+ */
+export const TRIAL_ACTIVE_BODY =
+  'The numbers on this page are part of Pro, and they’re yours while your trial ' +
+  'runs — your playing history month by month, and your team’s full month rather ' +
+  'than just today.'
+
+/**
+ * The end date, as its own line rather than spliced into the body, so the body
+ * stays a constant a test can read whole.
+ *
+ * TAKES AN ALREADY-FORMATTED DATE, not a timestamp: formatting needs a locale and
+ * a zone, and this module's job is wording. lib/format-day.ts owns the rendering.
+ */
+export function trialEndsOnLine(endsOn: string): string {
+  return `Free until ${endsOn}.`
+}
+
+/** A verb, so the button reads as an action rather than a label. */
+export const TRIAL_ACTIVE_CTA = 'See what Pro includes'
+
+/**
+ * THE BADGE ON THE BLOCKS THE TRIAL UNLOCKS. Short because it renders inside
+ * components/ui/badge.tsx at text-xs; a sentence wraps it onto two lines.
+ *
+ * IT SAYS "IN YOUR TRIAL" RATHER THAN "PRO" ALONE because the marker is gated on
+ * `trialActive`, never on `layer2 === 'full'` — that predicate is equally true
+ * for a paying subscriber, and telling a subscriber their panels are "in your
+ * trial" is false to the one population that has already paid.
+ */
+export const TRIAL_MARKER_LABEL = 'Pro · in your trial'

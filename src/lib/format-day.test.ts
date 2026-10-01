@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { formatDayHeaderParts, formatMonthLabel, ordinal } from './format-day'
+import { formatDayHeaderParts, formatMonthLabel, ordinal, formatInstantLabel, formatDayLabel } from './format-day'
 
 describe('ordinal', () => {
   test('handles the irregular ones', () => {
@@ -47,5 +47,25 @@ describe('formatDayHeaderParts', () => {
 describe('formatMonthLabel', () => {
   test('matches v1 formatting, MMM yyyy', () => {
     expect(formatMonthLabel('2026-08')).toBe('Aug 2026')
+  })
+})
+
+describe('formatInstantLabel', () => {
+  test('renders an epoch instant as a long calendar date', () => {
+    // 2026-10-30T00:00:00Z — the first trials stamped on launch day expire here
+    // (LAUNCH_AT 2026-09-30 + INSIGHTS_TRIAL_DAYS 30).
+    expect(formatInstantLabel(Date.UTC(2026, 9, 30))).toBe('October 30, 2026')
+  })
+
+  test('spells the month out, matching formatDayLabel rather than the picker', () => {
+    // formatMonthLabel is 'Oct 2026' and is a DIFFERENT formatter. This one
+    // shares longDay with formatDayLabel, so the two agree on the same day.
+    expect(formatInstantLabel(Date.UTC(2026, 0, 1))).toBe('January 1, 2026')
+  })
+
+  test('agrees with formatDayLabel on the same calendar day', () => {
+    // The property that stops a second formatter drifting from the first: both
+    // read the shared `longDay` instance rather than each constructing options.
+    expect(formatInstantLabel(Date.UTC(2026, 8, 20))).toBe(formatDayLabel('2026-09-20'))
   })
 })

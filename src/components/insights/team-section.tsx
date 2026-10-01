@@ -8,6 +8,7 @@ import {
   showsTeamDropdown,
   TeamScopeControls,
 } from '#/components/insights/team-scope-controls.tsx'
+import { TrialMarker } from '#/components/trial-marker.tsx'
 import { teamMonthOptions } from '#/lib/insights-months.ts'
 import { hasFullTeamMonth } from '../../../convex/lib/insightsAccess.ts'
 import { onATeamFrom } from '#/lib/insights-panel.ts'
@@ -50,6 +51,7 @@ export function TeamSection({
   onMonthChange,
   onUpgrade,
   onInvite,
+  trialActive,
 }: {
   layer3: 'none' | 'free' | 'full'
   /**
@@ -81,6 +83,20 @@ export function TeamSection({
   onUpgrade: () => void
   /** Only reachable from a solo team's card. See TeamLockedCard on why. */
   onInvite: () => void
+  /**
+   * WHETHER THIS TEAM MONTH IS VISIBLE ON A TRIAL RATHER THAN ON A SUBSCRIPTION.
+   *
+   * NOT DERIVABLE HERE. The branch this reaches is already past
+   * `hasFullTeamMonth(layer3)`, and that predicate deliberately admits a
+   * trialist AND a subscriber (convex/lib/insightsAccess.ts), so arriving here
+   * says nothing about which one is reading. The distinction has to arrive as
+   * its own flag.
+   *
+   * OPTIONAL, so every existing test and caller renders unchanged without
+   * constructing one. Absent means "not a trial", which is the safe direction: a
+   * missing flag shows no badge rather than showing one to a paying customer.
+   */
+  trialActive?: boolean
 }) {
   const today = toPuzzleDay(new Date())
   /*
@@ -314,60 +330,70 @@ export function TeamSection({
   }
 
   return (
-    <TeamPanel
-      data={data}
-      teamName={team.name}
-      /*
-        THE SAME QUESTION THE FREE BRANCH ASKS ABOVE, AND IT MUST STAY THE SAME
-        CALL. When the team dropdown renders it shows the team's name, so the
-        panel drops its VISIBLE title and keeps an `sr-only` heading instead —
-        otherwise the header reads "Ada's Analysts  [Ada's Analysts v]". A
-        second spelling of "more than one team" here could drift from
-        `showsTeamDropdown` and put the duplicate back, or hide the title on a
-        one-team account where it is the card's only identifier.
+    <>
+      {/*
+        PAST hasFullTeamMonth ALREADY, so the mount needs only `trialActive` —
+        the same one-condition shape as the Layer 2 marker in routes/insights.tsx.
+        Adding a layer check here would be a second predicate that has to stay in
+        step with the early return above, which is the drift hasFullTeamMonth was
+        extracted to end.
+      */}
+      {trialActive && <TrialMarker testId="trial-marker-team" />}
+      <TeamPanel
+        data={data}
+        teamName={team.name}
+        /*
+          THE SAME QUESTION THE FREE BRANCH ASKS ABOVE, AND IT MUST STAY THE SAME
+          CALL. When the team dropdown renders it shows the team's name, so the
+          panel drops its VISIBLE title and keeps an `sr-only` heading instead —
+          otherwise the header reads "Ada's Analysts  [Ada's Analysts v]". A
+          second spelling of "more than one team" here could drift from
+          `showsTeamDropdown` and put the duplicate back, or hide the title on a
+          one-team account where it is the card's only identifier.
 
-        THIS LINE IS PINNED IN -insights-team-scope.hook.test.ts, NOT IN
-        team-panel.hook.test.ts. That distinction is worth the sentence: the
-        component test hands TeamPanel the boolean itself, so it covers both
-        shapes thoroughly and covers this call site not at all. Replacing this
-        expression with either constant once left the entire suite green — one
-        of them reinstating the duplicated name this prop exists to remove. The
-        route test renders this branch at one team and at two and asserts on the
-        header that actually came out.
-      */
-      titleVisuallyHidden={showsTeamDropdown(teamOptions)}
-      controls={
-        <TeamScopeControls
-          teams={teamOptions}
-          teamId={team.id}
-          onTeamChange={onTeamChange}
-          /*
-            THE `undefined` ARM IS UNREACHABLE TODAY, AND IS KEPT ONLY BECAUSE
-            `month` IS TYPED OPTIONAL. Trace it: an undefined `month` makes
-            `queryMonth` undefined on this branch, which makes the query args
-            'skip', which leaves `data` undefined, which returns at
-            `if (!data) return null` well above here. So this is a type
-            obligation, not a live case — do not cite it as the reason anything
-            renders, and do not delete it without narrowing the prop.
+          THIS LINE IS PINNED IN -insights-team-scope.hook.test.ts, NOT IN
+          team-panel.hook.test.ts. That distinction is worth the sentence: the
+          component test hands TeamPanel the boolean itself, so it covers both
+          shapes thoroughly and covers this call site not at all. Replacing this
+          expression with either constant once left the entire suite green — one
+          of them reinstating the duplicated name this prop exists to remove. The
+          route test renders this branch at one team and at two and asserts on the
+          header that actually came out.
+        */
+        titleVisuallyHidden={showsTeamDropdown(teamOptions)}
+        controls={
+          <TeamScopeControls
+            teams={teamOptions}
+            teamId={team.id}
+            onTeamChange={onTeamChange}
+            /*
+              THE `undefined` ARM IS UNREACHABLE TODAY, AND IS KEPT ONLY BECAUSE
+              `month` IS TYPED OPTIONAL. Trace it: an undefined `month` makes
+              `queryMonth` undefined on this branch, which makes the query args
+              'skip', which leaves `data` undefined, which returns at
+              `if (!data) return null` well above here. So this is a type
+              obligation, not a live case — do not cite it as the reason anything
+              renders, and do not delete it without narrowing the prop.
 
-            THE WINDOW IS THIS TEAM'S OWN, from its `createdAt` — the rule and
-            every one of its edges (the 12-month cap, the absent creation date,
-            the timezone consequences) live in lib/insights-months.ts, which is
-            also where resolveInsightsSearch reads it from. One list, judged and
-            offered by the same function, so the dropdown cannot offer a month
-            the resolver would navigate straight back out of.
-          */
-          month={
-            month === undefined
-              ? undefined
-              : {
-                  value: month,
-                  options: teamMonthOptions(monthOf(today), team.createdAt),
-                  onChange: onMonthChange,
-                }
-          }
-        />
-      }
-    />
+              THE WINDOW IS THIS TEAM'S OWN, from its `createdAt` — the rule and
+              every one of its edges (the 12-month cap, the absent creation date,
+              the timezone consequences) live in lib/insights-months.ts, which is
+              also where resolveInsightsSearch reads it from. One list, judged and
+              offered by the same function, so the dropdown cannot offer a month
+              the resolver would navigate straight back out of.
+            */
+            month={
+              month === undefined
+                ? undefined
+                : {
+                    value: month,
+                    options: teamMonthOptions(monthOf(today), team.createdAt),
+                    onChange: onMonthChange,
+                  }
+            }
+          />
+        }
+      />
+    </>
   )
 }

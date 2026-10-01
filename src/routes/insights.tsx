@@ -19,7 +19,9 @@ import { OpenersPanel } from '#/components/insights/openers-panel.tsx'
 import { PersonalSummary } from '#/components/insights/personal-summary.tsx'
 import { TeamSection } from '#/components/insights/team-section.tsx'
 import { TrendPanel } from '#/components/insights/trend-panel.tsx'
+import { TrialActiveCard } from '#/components/trial-active-card.tsx'
 import { TrialEndedCard } from '#/components/trial-ended-card.tsx'
+import { TrialMarker } from '#/components/trial-marker.tsx'
 import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { UnlockPrompt } from '#/components/insights/unlock-prompt.tsx'
 import { InvitePlayerDialog } from '#/components/teams/invite-player-dialog.tsx'
@@ -236,6 +238,15 @@ function InsightsRoute() {
         failed, or empty this render, so it does not live inside any of those
         branches.
       */}
+        {/*
+          BOTH CARDS MOUNT AND AT MOST ONE RENDERS. insightsAccess cannot report
+          trialActive and trialExpired at once (the second requires !trialActive),
+          so this is not two prompts competing for the same slot — it is one slot
+          whose occupant depends on where the player is in the trial. Each owns
+          its own condition rather than the route branching between them, which
+          is what keeps the route from re-deriving a rule convex/lib owns.
+        */}
+        <TrialActiveCard />
         <TrialEndedCard />
 
         {isPending || (!benchmark && !failed) ? (
@@ -267,6 +278,7 @@ function InsightsRoute() {
               teamSection={
                 <TeamSection
                   layer3={data.access.layer3}
+                  trialActive={data.access.trialActive}
                   teams={teams}
                   team={selectedTeam}
                   month={monthParam}
@@ -469,6 +481,18 @@ export function InsightsPanel({
     <div className="space-y-3">
       {data.access.layer2 === 'full' && (
         <>
+          {/*
+            ABOVE BOTH BRANCHES, ON ONE CONDITION. Layer 2 is empty for 368 of
+            392 accounts, so the thin branch below is the common case — a marker
+            inside the full branch only would be invisible to most trialists.
+            Gating it as `trialActive && !isThin(...)` would also create a second
+            predicate that has to stay in step with the branch beside it, which
+            is the class of drift hasFullTeamMonth was extracted to end.
+
+            `trialActive`, NEVER `layer2 === 'full'`: that condition is already
+            true here and is equally true for a subscriber.
+          */}
+          {data.access.trialActive && <TrialMarker testId="trial-marker-personal" />}
           {/*
             THE THIN STATE IS A DESIGNED ONE, NOT A FAILURE — see isThin's own
             comment: Layer 2 is empty for 368 of 392 accounts and that is
