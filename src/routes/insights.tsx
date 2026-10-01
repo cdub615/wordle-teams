@@ -278,6 +278,7 @@ function InsightsRoute() {
               teamSection={
                 <TeamSection
                   layer3={data.access.layer3}
+                  trialActive={data.access.trialActive}
                   teams={teams}
                   team={selectedTeam}
                   month={monthParam}
