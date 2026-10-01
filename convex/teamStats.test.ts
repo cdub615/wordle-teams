@@ -364,3 +364,63 @@ describe('sweep honours SWEEPS_ENABLED', () => {
     vi.useRealTimers()
   })
 })
+
+/**
+ * THE REPAIR PATH FOR wordle-teams-px45.
+ *
+ * `sweep` above can only ever rebuild the CURRENT month, so a purge+copy that
+ * lands near a month boundary leaves the month it destroyed unreachable — which
+ * is exactly what happened on 2026-09-30, when the next sweep fired in October
+ * and skipped September entirely. These pin the two properties that make the
+ * repair safe to point at production.
+ */
+describe('backfillMonth', () => {
+  test('schedules a rollup for the named teams and for nobody else', async () => {
+    const t = convexTest(schema, modules)
+    const ids = await t.run(async (ctx) => {
+      const a = await ctx.db.insert('players', aPlayer())
+      const wanted = await ctx.db.insert('teams', aTeam({ playerIds: [a], legacyId: 9001 }))
+      const other = await ctx.db.insert('teams', aTeam({ playerIds: [a], legacyId: 9002 }))
+      return { wanted, other }
+    })
+
+    vi.useFakeTimers()
+    const result = await t.mutation(internal.teamStats.backfillMonth, {
+      month: '2026-09',
+      teamLegacyIds: [9001],
+    })
+
+    expect(result.scheduled).toBe(1)
+    expect(result.teamsScanned).toBe(2)
+    expect(result.missing).toEqual([])
+    await t.finishAllScheduledFunctions(vi.runAllTimers)
+    vi.useRealTimers()
+
+    await t.run(async (ctx) => {
+      // THE NAMED TEAM GOT A ROW; THE UNNAMED ONE DID NOT. The second half is the
+      // point: a blanket rebuild would have written a zero row for `other`, and a
+      // zero row renders an empty scoreboard where an absent row renders an
+      // honest empty state.
+      expect(await statsFor(ctx, ids.wanted, 2026, 9)).not.toBeNull()
+      expect(await statsFor(ctx, ids.other, 2026, 9)).toBeNull()
+    })
+  })
+
+  test('reports a legacy id that matches no team, rather than passing silently', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const a = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ playerIds: [a], legacyId: 9001 }))
+    })
+
+    // A reference to a team that no longer exists under that identity IS the bug
+    // this repairs, so the repair must not be able to hide one.
+    const result = await t.mutation(internal.teamStats.backfillMonth, {
+      month: '2026-09',
+      teamLegacyIds: [9001, 9999],
+    })
+
+    expect(result.scheduled).toBe(1)
+    expect(result.missing).toEqual([9999])
+  })
+})

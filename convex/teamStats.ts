@@ -226,3 +226,71 @@ export const rollupOne = internalMutation({
     return { rolled: true as const }
   },
 })
+
+/**
+ * REBUILD ONE MONTH FOR A NAMED SET OF TEAMS. A repair tool, not a schedule.
+ *
+ * WHY IT EXISTS (wordle-teams-px45). teamMonthStats is a derived cache keyed by
+ * team DOCUMENT ID, and the cutover's purge does not clear it while the copy
+ * re-inserts every team under a NEW id — so after a purge+copy every row is
+ * orphaned and `insights.ts`, which does one `.unique()` lookup with no fallback,
+ * renders "Nobody on this team has entered a board this month yet" for teams that
+ * plainly did.
+ *
+ * `sweep` ABOVE CANNOT REPAIR IT, and the reason is a date rather than a design
+ * flaw: it computes `monthOf(toPuzzleDay(new Date()))`, so it only ever rebuilds
+ * the CURRENT month. The 2026-09-30 cutover landed in the last hours of September
+ * UTC; the next sweep fired at 00:45 UTC on October 1 and rebuilt OCTOBER.
+ * September was skipped and would never have been revisited.
+ *
+ * TAKES LEGACY IDS (numeric, as `teams.legacyId` is — players' are UUIDs),
+ * NOT DOCUMENT IDS, for two reasons. The caller is a migration
+ * script holding Supabase rows, and nothing in this deployment exposes team
+ * `_id`s to it — `parityProbe` deliberately returns `legacyId` only, because this
+ * repository is public. Resolving the mapping here keeps it that way.
+ *
+ * AND IT TAKES A LIST RATHER THAN REBUILDING EVERY TEAM, which is the whole
+ * reason this is not just `sweep` with a month argument. A team with no boards in
+ * the month still produces an aggregate, and `storeTeamMonthStats` would INSERT
+ * it — so a blanket rebuild across every team and every month manufactures
+ * thousands of zero rows. A zero row is worse than no row: the panel would render
+ * an empty scoreboard where the absent-row path renders an honest empty state.
+ * The caller passes only the teams that actually have boards that month.
+ *
+ * SCHEDULES ONE MUTATION PER TEAM, exactly as `sweep` does, for exactly the
+ * reason stated there: Convex caps a single execution at 4,096 document reads,
+ * and reading every team's members' boards inline is O(teams x members x boards)
+ * with no ceiling. What stays here is the `teams` scan.
+ *
+ * NOT GATED ON SWEEPS_ENABLED, unlike `sweep`. That switch is a production brake
+ * on RECURRING background cost (wordle-teams-qjh3.1); this runs once, by hand,
+ * with the migration key, to repair data that is currently wrong. A brake that
+ * blocked the repair would be the switch working against its own purpose.
+ */
+export const backfillMonth = internalMutation({
+  args: { month: v.string(), teamLegacyIds: v.array(v.number()) },
+  handler: async (ctx, { month, teamLegacyIds }) => {
+    const wanted = new Set(teamLegacyIds)
+    const teams = await ctx.db.query('teams').collect()
+
+    let scheduled = 0
+    const matched: number[] = []
+    for (const team of teams) {
+      const legacyId = team.legacyId
+      if (legacyId === undefined || !wanted.has(legacyId)) continue
+      await ctx.scheduler.runAfter(0, internal.teamStats.rollupOne, {
+        teamId: team._id,
+        month: month as PuzzleMonth,
+      })
+      scheduled += 1
+      matched.push(legacyId)
+    }
+
+    // THE CALLER NEEDS TO KNOW WHAT IT ASKED FOR AND DID NOT GET. A legacy id with
+    // no team in this deployment is silent otherwise, and that is precisely the
+    // shape of the bug this function repairs — a reference to a team that no
+    // longer exists under that identity.
+    const missing = teamLegacyIds.filter((id) => !matched.includes(id))
+    return { month, scheduled, teamsScanned: teams.length, missing }
+  },
+})
