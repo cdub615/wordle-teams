@@ -87,9 +87,9 @@ export const TRIAL_ACTIVE_TITLE = 'Your Insights trial is running'
  * the same words.
  */
 export const TRIAL_ACTIVE_BODY =
-  `The numbers on this page are part of Pro, and they’re yours while your trial ` +
-  `runs — your playing history month by month, and your team’s full month rather ` +
-  `than just today.`
+  'The numbers on this page are part of Pro, and they’re yours while your trial ' +
+  'runs — your playing history month by month, and your team’s full month rather ' +
+  'than just today.'
 
 /**
  * The end date, as its own line rather than spliced into the body, so the body
