@@ -19,6 +19,7 @@ import { OpenersPanel } from '#/components/insights/openers-panel.tsx'
 import { PersonalSummary } from '#/components/insights/personal-summary.tsx'
 import { TeamSection } from '#/components/insights/team-section.tsx'
 import { TrendPanel } from '#/components/insights/trend-panel.tsx'
+import { TrialActiveCard } from '#/components/trial-active-card.tsx'
 import { TrialEndedCard } from '#/components/trial-ended-card.tsx'
 import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { UnlockPrompt } from '#/components/insights/unlock-prompt.tsx'
@@ -236,6 +237,15 @@ function InsightsRoute() {
         failed, or empty this render, so it does not live inside any of those
         branches.
       */}
+        {/*
+          BOTH CARDS MOUNT AND AT MOST ONE RENDERS. insightsAccess cannot report
+          trialActive and trialExpired at once (the second requires !trialActive),
+          so this is not two prompts competing for the same slot — it is one slot
+          whose occupant depends on where the player is in the trial. Each owns
+          its own condition rather than the route branching between them, which
+          is what keeps the route from re-deriving a rule convex/lib owns.
+        */}
+        <TrialActiveCard />
         <TrialEndedCard />
 
         {isPending || (!benchmark && !failed) ? (
