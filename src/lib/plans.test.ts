@@ -61,6 +61,7 @@ describe('UPGRADE_HEADLINES', () => {
     'import',
     'insights',
     'trial-ended',
+    'trial-active',
   ]
 
   test('has a line for every origin and no others', () => {
@@ -144,6 +145,14 @@ describe('UPGRADE_HEADLINES', () => {
         )
       }
     }
+  })
+
+  test('the trial-active line speaks to a state, not to a click', () => {
+    // Every other origin is named for an affordance the player just pressed, so
+    // its headline names what they reached for. This one is reached from a card
+    // that appeared on its own, so there is nothing reached for — the line has
+    // to be about the trial itself.
+    expect(UPGRADE_HEADLINES['trial-active'].toLowerCase()).toContain('trial')
   })
 
   test('pins the free-tier numbers these headlines spell out in words', () => {

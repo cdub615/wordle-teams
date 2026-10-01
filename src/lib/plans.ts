@@ -87,7 +87,8 @@ export const PRO_PRICE_LINE = `Pro is ${annual.label}`
 export const MONTHLY_FINE_PRINT = `or ${monthly.label}`
 
 /**
- * Where an upgrade was asked for. Six affordances, six lines.
+ * Where an upgrade was asked for. Seven lines over six affordances, and the
+ * seventh is a state.
  *
  * THE HEADLINE VARIES AND THE BODY DOES NOT. Someone who clicked "Import from a
  * screenshot" has demonstrated interest in import specifically, and a generic
@@ -112,7 +113,14 @@ export const MONTHLY_FINE_PRINT = `or ${monthly.label}`
  * benefit title OR body and fails at four, which is the class all four belonged
  * to — not just the equality the earlier guard could see.
  */
-export type UpgradeOrigin = 'header' | 'teams' | 'months' | 'import' | 'insights' | 'trial-ended'
+export type UpgradeOrigin =
+  | 'header'
+  | 'teams'
+  | 'months'
+  | 'import'
+  | 'insights'
+  | 'trial-ended'
+  | 'trial-active'
 
 export const UPGRADE_HEADLINES: Record<UpgradeOrigin, string> = {
   header: 'What you get with Pro',
@@ -121,4 +129,10 @@ export const UPGRADE_HEADLINES: Record<UpgradeOrigin, string> = {
   import: 'Your screenshot can do the typing',
   insights: 'See who’s actually beating whom',
   'trial-ended': 'Pick up where your trial left off',
+  // THE ONLY ORIGIN NOT NAMED FOR A CLICK. The other six are reached by pressing
+  // something, so each names what the player reached for; this one is reached
+  // from a card that appeared on its own, mid-trial, so the line is about the
+  // trial rather than about an affordance. 39 characters, and it shares at most
+  // one consecutive word with any benefit title or body — the guard fails at 4.
+  'trial-active': 'Keep these numbers when your trial ends',
 }
