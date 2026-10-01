@@ -93,7 +93,7 @@ export const MONTHLY_FINE_PRINT = `or ${monthly.label}`
  * THE HEADLINE VARIES AND THE BODY DOES NOT. Someone who clicked "Import from a
  * screenshot" has demonstrated interest in import specifically, and a generic
  * Pro pitch wastes the one moment they created. The benefits list beneath is
- * PRO_BENEFITS in full for every origin — one inventory, six openings.
+ * PRO_BENEFITS in full for every origin — one inventory, seven openings.
  *
  * A HEADLINE NAMES THE THING THE PLAYER JUST REACHED FOR. It does not summarize
  * the benefit, because the benefit is three lines below it: the dialog draws
