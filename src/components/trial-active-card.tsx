@@ -3,6 +3,7 @@ import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../convex/_generated/api'
 import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { formatInstantLabel } from '#/lib/format-day.ts'
+import { trialRatherThanPro } from '../../convex/lib/insightsAccess.ts'
 import {
   TRIAL_ACTIVE_BODY,
   TRIAL_ACTIVE_CTA,
@@ -27,11 +28,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.t
  * mid-trial. Keyed on `trialActive` alone this card would tell a paying customer
  * that Pro is "yours while your trial runs".
  *
- * `layer4 === 'full'` IS THE isPro PROXY, because InsightsAccess carries no
- * isPro field. insightsAccess sets `layer4: isPro ? 'full' : 'none'`, so it is
- * true for exactly the Pro population and no trial can produce it. If a later
- * change ever grants a trial Layer 4, this guard moves — and the `proMidTrial`
- * row in this card's test is what fails to say so.
+ * BOTH CONDITIONS NOW LIVE IN `trialRatherThanPro`
+ * (convex/lib/insightsAccess.ts), which is the one definition of "is the trial
+ * why this player has these blocks" and the only place the `layer4 === 'full'`
+ * isPro proxy is spelled. This card used to hand-write that comparison, and the
+ * two TrialMarker mounts did not — which is exactly how a paying customer came to
+ * be told Pro was "yours while your trial runs" (wordle-teams-cpqf). The
+ * `proMidTrial` row in this card's test is what holds the behaviour; the predicate
+ * is what stops the next surface getting it wrong.
  *
  * THE `trialEndsAt === null` CLAUSE IS A TYPE OBLIGATION, NOT A LIVE CASE:
  * insightsAccess returns the timestamp whenever `trialActive` is true, but types
@@ -53,7 +57,7 @@ export function TrialActiveCard() {
   const { data: access } = useQuery(convexQuery(api.insights.myAccess, {}))
   const { openUpgrade } = useUpgrade()
 
-  if (!access?.trialActive || access.layer4 === 'full' || access.trialEndsAt === null) return null
+  if (!access || !trialRatherThanPro(access) || access.trialEndsAt === null) return null
 
   return (
     <Card className="mb-4" data-testid="trial-active">

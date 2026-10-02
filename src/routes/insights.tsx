@@ -25,7 +25,7 @@ import { TrialMarker } from '#/components/trial-marker.tsx'
 import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { UnlockPrompt } from '#/components/insights/unlock-prompt.tsx'
 import { InvitePlayerDialog } from '#/components/teams/invite-player-dialog.tsx'
-import { hasFullTeamMonth } from '../../convex/lib/insightsAccess.ts'
+import { hasFullTeamMonth, trialRatherThanPro } from '../../convex/lib/insightsAccess.ts'
 import { monthOf } from '../../convex/lib/puzzleDay.ts'
 import { pageTitle } from '#/lib/seo'
 import { api } from '../../convex/_generated/api'
@@ -278,7 +278,7 @@ function InsightsRoute() {
               teamSection={
                 <TeamSection
                   layer3={data.access.layer3}
-                  trialActive={data.access.trialActive}
+                  trialRatherThanPro={trialRatherThanPro(data.access)}
                   teams={teams}
                   team={selectedTeam}
                   month={monthParam}
@@ -489,10 +489,15 @@ export function InsightsPanel({
             predicate that has to stay in step with the branch beside it, which
             is the class of drift hasFullTeamMonth was extracted to end.
 
-            `trialActive`, NEVER `layer2 === 'full'`: that condition is already
-            true here and is equally true for a subscriber.
+            `trialRatherThanPro`, NEVER `layer2 === 'full'` and never bare
+            `trialActive`. The first condition is already true here and is equally
+            true for a subscriber; the second is a fact about the CLOCK, which
+            keeps running for a player who is paying — nothing stamps
+            insightsTrialEndsAt conditionally on isPro and by decision nothing
+            will. Keyed on it alone this badge told the owner, a subscriber, that
+            Pro was theirs "in your trial" (wordle-teams-cpqf).
           */}
-          {data.access.trialActive && <TrialMarker testId="trial-marker-personal" />}
+          {trialRatherThanPro(data.access) && <TrialMarker testId="trial-marker-personal" />}
           {/*
             THE THIN STATE IS A DESIGNED ONE, NOT A FAILURE — see isThin's own
             comment: Layer 2 is empty for 368 of 392 accounts and that is

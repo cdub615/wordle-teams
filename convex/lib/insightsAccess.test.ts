@@ -448,7 +448,7 @@ describe('trialRatherThanPro', () => {
  * explains what it used to do — so a raw text match would be satisfied by the
  * explanation rather than by the code.
  */
-describe('the layer3 comparison lives in exactly one place', () => {
+describe('the tier comparisons live where they are supposed to', () => {
   /** Every .ts/.tsx under a tree, minus tests and generated output. */
   function sourceFiles(dir: string): Array<string> {
     return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -482,5 +482,38 @@ describe('the layer3 comparison lives in exactly one place', () => {
     // Listed rather than counted, so a failure names the file that has to call
     // hasFullTeamMonth instead of a number somebody has to go and chase.
     expect(offenders).toEqual(['convex/lib/insightsAccess.ts'])
+  })
+
+  /**
+   * THE SAME GUARD FOR layer4, AND IT IS AN ALLOWLIST RATHER THAN "exactly one
+   * place" — because layer4 is asked TWO different questions and only one of them
+   * belongs to a predicate.
+   *
+   *  - convex/insights.ts asks Layer 4's OWN question: may this caller see the
+   *    global comparison at all. That is the field used for what it is, exactly as
+   *    layer3 is used inside hasFullTeamMonth, and it is legitimate.
+   *  - trialRatherThanPro asks a DIFFERENT question through the same comparison:
+   *    layer4 === 'full' is reachable for exactly the paying population, so it
+   *    stands in for an isPro field InsightsAccess does not carry.
+   *
+   * WHAT THIS CATCHES IS A THIRD SPELLING, which is how wordle-teams-cpqf
+   * happened: trial-active-card.tsx hand-wrote the proxy, the two TrialMarker
+   * mounts did not, and nothing could fail. A component that re-derives "is this
+   * player paying" instead of calling the predicate lands in this list and has to
+   * argue for itself here.
+   *
+   * SORTED, unlike the layer3 test above, which can expect a single element and
+   * ignore traversal order. readdirSync order is not guaranteed across platforms,
+   * so two entries need pinning down.
+   */
+  test('only insightsAccess and the Layer 4 payload gate compare layer4 to a tier', () => {
+    const comparison = /layer4\s*[!=]==\s*['"]full['"]/
+
+    const offenders = [...sourceFiles('src'), ...sourceFiles('convex')]
+      .filter((file) => comparison.test(withoutComments(readFileSync(file, 'utf8'))))
+      .map((file) => file.replace(/\\/g, '/'))
+      .sort()
+
+    expect(offenders).toEqual(['convex/insights.ts', 'convex/lib/insightsAccess.ts'])
   })
 })
