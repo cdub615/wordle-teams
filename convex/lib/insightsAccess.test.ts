@@ -11,6 +11,7 @@ import {
   shouldStartTrial,
   trialCanStart,
   trialEndsAtFor,
+  trialRatherThanPro,
 } from './insightsAccess.ts'
 
 const DAY = 86_400_000
@@ -367,6 +368,67 @@ describe('hasFullTeamMonth', () => {
 })
 
 /**
+ * trialRatherThanPro — "is the TRIAL why this player has these blocks" — which is
+ * the question every piece of trial language on the surface has to ask, and the
+ * one three of them got wrong by asking `trialActive` instead (wordle-teams-cpqf).
+ *
+ * THE PRO-WITH-A-RUNNING-CLOCK ROW IS THE WHOLE POINT. It is not a contrived
+ * combination: nothing in the write path consults isPro before stamping
+ * insightsTrialEndsAt, and by the owner's decision nothing will, so EVERY
+ * subscriber who has played since launch is in exactly this state. It is the
+ * state the owner reported from the live site.
+ *
+ * ROWS BUILT THROUGH insightsAccess WHERE THEY CAN BE, not from hand-written
+ * literals, for the reason hasFullTeamMonth's last row gives: a fixture that
+ * agrees with the predicate by construction proves nothing about the pairing of
+ * trialActive with layer4 that the real resolver produces.
+ */
+describe('trialRatherThanPro', () => {
+  const now = Date.now()
+  const inAWeek = now + 7 * 86_400_000
+
+  test('a trialist is on the trial rather than on Pro', () => {
+    const trial = insightsAccess({ isPro: false, trialEndsAt: inAWeek, now })
+    expect(trial.trialActive).toBe(true)
+    expect(trialRatherThanPro(trial)).toBe(true)
+  })
+
+  test('A PRO PLAYER WHOSE TRIAL CLOCK IS STILL RUNNING IS NOT ON A TRIAL', () => {
+    // The reported bug, stated as the predicate's defining case. `trialActive` is
+    // true here and says nothing about who is paying; layer4 is what separates
+    // them.
+    const proMidTrial = insightsAccess({ isPro: true, trialEndsAt: inAWeek, now })
+    expect(proMidTrial.trialActive).toBe(true)
+    expect(proMidTrial.layer4).toBe('full')
+    expect(trialRatherThanPro(proMidTrial)).toBe(false)
+  })
+
+  test('a pro player who never had a trial is not on one either', () => {
+    const pro = insightsAccess({ isPro: true, trialEndsAt: undefined, now })
+    expect(trialRatherThanPro(pro)).toBe(false)
+  })
+
+  test('a free player is not on a trial, and nor is an expired one', () => {
+    const free = insightsAccess({ isPro: false, trialEndsAt: undefined, now })
+    const expired = insightsAccess({ isPro: false, trialEndsAt: now - 1, now })
+    expect(trialRatherThanPro(free)).toBe(false)
+    expect(trialRatherThanPro(expired)).toBe(false)
+  })
+
+  test('it reads the two fields it is given and nothing else', () => {
+    // Pick<> is satisfied by the pair alone, which is what lets the panel ask
+    // without holding a whole InsightsAccess. Both directions of layer4 are here
+    // so the comparison cannot be `=== 'none'` by accident — 'free' is not a
+    // value layer4 takes today, and a predicate written against 'none' would
+    // quietly answer the wrong thing if it ever did.
+    expect(trialRatherThanPro({ trialActive: true, layer4: 'none' })).toBe(true)
+    expect(trialRatherThanPro({ trialActive: true, layer4: 'free' })).toBe(true)
+    expect(trialRatherThanPro({ trialActive: true, layer4: 'full' })).toBe(false)
+    expect(trialRatherThanPro({ trialActive: false, layer4: 'none' })).toBe(false)
+  })
+})
+
+/**
  * NOBODY RE-SPELLS THE QUESTION (wordle-teams-iht.3.1).
  *
  * THE DEFECT THIS PREVENTS IS THE ONE THAT ALREADY HAPPENED. `layer3 === 'full'`
@@ -386,7 +448,7 @@ describe('hasFullTeamMonth', () => {
  * explains what it used to do — so a raw text match would be satisfied by the
  * explanation rather than by the code.
  */
-describe('the layer3 comparison lives in exactly one place', () => {
+describe('the tier comparisons live where they are supposed to', () => {
   /** Every .ts/.tsx under a tree, minus tests and generated output. */
   function sourceFiles(dir: string): Array<string> {
     return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -420,5 +482,38 @@ describe('the layer3 comparison lives in exactly one place', () => {
     // Listed rather than counted, so a failure names the file that has to call
     // hasFullTeamMonth instead of a number somebody has to go and chase.
     expect(offenders).toEqual(['convex/lib/insightsAccess.ts'])
+  })
+
+  /**
+   * THE SAME GUARD FOR layer4, AND IT IS AN ALLOWLIST RATHER THAN "exactly one
+   * place" — because layer4 is asked TWO different questions and only one of them
+   * belongs to a predicate.
+   *
+   *  - convex/insights.ts asks Layer 4's OWN question: may this caller see the
+   *    global comparison at all. That is the field used for what it is, exactly as
+   *    layer3 is used inside hasFullTeamMonth, and it is legitimate.
+   *  - trialRatherThanPro asks a DIFFERENT question through the same comparison:
+   *    layer4 === 'full' is reachable for exactly the paying population, so it
+   *    stands in for an isPro field InsightsAccess does not carry.
+   *
+   * WHAT THIS CATCHES IS A THIRD SPELLING, which is how wordle-teams-cpqf
+   * happened: trial-active-card.tsx hand-wrote the proxy, the two TrialMarker
+   * mounts did not, and nothing could fail. A component that re-derives "is this
+   * player paying" instead of calling the predicate lands in this list and has to
+   * argue for itself here.
+   *
+   * SORTED, unlike the layer3 test above, which can expect a single element and
+   * ignore traversal order. readdirSync order is not guaranteed across platforms,
+   * so two entries need pinning down.
+   */
+  test('only insightsAccess and the Layer 4 payload gate compare layer4 to a tier', () => {
+    const comparison = /layer4\s*[!=]==\s*['"]full['"]/
+
+    const offenders = [...sourceFiles('src'), ...sourceFiles('convex')]
+      .filter((file) => comparison.test(withoutComments(readFileSync(file, 'utf8'))))
+      .map((file) => file.replace(/\\/g, '/'))
+      .sort()
+
+    expect(offenders).toEqual(['convex/insights.ts', 'convex/lib/insightsAccess.ts'])
   })
 })

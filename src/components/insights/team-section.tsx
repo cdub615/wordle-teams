@@ -51,7 +51,7 @@ export function TeamSection({
   onMonthChange,
   onUpgrade,
   onInvite,
-  trialActive,
+  trialRatherThanPro,
 }: {
   layer3: 'none' | 'free' | 'full'
   /**
@@ -86,17 +86,25 @@ export function TeamSection({
   /**
    * WHETHER THIS TEAM MONTH IS VISIBLE ON A TRIAL RATHER THAN ON A SUBSCRIPTION.
    *
-   * NOT DERIVABLE HERE. The branch this reaches is already past
-   * `hasFullTeamMonth(layer3)`, and that predicate deliberately admits a
-   * trialist AND a subscriber (convex/lib/insightsAccess.ts), so arriving here
-   * says nothing about which one is reading. The distinction has to arrive as
-   * its own flag.
+   * NOT DERIVABLE HERE, AND NAMED FOR THE ANSWER RATHER THAN FOR THE CLOCK. The
+   * branch this reaches is already past `hasFullTeamMonth(layer3)`, and that
+   * predicate deliberately admits a trialist AND a subscriber
+   * (convex/lib/insightsAccess.ts), so arriving here says nothing about which one
+   * is reading. This component holds no layer4, so it cannot ask; the route
+   * computes `trialRatherThanPro(data.access)` and hands the answer down.
+   *
+   * IT USED TO BE CALLED `trialActive` AND WAS PASSED `data.access.trialActive`,
+   * which is a fact about the CLOCK — true for a subscriber whose trial window is
+   * still open, and that is every Pro player who has played since launch. The
+   * badge it gates says "Pro · in your trial", so the owner was shown it on the
+   * live site (wordle-teams-cpqf). The rename is what stops the next caller
+   * passing the clock again.
    *
    * OPTIONAL, so every existing test and caller renders unchanged without
    * constructing one. Absent means "not a trial", which is the safe direction: a
    * missing flag shows no badge rather than showing one to a paying customer.
    */
-  trialActive?: boolean
+  trialRatherThanPro?: boolean
 }) {
   const today = toPuzzleDay(new Date())
   /*
@@ -332,13 +340,13 @@ export function TeamSection({
   return (
     <>
       {/*
-        PAST hasFullTeamMonth ALREADY, so the mount needs only `trialActive` —
+        PAST hasFullTeamMonth ALREADY, so the mount needs only the flag —
         the same one-condition shape as the Layer 2 marker in routes/insights.tsx.
         Adding a layer check here would be a second predicate that has to stay in
         step with the early return above, which is the drift hasFullTeamMonth was
         extracted to end.
       */}
-      {trialActive && <TrialMarker testId="trial-marker-team" />}
+      {trialRatherThanPro && <TrialMarker testId="trial-marker-team" />}
       <TeamPanel
         data={data}
         teamName={team.name}

@@ -63,7 +63,10 @@ const today = toPuzzleDay(new Date())
  */
 const FIRST_PAINT = { timeout: 20_000 }
 
-async function seedTeamOfTwo(page: Page, options: { mine: number; theirs?: number; pro: boolean }) {
+async function seedTeamOfTwo(
+  page: Page,
+  options: { mine: number; theirs?: number; pro: boolean; trialEndsAt?: number },
+) {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const mine = `e2e+${stamp}a@wordleteams.com`
   const theirs = `e2e+${stamp}b@wordleteams.com`
@@ -75,6 +78,10 @@ async function seedTeamOfTwo(page: Page, options: { mine: number; theirs?: numbe
     boards: 0,
     lastDay: today,
     pro: options.pro,
+    // Threaded so a trialist and a subscriber-with-a-running-clock are both
+    // constructible here. Absent for every existing caller, which is why they
+    // read unchanged.
+    trialEndsAt: options.trialEndsAt,
   })
   await convex.mutation(api.e2eSeed.seedTeamDayFor, {
     email: mine,
@@ -441,6 +448,38 @@ test.describe('a pro member of a team', () => {
     await expect(figures.nth(0)).toHaveText('1')
     await expect(figures.nth(1)).toHaveText('0')
     await expect(record).toContainText('1 shared day')
+  })
+})
+
+/*
+  THE TEAM BADGE'S WIRING, WHICH NO UNIT TEST CAN REACH (wordle-teams-cpqf).
+  TeamSection holds layer3 and no layer4, so it cannot tell a trialist from a
+  subscriber and takes the answer as a prop — team-section.hook.test.ts therefore
+  pins the component given a flag, and the question of WHICH FLAG THE ROUTE PASSES
+  is only answerable here. That is the half that was wrong: the route passed
+  data.access.trialActive, a fact about the clock, so the badge appeared for a
+  paying customer.
+
+  BOTH DIRECTIONS, because an absence asserted alone is satisfied by a badge that
+  never renders for anybody.
+*/
+test.describe('the trial marker on the team block', () => {
+  const inTenDays = () => Date.now() + 10 * 86_400_000
+
+  test('a trialist with the full team surface is told the trial is why', async ({ page }) => {
+    await seedTeamOfTwo(page, { mine: 3, theirs: 5, pro: false, trialEndsAt: inTenDays() })
+
+    await expect(page.getByTestId('insights-team')).toBeVisible(FIRST_PAINT)
+    await expect(page.getByTestId('trial-marker-team')).toBeVisible()
+  })
+
+  test('a pro member with a running trial clock is NOT', async ({ page }) => {
+    await seedTeamOfTwo(page, { mine: 3, theirs: 5, pro: true, trialEndsAt: inTenDays() })
+
+    // The surface itself is unchanged — asserted first, so the absence below
+    // cannot pass on a page that failed to render the team block at all.
+    await expect(page.getByTestId('insights-team')).toBeVisible(FIRST_PAINT)
+    await expect(page.getByTestId('trial-marker-team')).toHaveCount(0)
   })
 })
 

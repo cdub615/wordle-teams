@@ -259,7 +259,7 @@ const section = (options: {
   teamCount: 1 | 2
   month?: string
   team?: { id: Id<'teams'>; name: string; createdAt?: number }
-  trialActive?: boolean
+  trialRatherThanPro?: boolean
 }) => {
   const { layer3, teamCount } = options
   // `in` RATHER THAN A DEFAULT PARAMETER, and the difference is the whole point
@@ -300,7 +300,7 @@ const section = (options: {
         onMonthChange: () => undefined,
         onUpgrade,
         onInvite,
-        trialActive: options.trialActive,
+        trialRatherThanPro: options.trialRatherThanPro,
       }),
     ),
     onUpgrade,
@@ -695,11 +695,17 @@ describe('the trial marker on the team block', () => {
   /**
    * THE PAID BRANCH ONLY, AND BY POSITION RATHER THAN BY A SECOND PREDICATE.
    * TeamSection returns early for `!hasFullTeamMonth(layer3)`, so the branch
-   * carrying this marker is already past that check — the mount needs only
-   * `trialActive`, the same shape as the Layer 2 marker in routes/insights.tsx.
+   * carrying this marker is already past that check — the mount needs only the
+   * flag, the same shape as the Layer 2 marker in routes/insights.tsx.
+   *
+   * THE FLAG IS `trialRatherThanPro` AND NOT `trialActive`, which is the whole of
+   * wordle-teams-cpqf: a running clock is not the same fact as "the trial is why
+   * you can see this", and every Pro player who has played since launch has the
+   * first without the second. This component cannot tell them apart — it holds no
+   * layer4 — so the route answers and hands the answer down.
    */
   test('appears for a trialist with the full team month', () => {
-    section({ layer3: 'full', teamCount: 2, trialActive: true })
+    section({ layer3: 'full', teamCount: 2, trialRatherThanPro: true })
 
     expect(screen.queryByTestId('trial-marker-team')).not.toBeNull()
   })
@@ -709,22 +715,23 @@ describe('the trial marker on the team block', () => {
     // trialist AND a subscriber, so a marker keyed on the layer — or on reaching
     // this branch at all — would tell a paying customer their team month is "in
     // your trial".
-    section({ layer3: 'full', teamCount: 2, trialActive: false })
+    section({ layer3: 'full', teamCount: 2, trialRatherThanPro: false })
 
     expect(screen.queryByTestId('trial-marker-team')).toBeNull()
   })
 
   test('is absent on the free branch, which shows one day rather than a month', () => {
-    section({ layer3: 'free', teamCount: 2, trialActive: false })
+    section({ layer3: 'free', teamCount: 2, trialRatherThanPro: false })
 
     expect(screen.queryByTestId('trial-marker-team')).toBeNull()
   })
 
   test('and absent on the free branch even if a clock were somehow running', () => {
     // Defence in depth rather than a reachable state: insightsAccess gives a
-    // trialist layer3 'full', so free-plus-trialActive should not occur. If it
-    // ever did, the marker must follow the BRANCH it labels, not the flag.
-    section({ layer3: 'free', teamCount: 2, trialActive: true })
+    // trialist layer3 'full', so a free branch with the trial flag set should not
+    // occur. If it ever did, the marker must follow the BRANCH it labels, not the
+    // flag.
+    section({ layer3: 'free', teamCount: 2, trialRatherThanPro: true })
 
     expect(screen.queryByTestId('trial-marker-team')).toBeNull()
   })

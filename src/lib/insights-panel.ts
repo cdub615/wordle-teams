@@ -39,6 +39,27 @@ export type Boards = {
     layer2: 'none' | 'free' | 'full'
     layer3: 'none' | 'free' | 'full'
     /**
+     * PRO ONLY, AND THE isPro PROXY THE TRIAL MARKER BELOW DEPENDS ON.
+     * insightsAccess sets `layer4: isPro ? 'full' : 'none'` and no trial can
+     * produce 'full', so `layer4 === 'full'` is true for exactly the paying
+     * population. That comparison is spelled ONCE, in `trialRatherThanPro`
+     * (convex/lib/insightsAccess.ts); this field is what lets the panel ask it.
+     *
+     * NARROWED AWAY UNTIL NOW, for the same reason the field below records: three
+     * layers were everything this module needed until the trial got a visible
+     * marker, and a marker has to know who is PAYING as well as whose clock is
+     * running. The server has always sent it — convex/insights.ts's
+     * myBenchmarkBoards returns `insightsAccessFor`'s whole InsightsAccess — so
+     * this is a type widening and not a payload change.
+     *
+     * REQUIRED RATHER THAN OPTIONAL, on exactly the argument the field below
+     * makes: an optional layer4 would default every existing fixture to "not
+     * Pro" silently, and a test written to prove the marker is HIDDEN from a
+     * subscriber would construct a trialist and pass. tsc naming every
+     * construction site is the point.
+     */
+    layer4: 'none' | 'free' | 'full'
+    /**
      * WHETHER THE CLOCK IS RUNNING, which the server has always sent and this
      * type used to narrow away. convex/insights.ts's myBenchmarkBoards returns
      * `insightsAccessFor`'s whole InsightsAccess; the three layers above were

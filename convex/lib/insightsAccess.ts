@@ -299,3 +299,46 @@ export function insightsAccess({
 export function hasFullTeamMonth(layer3: LayerAccess): boolean {
   return layer3 === 'full'
 }
+
+/**
+ * Is the TRIAL the reason this player has these blocks, rather than a
+ * subscription? The one definition of the question every piece of trial language
+ * on the insights surface has to ask (wordle-teams-cpqf).
+ *
+ * `trialActive` IS NOT THAT QUESTION, and the difference is the defect this
+ * exists to end. That field is a fact about the CLOCK — it stays true for
+ * somebody who is paying, because nothing in the write path consults isPro
+ * before stamping `insightsTrialEndsAt` (convex/scores.ts's stampTrialIfDue, and
+ * by decision it stays that way). So a subscriber who played after launch has a
+ * running trial clock, and three separate surfaces keyed on `trialActive` alone
+ * told them Pro was "yours while your trial runs".
+ *
+ * `layer4 === 'full'` IS THE isPro PROXY, AND THIS IS THE ONLY PLACE IT IS
+ * SPELLED. InsightsAccess carries no isPro field — deliberately, since the tiers
+ * do not collapse into one flag — and `insightsAccess` sets
+ * `layer4: isPro ? 'full' : 'none'`, so 'full' is reachable for exactly the
+ * paying population and no trial can produce it. The guard test beside
+ * hasFullTeamMonth's own is what keeps a second copy from being written;
+ * trial-active-card.tsx used to carry one by hand, which is how the two badge
+ * mounts came to disagree with it.
+ *
+ * IF A TRIAL IS EVER GRANTED LAYER 4, THIS PREDICATE MOVES — the proxy stops
+ * distinguishing anything the moment a trialist can reach 'full' there, and this
+ * is the single place that would have to change. The warning travelled here with
+ * the comparison; it used to live on the card.
+ *
+ * TAKES THE TWO FIELDS, NOT THE WHOLE OBJECT, for hasFullTeamMonth's stated
+ * reason: not every holder of these two facts holds a full InsightsAccess, and
+ * widening the parameter would make a caller thread one just to ask. Pick<> keeps
+ * tsc enforcing that both fields are the real ones.
+ *
+ * NOT A FOURTH LayerAccess PREDICATE. hasFullTeamMonth answers "may this caller
+ * see the whole month", which a trialist and a subscriber BOTH may; this answers
+ * which of the two is reading. Opposite questions, and conflating them is what
+ * produced the bug.
+ */
+export function trialRatherThanPro(
+  access: Pick<InsightsAccess, 'trialActive' | 'layer4'>,
+): boolean {
+  return access.trialActive && access.layer4 !== 'full'
+}

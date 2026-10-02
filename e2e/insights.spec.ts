@@ -263,9 +263,12 @@ test.describe('the route itself', () => {
  * reconstructed by a fixture that agrees with the component by construction.
  *
  * THE TEAM MARKER IS DELIBERATELY NOT ASSERTED HERE. It renders inside
- * TeamSection's paid branch, which depends on a selected team and its own query;
- * team-section.hook.test.ts pins it directly, including the pro-absence row, and
- * e2e/team-insights.spec.ts is where this file's siblings put team state.
+ * TeamSection's paid branch, which depends on a selected team and its own query,
+ * and e2e/team-insights.spec.ts is where this file's siblings put team state — so
+ * that is where its two rows live. team-section.hook.test.ts pins the component
+ * given the flag, but it CANNOT pin the distinction any more: the component holds
+ * no layer4 and receives the answer as a prop, so a pro-with-a-running-clock
+ * player is only expressible where the route computes it.
  */
 test.describe('the running trial says so', () => {
   test('a mid-trial player sees the card, the end date and the personal marker', async ({
@@ -289,6 +292,25 @@ test.describe('the running trial says so', () => {
 
     // The personal block IS there — this is not an absence of Layer 2, it is an
     // absence of the trial language over it.
+    await expect(page.getByTestId('insights-personal')).toBeVisible()
+    await expect(page.getByTestId('trial-active')).toHaveCount(0)
+    await expect(page.getByTestId('trial-marker-personal')).toHaveCount(0)
+  })
+
+  test('a pro player with a RUNNING clock still sees neither', async ({ page }) => {
+    // THE ROW THAT WAS MISSING, AND THE REASON cpqf SHIPPED. The pro row above
+    // passes no trialEndsAt, so that player's clock is not running and the
+    // assertion holds for the wrong reason. This is the combination that broke:
+    // nothing in the write path consults isPro before stamping
+    // insightsTrialEndsAt (convex/scores.ts's stampTrialIfDue, and by decision it
+    // stays that way), so EVERY subscriber who has played since launch is in this
+    // state. The owner was, on the day after cutover.
+    await signInWithInsights(page, { boards: 20, pro: true, trialEndsAt: Date.now() + 10 * DAY })
+    await openInsights(page)
+
+    // Paid access is intact — this is an absence of the trial LANGUAGE, not of
+    // Layer 2 — and it is asserted first so a broken page cannot pass the two
+    // count-zero checks below by rendering nothing at all.
     await expect(page.getByTestId('insights-personal')).toBeVisible()
     await expect(page.getByTestId('trial-active')).toHaveCount(0)
     await expect(page.getByTestId('trial-marker-personal')).toHaveCount(0)
