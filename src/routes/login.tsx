@@ -2,6 +2,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import { KeyRound } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { authClient } from '#/lib/auth-client'
+import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { SIGNIN_PARAM, trackFunnel } from '#/lib/funnel.ts'
 import { lastLoginMethod, rememberLoginAttempt } from '#/lib/last-login.ts'
 import { passkeyRegisteredHere, passkeySupported } from '#/lib/passkey.ts'
@@ -27,8 +28,31 @@ export const Route = createFileRoute('/login')({
   beforeLoad: ({ context }) => {
     if (context.isAuthenticated) throw redirect({ to: '/app' })
   },
-  component: LoginPage,
+  component: LoginRoute,
 })
+
+/**
+ * THE ROUTED COMPONENT, WHICH IS A WRAPPER AND IS UNEXPORTED ON PURPOSE —
+ * exactly the arrangement routes/login-error.tsx uses, for both of its reasons
+ * at once.
+ *
+ * THE PAGE BELOW IS EXPORTED SO IT CAN BE RENDERED UNDER VITEST
+ * (src/login-signin-failure.hook.test.ts). What that file asserts — that a
+ * REJECTED auth call leaves this form usable and says why — is behaviour, not
+ * text, and parsing this file for a `try` would assert the shape of the fix
+ * rather than what a player experiences.
+ *
+ * AND THE SPLIT IS WHAT KEEPS THE PAGE OUT OF THE ENTRY CHUNK. src/routes.test.ts
+ * refuses a route file that exports the component named in `component:`,
+ * because the router plugin then cannot code-split it. That is not a rule about
+ * spelling: built with `component: LoginPage` exported, dist/client/assets has
+ * NO login chunk at all and this page ships to every visitor of every route;
+ * with the wrapper it splits, exactly as login-error does today. Do not inline
+ * this back into `component:`.
+ */
+function LoginRoute() {
+  return <LoginPage />
+}
 
 /**
  * The inputs here are UNCONTROLLED, and the submit buttons are disabled until
@@ -101,7 +125,8 @@ const EMAIL_METHOD = 'email'
  */
 const PASSKEY_METHOD = 'passkey'
 
-function LoginPage() {
+/** The page itself. Exported, and routed to via LoginRoute above, which says why. */
+export function LoginPage() {
   const hydrated = useHydrated()
   const [step, setStep] = useState<'email' | 'code'>('email')
   const [email, setEmail] = useState('')
@@ -169,25 +194,61 @@ function LoginPage() {
     rememberLoginAttempt(provider)
     setPending(true)
     setError(null)
-    // No full-page reload afterwards, unlike the OTP path: this hands off to the
-    // provider and comes back through /api/auth/callback/<provider>, which lands
-    // as a fresh document load anyway.
-    const { error } = await authClient.signIn.social({
-      provider,
-      callbackURL: `/app?${SIGNIN_PARAM}=oauth`,
-      // THE FAILURE HALF OF THE SAME HANDOFF (wordle-teams-vjh). Better Auth
-      // stores this in the OAuth state and redirects here — with the provider's
-      // own code on the query string — when the provider comes back with an
-      // error instead of a code. Without it the flow falls back to Better
-      // Auth's built-in /api/auth/error page, which in production 302s onward
-      // to `/` and shows nothing: a user who declined consent landed silently
-      // on the marketing page. src/routes/login-error.tsx carries the full
-      // reasoning and the allowlist of codes it will show a sentence for.
-      errorCallbackURL: '/login-error',
-    })
-    // Only reached if the redirect never happened.
-    setPending(false)
-    if (error) setError(error.message ?? `Could not sign in with ${provider}`)
+    /**
+     * THE `try` IS LOAD-BEARING RATHER THAN DEFENSIVE (wordle-teams-fws8), and
+     * it is the same trap lib/signin-passkey.ts's header records at length.
+     *
+     * Better Auth builds its fetcher WITHOUT `@better-fetch/fetch`'s
+     * `catchAllError` (dist/client/config.mjs), which is the only option that
+     * wraps the bare `await fetch()` inside it. So `throw: false` governs HTTP
+     * error RESPONSES only, and a TRANSPORT failure — a dropped connection, a
+     * blocking extension, a document torn down with the POST in flight —
+     * REJECTS this call instead of arriving as `{ error }`.
+     *
+     * UNHANDLED, THAT WAS A DEAD PAGE RATHER THAN A FAILED CLICK, which is why
+     * this is a bug and not tidiness. `setPending(false)` was skipped, so
+     * `pending` stayed true — and it gates all four provider buttons, "Send
+     * code", "Verify" AND the passkey button. One blip left a player looking at
+     * seven disabled controls with no sentence anywhere on the page, and a
+     * manual reload nothing suggests was the only way out. The handler is
+     * `void signInWith(id)`, so the rejection also escaped as an unhandled
+     * promise rejection; that is the Sentry event this was filed from.
+     */
+    try {
+      // No full-page reload afterwards, unlike the OTP path: this hands off to
+      // the provider and comes back through /api/auth/callback/<provider>,
+      // which lands as a fresh document load anyway.
+      const { error } = await authClient.signIn.social({
+        provider,
+        callbackURL: `/app?${SIGNIN_PARAM}=oauth`,
+        // THE FAILURE HALF OF THE SAME HANDOFF (wordle-teams-vjh). Better Auth
+        // stores this in the OAuth state and redirects here — with the
+        // provider's own code on the query string — when the provider comes
+        // back with an error instead of a code. Without it the flow falls back
+        // to Better Auth's built-in /api/auth/error page, which in production
+        // 302s onward to `/` and shows nothing: a user who declined consent
+        // landed silently on the marketing page. src/routes/login-error.tsx
+        // carries the full reasoning and the allowlist of codes it will show a
+        // sentence for.
+        errorCallbackURL: '/login-error',
+      })
+      // Only reached if the redirect never happened.
+      if (error) setError(error.message ?? `Could not sign in with ${provider}`)
+    } catch (cause) {
+      // mutationErrorMessage, as app-menu.tsx's signOut does with the same
+      // client: a typed Convex code escaping the component gets its own
+      // sentence, and a transport failure — which carries none — gets this one.
+      setError(
+        mutationErrorMessage(cause, `Could not sign in with ${provider}. Please try again.`),
+      )
+    } finally {
+      // IN A `finally` RATHER THAN ON EACH PATH, and this is not a behaviour
+      // change on the success path: setting window.location.href is an
+      // assignment, so this component keeps running until the document is
+      // actually replaced, and the unconditional call this replaces already ran
+      // there.
+      setPending(false)
+    }
   }
 
   async function sendCode(e: FormEvent<HTMLFormElement>) {
@@ -200,15 +261,26 @@ function LoginPage() {
 
     setPending(true)
     setError(null)
-    const { error } = await authClient.emailOtp.sendVerificationOtp({
-      email: entered,
-      type: 'sign-in',
-    })
-    setPending(false)
-    if (error) return setError(error.message ?? 'Failed to send code')
-    trackFunnel({ name: 'login_code_requested' })
-    setEmail(entered)
-    setStep('code')
+    // The same `try` as the provider path above, for the same reason written
+    // out there: this call rejects on a transport failure rather than returning
+    // one, and an unhandled rejection here freezes the whole form.
+    try {
+      const { error } = await authClient.emailOtp.sendVerificationOtp({
+        email: entered,
+        type: 'sign-in',
+      })
+      if (error) return setError(error.message ?? 'Failed to send code')
+      trackFunnel({ name: 'login_code_requested' })
+      setEmail(entered)
+      setStep('code')
+    } catch (cause) {
+      // STAYS ON THE EMAIL STEP, deliberately: no code was sent, and advancing
+      // to a six-box field for a code that does not exist is a worse lie than
+      // the sentence.
+      setError(mutationErrorMessage(cause, 'Could not send your code. Please try again.'))
+    } finally {
+      setPending(false)
+    }
   }
 
   async function verifyCode(e: FormEvent<HTMLFormElement>) {
@@ -218,9 +290,31 @@ function LoginPage() {
 
     setPending(true)
     setError(null)
-    const { error } = await authClient.signIn.emailOtp({ email, otp })
+    /**
+     * THE OUTCOME IS REDUCED TO A SENTENCE-OR-NULL AND THE TAIL BELOW STAYS
+     * OUTSIDE THE `try`, which is the one place this path's guard differs in
+     * shape from its two siblings above. THE SHAPE IS FORCED, NOT PREFERRED.
+     *
+     * src/routes.test.ts asserts that `rememberLoginAttempt` is the LAST CALL
+     * in this body — "recorded once the handler has no way left to refuse",
+     * spelled that way because both anchors that read better are unsound, and
+     * the reasoning is written out where it is asserted. A `catch` or a
+     * `finally` wrapped around the whole body puts a call AFTER it and turns
+     * that test red — reporting a mutation that was never made, for a fix that
+     * has nothing to do with what it guards.
+     *
+     * So the failure is collected into a local and the refusal is still an
+     * ordinary `return` above the attempt, exactly as it was.
+     */
+    let failure: string | null = null
+    try {
+      const { error } = await authClient.signIn.emailOtp({ email, otp })
+      if (error) failure = error.message ?? 'Invalid code'
+    } catch (cause) {
+      failure = mutationErrorMessage(cause, 'Could not verify your code. Please try again.')
+    }
     setPending(false)
-    if (error) return setError(error.message ?? 'Invalid code')
+    if (failure) return setError(failure)
     // Written BEFORE the navigation, like the provider path's, and for a
     // slightly different reason: the reload below is what discards this
     // component, so anything after it is code nobody should have to reason
