@@ -25,6 +25,23 @@ const membershipStatus = v.union(
   v.literal('expired'),
 )
 
+// One side of a frozen challenge result. Defined out here because the result
+// object uses it twice and an inline duplicate is how the two sides drift.
+const challengeSideValidator = v.object({
+  teamId: v.id('teams'),
+  boards: v.number(),
+  attempts: v.number(),
+  average: v.union(v.number(), v.null()),
+  members: v.array(
+    v.object({
+      playerId: v.id('players'),
+      boards: v.number(),
+      attempts: v.number(),
+      average: v.union(v.number(), v.null()),
+    }),
+  ),
+})
+
 export default defineSchema({
   players: defineTable({
     // OPTIONAL SINCE PHASE 4, for the reason teams.legacyId is optional since
@@ -271,6 +288,21 @@ export default defineSchema({
     playWeekends: v.boolean(),
     showLetters: v.boolean(),
     createdAt: v.optional(v.number()),
+    /**
+     * WHETHER THIS TEAM ACCEPTS INCOMING CHALLENGES (wordle-teams-zic8.2).
+     *
+     * OPTIONAL-BY-OMISSION, exactly as inviteLinks.revokedAt and
+     * players.onboardingDismissedAt are: ABSENT MEANS YES. That is what lets
+     * 171 existing teams need no backfill, and Convex validates this schema
+     * against every existing document on push.
+     *
+     * THE OWNER'S CONTROL, AND IT IS NOT ADVISORY. It is re-checked when a
+     * challenge LINK is claimed as well as when a direct proposal is made —
+     * see challenges.ts — because a link proposal does not know its opponent at
+     * creation, so a check only at propose time would make this bypassable by
+     * anyone holding a link.
+     */
+    acceptsChallenges: v.optional(v.boolean()),
   }).index('by_legacyId', ['legacyId']),
   // No index for "teams containing player X": Convex cannot index array
   // membership. Production has 171 teams in total, so the later phases can
@@ -686,6 +718,90 @@ export default defineSchema({
     // the corrections for the boards people entered on a given puzzle.
     .index('by_puzzleDay', ['puzzleDay'])
     .index('by_player_and_puzzleDay', ['playerId', 'puzzleDay']),
+
+  /**
+   * A CHALLENGE BETWEEN TWO TEAMS (wordle-teams-zic8.2).
+   *
+   * NOT DERIVED DATA, unlike teamMonthStats beside it. A challenge is a social
+   * agreement and cannot be recomputed from boards, which is why team deletion
+   * CLOSES one rather than deleting it.
+   *
+   * TWO STATUS INDEXES RATHER THAN ONE, because a team sits on either side and
+   * Convex cannot OR across indexes. "My team's challenges" is two point
+   * queries, never a scan. An array field holding both ids would be
+   * unindexable — the same limitation this file already records for "teams
+   * containing player X".
+   */
+  teamChallenges: defineTable({
+    challengerTeamId: v.id('teams'),
+
+    // ABSENT UNTIL A LINK IS CLAIMED. A direct proposal names its opponent at
+    // creation; a link proposal cannot know who will claim it. Absence is
+    // meaningful, as with inviteLinks.revokedAt — it means "not yet bound",
+    // never "missing".
+    opponentTeamId: v.optional(v.id('teams')),
+
+    proposedBy: v.id('players'),
+
+    status: v.union(
+      v.literal('pending'),
+      v.literal('active'),
+      v.literal('declined'),
+      v.literal('withdrawn'),
+      v.literal('expired'),
+      v.literal('closed'),
+    ),
+
+    // LINK PROPOSALS ONLY, and THE TOKEN IS THE SECRET AND THE KEY exactly as
+    // inviteLinks.token is: it is looked up on a path the claimant reaches
+    // before we know which team they act for, so guessability is the only thing
+    // standing between a stranger and a challenge. See newToken in
+    // challenges.ts, which must stay crypto.getRandomValues.
+    token: v.optional(v.string()),
+
+    expiresAt: v.number(), // the PROPOSAL's TTL; see PROPOSAL_TTL_DAYS
+    acceptedBy: v.optional(v.id('players')),
+
+    // SET ON ACCEPTANCE, both 'YYYY-MM-DD'. startDay is the day AFTER
+    // acceptance; see windowFor.
+    startDay: v.optional(v.string()),
+    endDay: v.optional(v.string()),
+
+    /**
+     * FROZEN AT CLOSE, AND THE FREEZE IS FORCED RATHER THAN CHOSEN.
+     * convex/teamStats.ts states that backfill is a free feature — a player can
+     * edit a month from last year and the rollup recomputes that exact (team,
+     * month) pair on the spot. A closed challenge re-derived from teamMonthStats
+     * would therefore silently restate itself whenever anyone edited an old
+     * board, turning "we won March" into "we lost March".
+     *
+     * `average` IS STORED THOUGH IT IS DERIVABLE from boards and attempts. The
+     * rounding is display-coupled, so storing it is what makes it impossible for
+     * a historical record to disagree with what was shown at the time.
+     *
+     * NO solved/failed FIELDS, and that is not an omission: the window
+     * projection reads days[], where a failure is already folded into attempts
+     * as 7 by attemptsFor. Nothing needs a separate failure count.
+     */
+    result: v.optional(
+      v.object({
+        challenger: challengeSideValidator,
+        opponent: challengeSideValidator,
+        outcome: v.union(
+          v.literal('challenger'),
+          v.literal('opponent'),
+          v.literal('tie'),
+          v.literal('void'),
+        ),
+        closedAt: v.number(),
+      }),
+    ),
+
+    createdAt: v.number(),
+  })
+    .index('by_token', ['token'])
+    .index('by_challenger_and_status', ['challengerTeamId', 'status'])
+    .index('by_opponent_and_status', ['opponentTeamId', 'status']),
 
   statusMessages: defineTable({
     message: v.string(),

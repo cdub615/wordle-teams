@@ -526,3 +526,55 @@ describe('players reminder scheduling fields', () => {
     ).rejects.toThrow()
   })
 })
+
+describe('teamChallenges', () => {
+  test('a pending challenge needs neither an opponent nor a window', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const teamId = await ctx.db.insert('teams', aTeam({ name: 'challenger' }))
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId: teamId,
+        proposedBy: playerId,
+        status: 'pending',
+        token: 'deadbeefdeadbeefdeadbeefdeadbeef',
+        expiresAt: Date.now() + 1000,
+        createdAt: Date.now(),
+      })
+      const doc = await ctx.db.get(id)
+      expect(doc?.opponentTeamId).toBeUndefined()
+      expect(doc?.startDay).toBeUndefined()
+      expect(doc?.result).toBeUndefined()
+    })
+  })
+
+  test('by_token finds a link proposal', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const teamId = await ctx.db.insert('teams', aTeam())
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teamChallenges', {
+        challengerTeamId: teamId,
+        proposedBy: playerId,
+        status: 'pending',
+        token: 'feedfacefeedfacefeedfacefeedface',
+        expiresAt: Date.now() + 1000,
+        createdAt: Date.now(),
+      })
+      const found = await ctx.db
+        .query('teamChallenges')
+        .withIndex('by_token', (q) => q.eq('token', 'feedfacefeedfacefeedfacefeedface'))
+        .unique()
+      expect(found?.status).toBe('pending')
+    })
+  })
+
+  test('acceptsChallenges is absent on an existing team, meaning yes', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const teamId = await ctx.db.insert('teams', aTeam())
+      const team = await ctx.db.get(teamId)
+      expect(team?.acceptsChallenges).toBeUndefined()
+    })
+  })
+})
