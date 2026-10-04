@@ -29,6 +29,23 @@ const membershipStatus = v.union(
 // object uses it twice and an inline duplicate is how the two sides drift.
 const challengeSideValidator = v.object({
   teamId: v.id('teams'),
+
+  // THE TEAM'S NAME AT CLOSE, AND IT IS THE POINT OF A SNAPSHOT.
+  //
+  // `average` is stored though derivable because the rounding is
+  // display-coupled — a record must not disagree with what was shown. The NAME
+  // is display-coupled in exactly the same way and far more visible, so leaving
+  // it out would make a rename silently rewrite who every closed challenge was
+  // against, which is the precise failure storing `average` exists to prevent.
+  //
+  // AND IT IS WHAT MAKES DELETION SURVIVABLE. The design closes rather than
+  // deletes a challenge "to keep the surviving team's record honest", and the
+  // cascade closes BEFORE removing the team row because closing reads both
+  // names. Without this field that care buys nothing: the outcome tally survives
+  // and "who was it against" does not. A snapshot is the one shape that cannot
+  // be backfilled.
+  name: v.string(),
+
   boards: v.number(),
   attempts: v.number(),
   average: v.union(v.number(), v.null()),
@@ -724,7 +741,16 @@ export default defineSchema({
    *
    * NOT DERIVED DATA, unlike teamMonthStats beside it. A challenge is a social
    * agreement and cannot be recomputed from boards, which is why team deletion
-   * CLOSES one rather than deleting it.
+   * CLOSES one rather than deleting it — WIRED IN TASK 11, not here.
+   *
+   * THAT HEDGE IS NOT PEDANTRY. teams.ts's cascadeDeleteTeam banner records that
+   * teamMonthStats was added to the cascade "in the same commit as the table
+   * itself, which is the whole lesson of wordle-teams-2c1u — that bug's entire
+   * cause was a table added the day AFTER this function was written", leaving
+   * every invite link a deleted team ever issued orphaned forever. This is
+   * another team-keyed table arriving without the cascade, so the present tense
+   * would tell a reader of schema.ts that it is already covered. It is not,
+   * until Task 11.
    *
    * TWO STATUS INDEXES RATHER THAN ONE, because a team sits on either side and
    * Convex cannot OR across indexes. "My team's challenges" is two point
@@ -757,6 +783,13 @@ export default defineSchema({
     // before we know which team they act for, so guessability is the only thing
     // standing between a stranger and a challenge. See newToken in
     // challenges.ts, which must stay crypto.getRandomValues.
+    //
+    // ⚠️ NEVER PROBE by_token WITH A POSSIBLY-UNDEFINED TOKEN. This field is
+    // OPTIONAL, unlike inviteLinks.token which is v.string() — so every DIRECT
+    // proposal keys on `undefined`, and
+    // `withIndex('by_token', q => q.eq('token', undefined)).unique()` would
+    // match all of them at once and throw "not unique", a confusing failure a
+    // long way from its cause. Guard with `if (!token)` before any lookup.
     token: v.optional(v.string()),
 
     expiresAt: v.number(), // the PROPOSAL's TTL; see PROPOSAL_TTL_DAYS

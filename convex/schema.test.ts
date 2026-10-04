@@ -569,6 +569,204 @@ describe('teamChallenges', () => {
     })
   })
 
+  // A DIRECT PROPOSAL — NO TOKEN. The test above supplies one, which makes it a
+  // LINK proposal despite its name; without this, the primary path of Task 5 is
+  // never inserted at all. It also pins token's optionality, which nothing else
+  // does: widening it to v.string() otherwise leaves every test green.
+  test('a direct proposal names its opponent and carries no token', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const challenger = await ctx.db.insert('teams', aTeam({ name: 'ours' }))
+      const opponent = await ctx.db.insert('teams', aTeam({ name: 'theirs' }))
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId: challenger,
+        opponentTeamId: opponent,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + 1000,
+        createdAt: Date.now(),
+      })
+      const doc = await ctx.db.get(id)
+      expect(doc?.token).toBeUndefined()
+      expect(doc?.opponentTeamId).toBe(opponent)
+    })
+  })
+
+  // EVERY STATUS THE LIFECYCLE ALLOWS, round-tripped in a loop — the shape
+  // schema.test.ts already uses for membershipStatus. Collapsing the union
+  // otherwise survives every other test here.
+  test('round-trips every status the challenge lifecycle allows', async () => {
+    const statuses = ['pending', 'active', 'declined', 'withdrawn', 'expired', 'closed'] as const
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const teamId = await ctx.db.insert('teams', aTeam())
+      const playerId = await ctx.db.insert('players', aPlayer())
+      for (const status of statuses) {
+        const id = await ctx.db.insert('teamChallenges', {
+          challengerTeamId: teamId,
+          proposedBy: playerId,
+          status,
+          expiresAt: Date.now() + 1000,
+          createdAt: Date.now(),
+        })
+        expect((await ctx.db.get(id))?.status).toBe(status)
+      }
+    })
+  })
+
+  // THE NEGATIVE HALF, AND THE ONE TYPECHECK CANNOT COVER. schema.test.ts
+  // already documents this exact failure class for reminderJobId: a union can
+  // widen to v.string() "with BOTH typecheck and the test still green", because
+  // every value ever written still satisfies the wider validator. A collapsed
+  // `status` union would at least break a later task's literal; a widened
+  // `result.outcome` would not break anything, ever. convex-test DOES reject a
+  // bad literal (measured), so this assertion has real force.
+  test('rejects a status outside the union', async () => {
+    const t = convexTest(schema, modules)
+    await expect(
+      t.run(async (ctx) => {
+        const teamId = await ctx.db.insert('teams', aTeam())
+        const playerId = await ctx.db.insert('players', aPlayer())
+        await ctx.db.insert('teamChallenges', {
+          challengerTeamId: teamId,
+          proposedBy: playerId,
+          status: 'paused' as never,
+          expiresAt: Date.now(),
+          createdAt: Date.now(),
+        })
+      }),
+    ).rejects.toThrow()
+  })
+
+  // THE SNAPSHOT'S SHAPE, which nothing else constructs — the most intricate
+  // thing this table adds and the only part with no insert coverage otherwise.
+  // Renaming a nested field inside challengeSideValidator survives every other
+  // test here. Also the only place an explicit `null` average is exercised.
+  test('stores a frozen result, including a null average and an outcome', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const challenger = await ctx.db.insert('teams', aTeam({ name: 'ours' }))
+      const opponent = await ctx.db.insert('teams', aTeam({ name: 'theirs' }))
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId: challenger,
+        opponentTeamId: opponent,
+        proposedBy: playerId,
+        status: 'closed',
+        expiresAt: Date.now(),
+        startDay: '2026-10-05',
+        endDay: '2026-10-31',
+        createdAt: Date.now(),
+        result: {
+          challenger: {
+            teamId: challenger,
+            name: 'ours',
+            boards: 12,
+            attempts: 42,
+            average: 3.5,
+            members: [{ playerId, boards: 12, attempts: 42, average: 3.5 }],
+          },
+          opponent: {
+            teamId: opponent,
+            name: 'theirs',
+            boards: 0,
+            attempts: 0,
+            average: null,
+            members: [],
+          },
+          outcome: 'void',
+          closedAt: Date.now(),
+        },
+      })
+      const doc = await ctx.db.get(id)
+      expect(doc?.result?.challenger.average).toBe(3.5)
+      expect(doc?.result?.challenger.name).toBe('ours')
+      expect(doc?.result?.opponent.average).toBeNull()
+      expect(doc?.result?.opponent.members).toEqual([])
+      expect(doc?.result?.outcome).toBe('void')
+    })
+  })
+
+  // THE OUTCOME'S NEGATIVE HALF. The plan's status rejection test covers only
+  // `status`; replacing result.outcome's union with v.string() survived the whole
+  // suite (measured), and it is invisible to typecheck for the reason the test
+  // above records. A closed challenge is the one record that cannot be re-derived.
+  test('rejects a result outcome outside the union', async () => {
+    const t = convexTest(schema, modules)
+    await expect(
+      t.run(async (ctx) => {
+        const challenger = await ctx.db.insert('teams', aTeam({ name: 'ours' }))
+        const opponent = await ctx.db.insert('teams', aTeam({ name: 'theirs' }))
+        const playerId = await ctx.db.insert('players', aPlayer())
+        const side = (teamId: typeof challenger, name: string) => ({
+          teamId,
+          name,
+          boards: 0,
+          attempts: 0,
+          average: null,
+          members: [],
+        })
+        await ctx.db.insert('teamChallenges', {
+          challengerTeamId: challenger,
+          opponentTeamId: opponent,
+          proposedBy: playerId,
+          status: 'closed',
+          expiresAt: Date.now(),
+          createdAt: Date.now(),
+          result: {
+            challenger: side(challenger, 'ours'),
+            opponent: side(opponent, 'theirs'),
+            outcome: 'draw' as never,
+            closedAt: Date.now(),
+          },
+        })
+      }),
+    ).rejects.toThrow()
+  })
+
+  // THE TWO COMPOUND INDEXES, whose FIELD ORDER is otherwise unpinned here —
+  // reversing both to ['status', teamId] survives every other test. A later
+  // task's query would fail typecheck against a swapped index, but this file's
+  // convention is to pin an index where it is declared (see by_webhookId and
+  // by_player_and_puzzleDay). It also demonstrates the two-point-query pattern
+  // the table's banner describes, which Task 5 builds on.
+  test('the status indexes find a team on either side', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ours = await ctx.db.insert('teams', aTeam({ name: 'ours' }))
+      const theirs = await ctx.db.insert('teams', aTeam({ name: 'theirs' }))
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const row = (over: Record<string, unknown>) => ({
+        challengerTeamId: ours,
+        opponentTeamId: theirs,
+        proposedBy: playerId,
+        status: 'active' as const,
+        expiresAt: Date.now() + 1000,
+        createdAt: Date.now(),
+        ...over,
+      })
+      await ctx.db.insert('teamChallenges', row({}))
+      await ctx.db.insert('teamChallenges', row({ status: 'closed' as const }))
+
+      const activeAsChallenger = await ctx.db
+        .query('teamChallenges')
+        .withIndex('by_challenger_and_status', (q) =>
+          q.eq('challengerTeamId', ours).eq('status', 'active'),
+        )
+        .collect()
+      expect(activeAsChallenger).toHaveLength(1)
+
+      const activeAsOpponent = await ctx.db
+        .query('teamChallenges')
+        .withIndex('by_opponent_and_status', (q) =>
+          q.eq('opponentTeamId', theirs).eq('status', 'active'),
+        )
+        .collect()
+      expect(activeAsOpponent).toHaveLength(1)
+    })
+  })
+
   // WHAT CONVEX-TEST ACTUALLY ENFORCES, measured rather than assumed:
   //   - an UNDECLARED TABLE is ACCEPTED (no validation at all)
   //   - a bad literal in a declared table is REJECTED
