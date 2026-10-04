@@ -35,6 +35,33 @@ TZ=UTC pnpm test:once > /tmp/gate.txt 2>&1; echo "exit=$?"; tail -40 /tmp/gate.t
 
 **Single-file test runs:** `TZ=UTC pnpm test:once convex/lib/challenge.test.ts`
 
+**NEVER RUN `convex codegen` — AND MOST TASKS HERE DO NOT NEED IT.**
+
+`convex codegen` **uploads your working tree's functions to a deployment**, and in
+this repo a bare Convex CLI call silently targets PRODUCTION (`wordle-teams-ldm8`).
+`--dry-run` does NOT prevent the upload; it only suppresses the local file write.
+`CONVEX_AGENT_MODE=anonymous` does not help either — `CONVEX_DEPLOY_KEY` outranks it.
+This was triggered once during setup; blast radius was nil only because `convex/` on
+`dev` was byte-identical to `origin/main`. The worktree's `.env.local` has the prod
+block stripped, so the command now fails safely here, but no task should run it.
+
+What actually needs regenerating, and when:
+
+- **Schema changes need NOTHING.** `convex/_generated/dataModel.d.ts` is
+  `DataModel = DataModelFromSchemaDefinition<typeof schema>`, computed from
+  `schema.ts` at typecheck time. Task 4's new table gives you `Doc<'teamChallenges'>`
+  and `Id<'teamChallenges'>` with no codegen at all. Verified.
+- **`api.d.ts` enumerates modules explicitly** and is ALREADY stale — it does not list
+  `lib/challenge`, added in Tasks 1-3, and typecheck passes anyway because that module
+  exports no Convex functions, so nothing reaches it through `api.*`/`internal.*`.
+- **It becomes load-bearing at Task 12**, which references
+  `api.challenges.challengesForTeam`. That needs `challenges` present in `api.d.ts` or
+  `pnpm typecheck` fails — locally AND in CI, which runs the same gate.
+
+So the controller regenerates `api.d.ts` ONCE, before Task 12, against a LOCAL
+anonymous backend — never against a remote deployment. Do not attempt it as part of a
+task; report it as blocked and let the controller handle it.
+
 **`monthRange(month).end` IS NOT A DATE.** It returns `'<month>-31'` for every
 month, February included — its own doc comment calls it a lexicographic bound,
 correct for an index range query and wrong for anything that must be a real day.
