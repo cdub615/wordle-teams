@@ -42,7 +42,7 @@ six status literals could collapse to two, and `result.outcome` could widen from
 literals to `v.string()`. That last one is invisible to typecheck forever, because every
 value ever written still satisfies the wider validator — `schema.test.ts` documents this
 exact class for `reminderJobId`. For any table this plan adds or changes, the tests must
-cover: every literal of each union round-tripped, one REJECTED bad literal, one fully
+cover: every literal of each union round-tripped, one REJECTED bad literal PER UNION (not one for the table — two named fields need two assertions), one fully
 populated nested object, and one query per compound index. `convex-test` rejects bad
 literals and undeclared fields (measured), so these assertions have real force.
 
@@ -860,6 +860,47 @@ describe('teamChallenges', () => {
           status: 'paused' as never,
           expiresAt: Date.now(),
           createdAt: Date.now(),
+        })
+      }),
+    ).rejects.toThrow()
+  })
+
+  // THE OUTCOME UNION, SEPARATELY FROM status — AND THIS TEST EXISTS BECAUSE THE
+  // COMMENT ABOVE ONCE CLAIMED COVERAGE IT DID NOT PROVIDE.
+  //
+  // The status test's comment named `result.outcome` as the case typecheck can
+  // never catch, and then probed only `status` — so the
+  // `result.outcome` -> `v.string()` mutant survived the very test set written to
+  // kill it, and an implementer had to find that by applying the mutant. Two
+  // fields named in a comment need two assertions.
+  test('rejects a result outcome outside the union', async () => {
+    const t = convexTest(schema, modules)
+    await expect(
+      t.run(async (ctx) => {
+        const challenger = await ctx.db.insert('teams', aTeam({ name: 'ours' }))
+        const opponent = await ctx.db.insert('teams', aTeam({ name: 'theirs' }))
+        const playerId = await ctx.db.insert('players', aPlayer())
+        const side = (teamId: typeof challenger, name: string) => ({
+          teamId,
+          name,
+          boards: 10,
+          attempts: 40,
+          average: 4,
+          members: [],
+        })
+        await ctx.db.insert('teamChallenges', {
+          challengerTeamId: challenger,
+          opponentTeamId: opponent,
+          proposedBy: playerId,
+          status: 'closed',
+          expiresAt: Date.now(),
+          createdAt: Date.now(),
+          result: {
+            challenger: side(challenger, 'ours'),
+            opponent: side(opponent, 'theirs'),
+            outcome: 'draw' as never,
+            closedAt: Date.now(),
+          },
         })
       }),
     ).rejects.toThrow()
