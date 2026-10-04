@@ -474,6 +474,19 @@ that aggregate rather than building a second one.
 - **`TZ=UTC`.** Every window boundary is a `puzzleDay` string comparison through
   `lib/puzzleDay.ts`, and a date test that passes only on the host timezone passes
   locally and fails in CI.
+- **`result` present ⟺ `status === 'closed'`** is load-bearing in two places and
+  expressible in neither the schema nor a schema test: the close path uses
+  `result !== undefined` as its idempotency guard, and `recordAgainstFor` uses
+  `result === undefined` to skip rows it has already filtered to `'closed'`. So a
+  `'closed'` row with no `result` is silently dropped from the head-to-head record.
+  Pin the pairing behaviourally in the close tests.
+- **`ChallengeOutcome` is declared twice** — a TS union in `lib/challenge.ts` and four
+  `v.literal`s in `schema.ts`. Convex cannot build a validator from a TS type and
+  `lib/challenge.ts` must stay import-free, so the duplication is unavoidable; the drift
+  is not. A type-equality assertion between `ChallengeOutcome` and
+  `NonNullable<Doc<'teamChallenges'>['result']>['outcome']` fails if either side moves.
+  `teamLimits.ts`'s banner is the precedent — a duplicated value drifts, and a test
+  written against a literal passes straight through the drift.
 - **Idempotent close** is pinned by running the sweep twice and asserting the result and
   the notification count are unchanged.
 - **The sweep's disabled path** is pinned by a disabled run followed by an enabled one,
