@@ -2397,6 +2397,16 @@ async function statsDaysFor(
   return days
 }
 
+/**
+ * ORDER THE MEMBER ROWS HERE, because teamTotalsOver does not.
+ *
+ * Its `members` come out of a Map in first-seen order across days[] —
+ * deterministic, but meaningless to a reader: whoever happened to play earliest
+ * in the window lands first. Sort ascending by average so the best performer
+ * leads, with a null average (no boards in the window) last, and break ties on
+ * boards played to match the outcome rule. A null average must never sort as 0
+ * or a member who did not play would appear to have won.
+ */
 function sideFrom(
   teamId: Id<'teams'>,
   teamName: string,
@@ -2408,12 +2418,20 @@ function sideFrom(
     boards: totals.boards,
     attempts: totals.attempts,
     average: meanAttemptsOf(totals),
-    members: totals.members.map((m) => ({
-      playerId: m.playerId as Id<'players'>,
-      boards: m.boards,
-      attempts: m.attempts,
-      average: meanAttemptsOf(m),
-    })),
+    members: totals.members
+      .map((m) => ({
+        playerId: m.playerId as Id<'players'>,
+        boards: m.boards,
+        attempts: m.attempts,
+        average: meanAttemptsOf(m),
+      }))
+      // Nulls last, then lower average first, then more boards first.
+      .sort((a, b) => {
+        if (a.average === null) return b.average === null ? 0 : 1
+        if (b.average === null) return -1
+        if (a.average !== b.average) return a.average - b.average
+        return b.boards - a.boards
+      }),
   }
 }
 
