@@ -1246,7 +1246,7 @@ import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
-import { activeChallengeCountFor, proposeToTeamFor } from './challenges.ts'
+import { liveChallengeCountFor, proposeToTeamFor } from './challenges.ts'
 import { MAX_ACTIVE_CHALLENGES } from './lib/challenge.ts'
 import type { Id } from './_generated/dataModel'
 import type { DataModel } from './_generated/dataModel'
@@ -1421,7 +1421,7 @@ describe('proposeToTeamFor', () => {
         endDay: '2026-10-31',
         createdAt: Date.now(),
       })
-      expect(await activeChallengeCountFor(ctx, challengerTeamId)).toBe(1)
+      expect(await liveChallengeCountFor(ctx, challengerTeamId)).toBe(1)
     })
   })
 
@@ -1431,7 +1431,7 @@ describe('proposeToTeamFor', () => {
       const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
       const id = await proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId)
       await ctx.db.patch(id, { status: 'closed' })
-      expect(await activeChallengeCountFor(ctx, challengerTeamId)).toBe(0)
+      expect(await liveChallengeCountFor(ctx, challengerTeamId)).toBe(0)
     })
   })
 })
@@ -1510,7 +1510,16 @@ export async function liveChallengesFor(
   return found
 }
 
-export async function activeChallengeCountFor(
+/**
+ * How many slots this team currently occupies against MAX_ACTIVE_CHALLENGES.
+ *
+ * COUNTS 'pending' AND 'active', which is why it is named "live" rather than
+ * "active". A pending proposal must occupy a slot: otherwise a team could hold
+ * five running challenges and an unbounded pile of outstanding proposals, and
+ * the cap would bound nothing that matters. The constant keeps its name because
+ * it is the user-facing idea; this function is honest about the set it counts.
+ */
+export async function liveChallengeCountFor(
   ctx: ReaderCtx,
   teamId: Id<'teams'>,
 ): Promise<number> {
@@ -1538,10 +1547,10 @@ export async function requireChallengeablePair(
   // ABSENT MEANS YES. Only an explicit false refuses.
   if (opponent.acceptsChallenges === false) throw accessError('CHALLENGES_REFUSED')
 
-  if ((await activeChallengeCountFor(ctx, challengerTeamId)) >= MAX_ACTIVE_CHALLENGES) {
+  if ((await liveChallengeCountFor(ctx, challengerTeamId)) >= MAX_ACTIVE_CHALLENGES) {
     throw accessError('CHALLENGE_LIMIT_REACHED')
   }
-  if ((await activeChallengeCountFor(ctx, opponentTeamId)) >= MAX_ACTIVE_CHALLENGES) {
+  if ((await liveChallengeCountFor(ctx, opponentTeamId)) >= MAX_ACTIVE_CHALLENGES) {
     throw accessError('CHALLENGE_LIMIT_REACHED')
   }
 
@@ -1770,7 +1779,7 @@ export async function proposeByLinkFor(
 ): Promise<string> {
   await requireTeamMemberFor(ctx, playerId, challengerTeamId)
   if (!(await isProFor(ctx, playerId))) throw accessError('PRO_REQUIRED')
-  if ((await activeChallengeCountFor(ctx, challengerTeamId)) >= MAX_ACTIVE_CHALLENGES) {
+  if ((await liveChallengeCountFor(ctx, challengerTeamId)) >= MAX_ACTIVE_CHALLENGES) {
     throw accessError('CHALLENGE_LIMIT_REACHED')
   }
 
@@ -2267,7 +2276,7 @@ describe('declineChallengeFor', () => {
         createdAt: Date.now(),
       })
       await declineChallengeFor(ctx, accepterId, id)
-      expect(await activeChallengeCountFor(ctx, challengerTeamId)).toBe(0)
+      expect(await liveChallengeCountFor(ctx, challengerTeamId)).toBe(0)
     })
   })
 })
