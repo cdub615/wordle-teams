@@ -244,7 +244,7 @@ export function windowFor(acceptedOn: PuzzleDay): ChallengeWindow {
 TZ=UTC pnpm test:once convex/lib/challenge.test.ts > /tmp/t1.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t1.txt
 ```
 
-Expected: `exit=0`, 8 tests passing.
+Expected: `exit=0`, 9 tests passing (8 here plus the non-leap-February case added at review).
 
 - [ ] **Step 5: Commit**
 
@@ -466,7 +466,7 @@ export function teamTotalsOver<PlayerId extends string = string>(
 TZ=UTC pnpm test:once convex/lib/challenge.test.ts > /tmp/t2.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t2.txt
 ```
 
-Expected: `exit=0`, 15 tests passing.
+Expected: `exit=0`, 17 tests passing (9 from Task 1, 7 here, plus the same-player-twice-in-one-day case added at review).
 
 - [ ] **Step 5: Commit**
 
@@ -502,8 +502,20 @@ Append to `convex/lib/challenge.test.ts`:
 ```ts
 import { outcomeOf } from './challenge.ts'
 
-/** A side with `boards` boards averaging `avg`, at or above the floor. */
-const side = (boards: number, avg: number) => ({ boards, attempts: Math.round(boards * avg) })
+/** A side with `boards` boards averaging exactly `avg`. */
+const side = (boards: number, avg: number) => {
+  const attempts = boards * avg
+  // THE HELPER'S WHOLE VALUE IS THAT `avg` IS THE AVERAGE. A Math.round() here
+  // would make that a lie for any pair that does not divide cleanly —
+  // side(3, 4.5) would claim 4.5 and produce 14/3 = 4.7 — and the resulting test
+  // would assert a winner the values do not produce, passing through the boards
+  // tiebreak for a reason its author never intended. Loud at authoring time
+  // beats silent at review time.
+  if (!Number.isInteger(attempts)) {
+    throw new Error(`side(${boards}, ${avg}): ${attempts} attempts is not a whole number`)
+  }
+  return { boards, attempts }
+}
 
 describe('outcomeOf', () => {
   test('LOWER average guesses wins — the challenger', () => {
@@ -540,9 +552,15 @@ describe('outcomeOf', () => {
 
   // Equal RAW averages, so this pins the boards tiebreak rather than the
   // rounding. Kept for that, under a name that says so.
+  // BOARDS WELL CLEAR OF MIN_CHALLENGE_BOARDS, deliberately. At 10 the
+  // challenger sat exactly ON the floor, so a mutation of the floor comparison
+  // failed this test as well as the floor test — measured. This test's subject
+  // is the boards tiebreak and it has no business being sensitive to the floor
+  // constant; raise MIN_CHALLENGE_BOARDS and it would fail with 'void', sending
+  // the reader to the wrong place.
   test('equal raw averages fall through to the boards tiebreak', () => {
-    const a = { boards: 10, attempts: 40 } // 4.00 exactly
-    const b = { boards: 11, attempts: 44 } // 4.00 exactly
+    const a = { boards: 20, attempts: 80 } // 4.00 exactly
+    const b = { boards: 22, attempts: 88 } // 4.00 exactly
     expect(outcomeOf(a, b)).toBe('opponent') // b played more boards
   })
 
@@ -608,23 +626,28 @@ export type ChallengeOutcome = 'challenger' | 'opponent' | 'tie' | 'void'
  * engagement.
  */
 export function outcomeOf(
-  challenger: { boards: number; attempts: number },
-  opponent: { boards: number; attempts: number },
+  challenger: { readonly boards: number; readonly attempts: number },
+  opponent: { readonly boards: number; readonly attempts: number },
 ): ChallengeOutcome {
   if (challenger.boards < MIN_CHALLENGE_BOARDS) return 'void'
   if (opponent.boards < MIN_CHALLENGE_BOARDS) return 'void'
 
-  const a = meanAttemptsOf(challenger)
-  const b = meanAttemptsOf(opponent)
+  // NAMED, NOT `a`/`b`. This doc block says direction is the easiest thing here
+  // to implement backwards, and the comparisons below are three lines away — so
+  // they should read as the rule without the reader holding a mapping in their
+  // head. The repo's `a`/`b` precedent (teamStats.ts's statsEqual) is a
+  // SYMMETRIC equality, where transposing is harmless; here it inverts the answer.
+  const challengerMean = meanAttemptsOf(challenger)
+  const opponentMean = meanAttemptsOf(opponent)
   // UNREACHABLE GIVEN THE FLOOR ABOVE — MIN_CHALLENGE_BOARDS > 0, so neither
   // side can have zero boards here. Kept for totality rather than as a guard, and
   // a mutant deleting it SURVIVES the suite. That is expected, not a hole: the
   // alternative is a non-null assertion that would start lying if the floor ever
   // became 0.
-  if (a === null || b === null) return 'void'
+  if (challengerMean === null || opponentMean === null) return 'void'
 
-  if (a < b) return 'challenger'
-  if (b < a) return 'opponent'
+  if (challengerMean < opponentMean) return 'challenger'
+  if (opponentMean < challengerMean) return 'opponent'
   if (challenger.boards > opponent.boards) return 'challenger'
   if (opponent.boards > challenger.boards) return 'opponent'
   return 'tie'
@@ -637,7 +660,7 @@ export function outcomeOf(
 TZ=UTC pnpm test:once convex/lib/challenge.test.ts > /tmp/t3.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t3.txt
 ```
 
-Expected: `exit=0`, 23 tests passing.
+Expected: `exit=0`, 26 tests passing (17 from Tasks 1-2 plus 9 here).
 
 - [ ] **Step 5: Run the full gates — this is the first task touching a client-imported module**
 
@@ -2535,6 +2558,16 @@ export async function challengeScoreboardFor(
   return {
     challenger: sideFrom(challengerTeam._id, challengerTeam.name, challengerTotals),
     opponent: sideFrom(opponentTeam._id, opponentTeam.name, opponentTotals),
+    // ⚠️ ARGUMENT ORDER — THE ONE DEFECT NO TEST IN THIS FEATURE CAN CATCH.
+    // outcomeOf's two parameters are structurally identical, so
+    // outcomeOf(opponentTotals, challengerTotals) compiles and silently returns
+    // the opposite winner. The unit tests exercise outcomeOf, not this query, so
+    // a transposed call here produces a plausible-looking scoreboard naming the
+    // wrong team. Task 9's REVIEWER must read this line against the two
+    // sideFrom(...) lines above it and confirm the order by eye. An object
+    // parameter would make the class of bug impossible and was considered and
+    // declined: one call site, both locals named, and the return type names the
+    // roles.
     outcome: outcomeOf(challengerTotals, opponentTotals),
   }
 }
@@ -2743,6 +2776,22 @@ TZ=UTC pnpm test:once convex/lib/challenge.test.ts > /tmp/t10a.txt 2>&1; echo "e
 Expected: non-zero exit, `challengeNotificationBody is not a function`.
 
 - [ ] **Step 3: Implement the notification body**
+
+**First, widen the module's charter by one line.** `convex/lib/challenge.ts`'s banner
+declares the file "THE RULES OF A TEAM-VS-TEAM CHALLENGE… the mutations in
+`../challenges.ts` supply inputs; **this file decides**." `challengeNotificationBody`
+is *presentation*, not a decidable rule, so as written the banner would no longer
+describe its own contents. Add a sentence admitting the one exception and why it lives
+here anyway — the clamping rule is needed on both sides of the wire and the module is
+the client-safe one. A banner that quietly stops being true is how the next reader
+learns to distrust all of them.
+
+**Also add section separators now, and only now.** This task introduces module-private
+constants (`MAX_NOTIFIED_TEAM_NAME`, `ELLIPSIS`) near the bottom, splitting the file's
+constants into two clusters, and brings the file to roughly 255 lines with a second
+concern. `globalThreshold.ts` already uses `── SECTION ──` separators. At Task 3's 212
+lines with one concern and strict constants → window → projection → outcome ordering
+they would have been noise; here they are earned.
 
 Append to `convex/lib/challenge.ts`:
 
