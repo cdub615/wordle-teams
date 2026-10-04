@@ -211,8 +211,12 @@ execute.** Everything decidable goes here as a pure function:
 
 - `windowFor(acceptedOnPuzzleDay)` → `{ startDay, endDay }`, including the short-window
   rule (§7.4)
-- `teamTotalsOver(stats, startDay, endDay)` → `{ boards, attempts, members }`, summing
-  `days[].entries` within the window
+- `teamTotalsOver(days, startDay, endDay)` → `{ boards, attempts, members }`, summing
+  `days[].entries` within the window. It takes `days` rather than a whole stats
+  document so a caller can concatenate two months for the short-window rule of §7.4,
+  and it is generic over the player id so the schema's `Id<'players'>` flows through
+  without this module importing the generated data model — the idiom
+  `lib/teamStats.ts` already uses for the same reason.
 
 **The window projection reads `days[]`, never `members[]`.** `members[]` holds
 whole-month totals, and a challenge window is almost never a whole month, so using it

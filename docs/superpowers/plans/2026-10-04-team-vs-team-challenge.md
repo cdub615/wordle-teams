@@ -300,13 +300,26 @@ describe('teamTotalsOver', () => {
     expect(totals.members.find((m) => m.playerId === 'a')?.attempts).toBe(4)
   })
 
+  // A POSITIVE ASSERTION, because `not.toBe(4)` beside a test asserting
+  // `toBe(3)` on the same inputs is ZERO evidence, not weak evidence — it also
+  // passes at 0, 1, 2 and 99. Player 'a' plays 10-04 (before), 10-05 (inside)
+  // and 11-01 (after), so boards === 1 for 'a' holds only if BOTH ends exclude.
   test('excludes the day after the window', () => {
     const totals = teamTotalsOver(days, '2026-10-05', '2026-10-31')
-    expect(totals.boards).not.toBe(4)
+    expect(totals.members.find((m) => m.playerId === 'a')).toEqual({
+      playerId: 'a',
+      boards: 1,
+      attempts: 4,
+    })
   })
 
   test('splits totals per player', () => {
     const totals = teamTotalsOver(days, '2026-10-05', '2026-10-31')
+    // arrayContaining is right because member ORDER is deliberately
+    // unspecified here (Task 9 sorts for display) — but it is satisfied by a
+    // SUPERSET, so a defect emitting a spurious extra member would survive it.
+    // The length pins that.
+    expect(totals.members).toHaveLength(2)
     expect(totals.members).toEqual(
       expect.arrayContaining([
         { playerId: 'a', boards: 1, attempts: 4 },
@@ -333,7 +346,9 @@ describe('teamTotalsOver', () => {
   test('accepts days concatenated from two monthly documents', () => {
     const totals = teamTotalsOver(days, '2026-10-31', '2026-11-30')
     expect(totals.boards).toBe(2)
-    expect(totals.attempts).toBe(12)
+    // Shown as its derivation, like `4 + 2 + 7` above: 10-31's failure and
+    // 11-01's five. A bare 12 hides which fixture rows it depends on.
+    expect(totals.attempts).toBe(7 + 5)
   })
 })
 ```
@@ -351,17 +366,45 @@ Expected: non-zero exit, `teamTotalsOver is not a function` or an unresolved imp
 Append to `convex/lib/challenge.ts`:
 
 ```ts
-export type ChallengeMemberTotal = { playerId: string; boards: number; attempts: number }
-export type ChallengeTotals = {
-  boards: number
-  attempts: number
-  members: Array<ChallengeMemberTotal>
+import type { DayEntry } from './teamStats.ts'
+
+/**
+ * GENERIC OVER THE PLAYER ID, and the entry type is REUSED rather than
+ * re-declared — both for the reason lib/teamStats.ts:28-32 already gives: a
+ * branded `Id<'players'>` is a string with a phantom tag, and taking it as a
+ * parameter lets the schema's exact type flow through without this file
+ * importing the generated data model, which it must not do.
+ *
+ * THAT IDIOM IS ALREADY LOAD-BEARING, not theoretical: convex/teamStats.ts:108
+ * calls `aggregateTeamMonth({ memberIds: team.playerIds, scores })`, infers
+ * `PlayerId = Id<'players'>`, and writes straight into a table whose playerId is
+ * `v.id('players')` with NO CAST. Widening to `string` here would force Task 9
+ * to cast it back, and a cast is exactly where an Id for the wrong table slips
+ * through unnoticed.
+ *
+ * READONLY ON THE WAY OUT. A result is a snapshot; the mutable accumulator is a
+ * private detail and gets its own inline type inside the function.
+ */
+export type ChallengeMemberTotal<PlayerId extends string = string> = {
+  readonly playerId: PlayerId
+  readonly boards: number
+  readonly attempts: number
+}
+export type ChallengeTotals<PlayerId extends string = string> = {
+  readonly boards: number
+  readonly attempts: number
+  readonly members: ReadonlyArray<ChallengeMemberTotal<PlayerId>>
 }
 
-/** The shape of teamMonthStats.days[], narrowed to what a projection needs. */
-export type StatsDay = {
-  puzzleDay: string
-  entries: ReadonlyArray<{ playerId: string; attempts: number }>
+/**
+ * The shape of teamMonthStats.days[], narrowed to what a projection needs.
+ *
+ * `entries` is teamStats.ts's own DayEntry. Re-declaring it inline would be a
+ * second copy of a type that already exists, and declared less precisely.
+ */
+export type StatsDay<PlayerId extends string = string> = {
+  readonly puzzleDay: PuzzleDay
+  readonly entries: ReadonlyArray<DayEntry<PlayerId>>
 }
 
 /**
@@ -387,12 +430,13 @@ export type StatsDay = {
  * STRING COMPARISON ON 'YYYY-MM-DD' IS THE DATE COMPARISON. See lib/puzzleDay.ts
  * on why the format exists.
  */
-export function teamTotalsOver(
-  days: ReadonlyArray<StatsDay>,
-  startDay: string,
-  endDay: string,
-): ChallengeTotals {
-  const byPlayer = new Map<string, ChallengeMemberTotal>()
+export function teamTotalsOver<PlayerId extends string = string>(
+  days: ReadonlyArray<StatsDay<PlayerId>>,
+  startDay: PuzzleDay,
+  endDay: PuzzleDay,
+): ChallengeTotals<PlayerId> {
+  // The accumulator is mutable and private; the returned type is readonly.
+  const byPlayer = new Map<PlayerId, { playerId: PlayerId; boards: number; attempts: number }>()
   let boards = 0
   let attempts = 0
 
@@ -2418,9 +2462,14 @@ function sideFrom(
     boards: totals.boards,
     attempts: totals.attempts,
     average: meanAttemptsOf(totals),
+    // NO `as Id<'players'>` CAST. teamTotalsOver is generic over the player id,
+    // so passing it days from a teamMonthStats document makes PlayerId infer as
+    // Id<'players'> and it flows through. If you find yourself adding a cast
+    // here, the generic argument has been lost somewhere upstream — fix that
+    // instead, because a cast is where an Id for the wrong table slips through.
     members: totals.members
       .map((m) => ({
-        playerId: m.playerId as Id<'players'>,
+        playerId: m.playerId,
         boards: m.boards,
         attempts: m.attempts,
         average: meanAttemptsOf(m),
