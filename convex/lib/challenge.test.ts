@@ -3,6 +3,10 @@
  * of SHORT_WINDOW_DAYS are asserted. Both lastDayOf call sites (the same-month
  * branch and the following-month branch) are covered with real month lengths,
  * so substituting monthRange(month).end on either branch fails.
+ *
+ * For teamTotalsOver the fixture deliberately straddles both window bounds and a
+ * month boundary. Player b appearing on two separate days is what pins per-player
+ * accumulation rather than assignment.
  */
 import { describe, expect, test } from 'vitest'
 import {
@@ -81,7 +85,11 @@ describe('teamTotalsOver', () => {
 
   test('excludes the day after the window', () => {
     const totals = teamTotalsOver(days, '2026-10-05', '2026-10-31')
-    expect(totals.boards).not.toBe(4)
+    expect(totals.members.find((m) => m.playerId === 'a')).toEqual({
+      playerId: 'a',
+      boards: 1,
+      attempts: 4,
+    })
   })
 
   test('splits totals per player', () => {
@@ -92,6 +100,7 @@ describe('teamTotalsOver', () => {
         { playerId: 'b', boards: 2, attempts: 9 },
       ]),
     )
+    expect(totals.members).toHaveLength(2)
   })
 
   test('a failed board contributes 7, the attemptsFor sentinel', () => {
@@ -112,6 +121,24 @@ describe('teamTotalsOver', () => {
   test('accepts days concatenated from two monthly documents', () => {
     const totals = teamTotalsOver(days, '2026-10-31', '2026-11-30')
     expect(totals.boards).toBe(2)
-    expect(totals.attempts).toBe(12)
+    expect(totals.attempts).toBe(7 + 5)
+  })
+
+  // wordle-teams-rac: duplicate (playerId, puzzleDay) rows copied from v1 exist in
+  // production, so two same-day entries are reachable. Counting both keeps that
+  // defect visible rather than silent.
+  test('the same player twice on one day accumulates rather than overwrites', () => {
+    const dup = [
+      {
+        puzzleDay: '2026-10-05',
+        entries: [
+          { playerId: 'a', attempts: 3 },
+          { playerId: 'a', attempts: 4 },
+        ],
+      },
+    ]
+    expect(teamTotalsOver(dup, '2026-10-05', '2026-10-05').members).toEqual([
+      { playerId: 'a', boards: 2, attempts: 7 },
+    ])
   })
 })

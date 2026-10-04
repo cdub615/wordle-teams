@@ -1,5 +1,6 @@
 import { addDays, addMonths, monthOf } from './puzzleDay.ts'
 import type { PuzzleDay, PuzzleMonth } from './puzzleDay.ts'
+import type { DayEntry } from './teamStats.ts'
 
 /**
  * THE RULES OF A TEAM-VS-TEAM CHALLENGE, in one dependency-light module.
@@ -87,17 +88,21 @@ export function windowFor(acceptedOn: PuzzleDay): ChallengeWindow {
   return { startDay, endDay: thisMonthEnd }
 }
 
-export type ChallengeMemberTotal = { playerId: string; boards: number; attempts: number }
-export type ChallengeTotals = {
-  boards: number
-  attempts: number
-  members: Array<ChallengeMemberTotal>
+export type ChallengeMemberTotal<PlayerId extends string = string> = {
+  readonly playerId: PlayerId
+  readonly boards: number
+  readonly attempts: number
+}
+export type ChallengeTotals<PlayerId extends string = string> = {
+  readonly boards: number
+  readonly attempts: number
+  readonly members: ReadonlyArray<ChallengeMemberTotal<PlayerId>>
 }
 
 /** The shape of teamMonthStats.days[], narrowed to what a projection needs. */
-export type StatsDay = {
-  puzzleDay: string
-  entries: ReadonlyArray<{ playerId: string; attempts: number }>
+export type StatsDay<PlayerId extends string = string> = {
+  readonly puzzleDay: PuzzleDay
+  readonly entries: ReadonlyArray<DayEntry<PlayerId>>
 }
 
 /**
@@ -122,13 +127,20 @@ export type StatsDay = {
  *
  * STRING COMPARISON ON 'YYYY-MM-DD' IS THE DATE COMPARISON. See lib/puzzleDay.ts
  * on why the format exists.
+ *
+ * GENERIC OVER THE PLAYER ID, the idiom teamStats.ts documents: a branded
+ * Id<'players'> flows through to the result with no cast, so an Id for the wrong
+ * table cannot slip in later. startDay/endDay are PuzzleDay so windowFor's output
+ * flows in, and a '2026-10' month is rejected rather than silently compared.
+ * The default parameter keeps plain-string callers compiling.
  */
-export function teamTotalsOver(
-  days: ReadonlyArray<StatsDay>,
-  startDay: string,
-  endDay: string,
-): ChallengeTotals {
-  const byPlayer = new Map<string, ChallengeMemberTotal>()
+export function teamTotalsOver<PlayerId extends string = string>(
+  days: ReadonlyArray<StatsDay<PlayerId>>,
+  startDay: PuzzleDay,
+  endDay: PuzzleDay,
+): ChallengeTotals<PlayerId> {
+  // The accumulator is mutable and private; the result is a readonly snapshot.
+  const byPlayer = new Map<PlayerId, { playerId: PlayerId; boards: number; attempts: number }>()
   let boards = 0
   let attempts = 0
 
