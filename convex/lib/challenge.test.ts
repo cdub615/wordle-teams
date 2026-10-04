@@ -180,12 +180,27 @@ describe('outcomeOf', () => {
     expect(outcomeOf({ boards: 20, attempts: 80 }, { boards: 20, attempts: 80 })).toBe('tie')
   })
 
-  // ROUNDED BEFORE COMPARISON, the meanAttemptsOf rule. Raw quotients differ
-  // here; both display as 4.0, so this must be a tie broken on boards, never a
-  // win on a ten-thousandth nobody can see.
-  test('averages that DISPLAY the same are compared as the same', () => {
-    const a = { boards: 10, attempts: 40 } // 4.00
-    const b = { boards: 11, attempts: 44 } // 4.00
+  // Equal RAW averages, so this pins the boards tiebreak rather than the
+  // rounding. Kept for that, under a name that says so.
+  test('equal raw averages fall through to the boards tiebreak', () => {
+    const a = { boards: 10, attempts: 40 } // 4.00 exactly
+    const b = { boards: 11, attempts: 44 } // 4.00 exactly
     expect(outcomeOf(a, b)).toBe('opponent') // b played more boards
+  })
+
+  // THE ROUNDING RULE ITSELF, and it needs raw quotients that genuinely DIFFER.
+  // 99/25 = 3.96 and 202/50 = 4.04 both round to 4.0, so after rounding this is
+  // a tie and the boards tiebreak gives 'opponent'. A raw-quotient comparison
+  // would return 'challenger', since 3.96 < 4.04 — so this is the only test that
+  // separates the two behaviours, and the test above does NOT, because its two
+  // sides are exactly equal before rounding.
+  //
+  // WHY IT MATTERS: meanAttemptsOf rounds before comparison on purpose
+  // (wordle-teams-iht.3.3) so a free teaser and a paid panel cannot disagree
+  // about who is ahead. If that ever regressed, this assertion is what catches it.
+  test('averages that DISPLAY the same are compared as the same', () => {
+    const a = { boards: 25, attempts: 99 } // 3.96 raw, 4.0 displayed
+    const b = { boards: 50, attempts: 202 } // 4.04 raw, 4.0 displayed
+    expect(outcomeOf(a, b)).toBe('opponent')
   })
 })
