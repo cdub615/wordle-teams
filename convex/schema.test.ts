@@ -569,12 +569,26 @@ describe('teamChallenges', () => {
     })
   })
 
-  test('acceptsChallenges is absent on an existing team, meaning yes', async () => {
+  // WHAT CONVEX-TEST ACTUALLY ENFORCES, measured rather than assumed:
+  //   - an UNDECLARED TABLE is ACCEPTED (no validation at all)
+  //   - a bad literal in a declared table is REJECTED
+  //   - an UNDECLARED FIELD on a declared table is REJECTED
+  //
+  // That last line is what gives this test force. Asserting that
+  // `acceptsChallenges` is merely ABSENT would be vacuous — absence is true both
+  // before and after the field is declared, so the test could never fail. SETTING
+  // it is the assertion: on a schema without the field, this insert is rejected.
+  test('acceptsChallenges can be set, and absence means yes', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const teamId = await ctx.db.insert('teams', aTeam())
-      const team = await ctx.db.get(teamId)
-      expect(team?.acceptsChallenges).toBeUndefined()
+      // Absent by default — the "means yes" half, and the reason no backfill is
+      // needed for the 171 existing teams.
+      const defaulted = await ctx.db.insert('teams', aTeam())
+      expect((await ctx.db.get(defaulted))?.acceptsChallenges).toBeUndefined()
+
+      // Explicitly refused — the half that proves the field is in the schema.
+      const refusing = await ctx.db.insert('teams', aTeam({ acceptsChallenges: false }))
+      expect((await ctx.db.get(refusing))?.acceptsChallenges).toBe(false)
     })
   })
 })
