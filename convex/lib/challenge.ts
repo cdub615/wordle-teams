@@ -1,5 +1,6 @@
 import { addDays, addMonths, monthOf } from './puzzleDay.ts'
 import type { PuzzleDay, PuzzleMonth } from './puzzleDay.ts'
+import { meanAttemptsOf } from './teamStats.ts'
 import type { DayEntry } from './teamStats.ts'
 
 /**
@@ -161,4 +162,51 @@ export function teamTotalsOver<PlayerId extends string = string>(
   }
 
   return { boards, attempts, members: [...byPlayer.values()] }
+}
+
+export type ChallengeOutcome = 'challenger' | 'opponent' | 'tie' | 'void'
+
+/**
+ * Who won, on pooled average guesses.
+ *
+ * LOWER IS BETTER. Guess count is the metric, so the smaller average wins. This
+ * is the single easiest thing in the feature to implement backwards, which is
+ * why both directions are tested rather than one.
+ *
+ * ROUNDED BEFORE COMPARISON, via meanAttemptsOf rather than a second rounding of
+ * our own. That function's banner (wordle-teams-iht.3.3) has the reason: compare
+ * raw quotients and two sides can sit one ten-thousandth apart, rank
+ * differently, and DISPLAY the identical average — a scoreboard reading 4.0 to
+ * 4.0 with a winner named. Here that case must fall through to the board
+ * tiebreak.
+ *
+ * THE BOARD FLOOR IS CHECKED FIRST, so a side that played almost nothing cannot
+ * win on a tiny sample. It is the only small-sample guard; see
+ * MIN_CHALLENGE_BOARDS.
+ *
+ * BOARDS BREAK A TIE, which makes participation the decider without making
+ * volume the metric — the right incentive for a feature whose point is
+ * engagement.
+ */
+export function outcomeOf(
+  challenger: { boards: number; attempts: number },
+  opponent: { boards: number; attempts: number },
+): ChallengeOutcome {
+  if (challenger.boards < MIN_CHALLENGE_BOARDS) return 'void'
+  if (opponent.boards < MIN_CHALLENGE_BOARDS) return 'void'
+
+  const a = meanAttemptsOf(challenger)
+  const b = meanAttemptsOf(opponent)
+  // UNREACHABLE GIVEN THE FLOOR ABOVE — MIN_CHALLENGE_BOARDS > 0, so neither
+  // side can have zero boards here. Kept for totality rather than as a guard, and
+  // a mutant deleting it SURVIVES the suite. That is expected, not a hole: the
+  // alternative is a non-null assertion that would start lying if the floor ever
+  // became 0.
+  if (a === null || b === null) return 'void'
+
+  if (a < b) return 'challenger'
+  if (b < a) return 'opponent'
+  if (challenger.boards > opponent.boards) return 'challenger'
+  if (opponent.boards > challenger.boards) return 'opponent'
+  return 'tie'
 }

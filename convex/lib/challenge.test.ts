@@ -12,6 +12,7 @@ import { describe, expect, test } from 'vitest'
 import {
   MAX_ACTIVE_CHALLENGES,
   MIN_CHALLENGE_BOARDS,
+  outcomeOf,
   PROPOSAL_TTL_DAYS,
   SHORT_WINDOW_DAYS,
   teamTotalsOver,
@@ -140,5 +141,51 @@ describe('teamTotalsOver', () => {
     expect(teamTotalsOver(dup, '2026-10-05', '2026-10-05').members).toEqual([
       { playerId: 'a', boards: 2, attempts: 7 },
     ])
+  })
+})
+
+/** A side with `boards` boards averaging `avg`, at or above the floor. */
+const side = (boards: number, avg: number) => ({ boards, attempts: Math.round(boards * avg) })
+
+describe('outcomeOf', () => {
+  test('LOWER average guesses wins — the challenger', () => {
+    expect(outcomeOf(side(20, 3.5), side(20, 4.5))).toBe('challenger')
+  })
+
+  test('LOWER average guesses wins — the opponent', () => {
+    expect(outcomeOf(side(20, 4.5), side(20, 3.5))).toBe('opponent')
+  })
+
+  test('void when the challenger is below the board floor', () => {
+    expect(outcomeOf(side(MIN_CHALLENGE_BOARDS - 1, 2.0), side(20, 4.5))).toBe('void')
+  })
+
+  test('void when the opponent is below the board floor', () => {
+    expect(outcomeOf(side(20, 4.5), side(MIN_CHALLENGE_BOARDS - 1, 2.0))).toBe('void')
+  })
+
+  test('AT the board floor is a real result, not void', () => {
+    expect(outcomeOf(side(MIN_CHALLENGE_BOARDS, 3.0), side(MIN_CHALLENGE_BOARDS, 4.0))).toBe(
+      'challenger',
+    )
+  })
+
+  test('a 1dp tie is broken on boards played', () => {
+    // Both average 4.0; the challenger played more.
+    expect(outcomeOf({ boards: 30, attempts: 120 }, { boards: 20, attempts: 80 })).toBe('challenger')
+    expect(outcomeOf({ boards: 20, attempts: 80 }, { boards: 30, attempts: 120 })).toBe('opponent')
+  })
+
+  test('equal averages and equal boards is a tie', () => {
+    expect(outcomeOf({ boards: 20, attempts: 80 }, { boards: 20, attempts: 80 })).toBe('tie')
+  })
+
+  // ROUNDED BEFORE COMPARISON, the meanAttemptsOf rule. Raw quotients differ
+  // here; both display as 4.0, so this must be a tie broken on boards, never a
+  // win on a ten-thousandth nobody can see.
+  test('averages that DISPLAY the same are compared as the same', () => {
+    const a = { boards: 10, attempts: 40 } // 4.00
+    const b = { boards: 11, attempts: 44 } // 4.00
+    expect(outcomeOf(a, b)).toBe('opponent') // b played more boards
   })
 })
