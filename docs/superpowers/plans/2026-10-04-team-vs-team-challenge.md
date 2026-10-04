@@ -35,6 +35,14 @@ TZ=UTC pnpm test:once > /tmp/gate.txt 2>&1; echo "exit=$?"; tail -40 /tmp/gate.t
 
 **Single-file test runs:** `TZ=UTC pnpm test:once convex/lib/challenge.test.ts`
 
+**`monthRange(month).end` IS NOT A DATE.** It returns `'<month>-31'` for every
+month, February included — its own doc comment calls it a lexicographic bound,
+correct for an index range query and wrong for anything that must be a real day.
+Task 1's plan text used it as an `endDay` and was corrected after the implementer
+caught it producing `2026-11-31` and `2028-02-31`. Use `daysOfMonth(month).at(-1)`
+when you need the actual last day. Reach for `monthRange` only as `withIndex`
+bounds.
+
 **Commit after every task.** End each commit message with:
 
 ```
@@ -145,7 +153,7 @@ Expected: non-zero exit, failing to resolve `./challenge.ts`.
 Create `convex/lib/challenge.ts`:
 
 ```ts
-import { addDays, addMonths, monthOf, monthRange } from './puzzleDay.ts'
+import { addDays, addMonths, daysOfMonth, monthOf } from './puzzleDay.ts'
 import type { PuzzleDay } from './puzzleDay.ts'
 
 /**
@@ -195,6 +203,15 @@ export const SHORT_WINDOW_DAYS = 7
 export type ChallengeWindow = { startDay: PuzzleDay; endDay: PuzzleDay }
 
 /**
+ * The REAL last day of a month. NOT monthRange(month).end: that is the
+ * lexicographic bound '<month>-31' even in February, which is not a date, so it
+ * would be a wrong endDay and would also skew the remaining-days count.
+ */
+function lastDayOf(month: string): PuzzleDay {
+  return daysOfMonth(month).at(-1) as PuzzleDay
+}
+
+/**
  * The window a challenge accepted on `acceptedOn` covers.
  *
  * THE START IS THE DAY AFTER, NOT THE DAY OF. Every board that counts must have
@@ -210,12 +227,12 @@ export type ChallengeWindow = { startDay: PuzzleDay; endDay: PuzzleDay }
 export function windowFor(acceptedOn: PuzzleDay): ChallengeWindow {
   const startDay = addDays(acceptedOn, 1)
   const month = monthOf(startDay)
-  const thisMonthEnd = monthRange(month).end
+  const thisMonthEnd = lastDayOf(month)
 
   // Inclusive: a start day equal to the month end leaves one day, not zero.
   const remaining = Number(thisMonthEnd.slice(8, 10)) - Number(startDay.slice(8, 10)) + 1
   if (remaining < SHORT_WINDOW_DAYS) {
-    return { startDay, endDay: monthRange(addMonths(month, 1)).end }
+    return { startDay, endDay: lastDayOf(addMonths(month, 1)) }
   }
   return { startDay, endDay: thisMonthEnd }
 }
