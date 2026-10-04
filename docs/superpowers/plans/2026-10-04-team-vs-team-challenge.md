@@ -775,12 +775,26 @@ describe('teamChallenges', () => {
     })
   })
 
-  test('acceptsChallenges is absent on an existing team, meaning yes', async () => {
+  // WHAT CONVEX-TEST ACTUALLY ENFORCES, measured rather than assumed:
+  //   - an UNDECLARED TABLE is ACCEPTED (no validation at all)
+  //   - a bad literal in a declared table is REJECTED
+  //   - an UNDECLARED FIELD on a declared table is REJECTED
+  //
+  // That last line is what gives this test force. Asserting that
+  // `acceptsChallenges` is merely ABSENT would be vacuous — absence is true both
+  // before and after the field is declared, so the test could never fail. SETTING
+  // it is the assertion: on a schema without the field, this insert is rejected.
+  test('acceptsChallenges can be set, and absence means yes', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const teamId = await ctx.db.insert('teams', aTeam())
-      const team = await ctx.db.get(teamId)
-      expect(team?.acceptsChallenges).toBeUndefined()
+      // Absent by default — the "means yes" half, and the reason no backfill is
+      // needed for the 171 existing teams.
+      const defaulted = await ctx.db.insert('teams', aTeam())
+      expect((await ctx.db.get(defaulted))?.acceptsChallenges).toBeUndefined()
+
+      // Explicitly refused — the half that proves the field is in the schema.
+      const refusing = await ctx.db.insert('teams', aTeam({ acceptsChallenges: false }))
+      expect((await ctx.db.get(refusing))?.acceptsChallenges).toBe(false)
     })
   })
 })
@@ -792,7 +806,14 @@ describe('teamChallenges', () => {
 TZ=UTC pnpm test:once convex/schema.test.ts > /tmp/t4.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t4.txt
 ```
 
-Expected: non-zero exit — `teamChallenges` is not in the schema.
+Expected: non-zero exit.
+
+**Only the `by_token` test fails at this point, and that is inherent.** `convex-test`
+ACCEPTS a write to an undeclared table (measured), so the first test cannot fail before
+the table exists — it gains its force afterwards, by proving the optional fields are
+genuinely optional, since a required one would be rejected. The third test is written to
+fail properly: it SETS `acceptsChallenges`, and an undeclared field IS rejected. Do not
+treat "one of three failed" as a problem here.
 
 - [ ] **Step 3: Add the field to `teams`**
 
