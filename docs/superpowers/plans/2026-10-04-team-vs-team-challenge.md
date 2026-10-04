@@ -35,6 +35,35 @@ TZ=UTC pnpm test:once > /tmp/gate.txt 2>&1; echo "exit=$?"; tail -40 /tmp/gate.t
 
 **Single-file test runs:** `TZ=UTC pnpm test:once convex/lib/challenge.test.ts`
 
+**ADDING AN `AccessCode` MEANS EDITING `src/lib/convex-error.ts` TWICE, AND ONE HALF
+HAS NO COMPILER BEHIND IT.** That file's own banner says it: "THIS CHAIN MUST BE
+EXTENDED BY HAND EVERY TIME AccessCode GROWS, AND NO COMPILER WILL TELL YOU."
+
+- `typedCodeMessage` IS enforced — its `default` assigns to `never`, so a new union
+  member stops the build until a case exists. `pnpm typecheck` catches this half.
+- `convexErrorCode`'s chain is NOT enforced. Miss it and the specific copy someone
+  wrote is unreachable, so **every user sees the generic message instead** — no
+  compiler, no gate, no test failure. `src/lib/convex-error.test.ts` parses the source
+  to pin it, which is the only thing standing in the way.
+
+Tasks 5, 7 and 9 each add codes (`CHALLENGES_REFUSED`, `CHALLENGE_LIMIT_REACHED`,
+`CHALLENGE_EXISTS`, `PRO_REQUIRED`; then `CHALLENGE_NOT_PENDING`,
+`CHALLENGE_LINK_INVALID`; then `CHALLENGE_NOT_ACTIVE`). Each must add BOTH halves, and
+the task's commit therefore includes `src/lib/convex-error.ts`. This was missed in the
+plan's Task 5 and found only because typecheck failed on the enforced half.
+
+**A REFUSAL TEST MUST ASSERT THE CODE, NOT JUST THAT SOMETHING THREW.** Six of this
+plan's Task 5 tests used a bare `.rejects.toThrow()`, which passes if the call throws
+for ANY reason — so "a non-Pro member is refused" would have passed on an unrelated
+`NOT_A_MEMBER` from a mis-seeded fixture, proving nothing about the Pro gate. Use:
+
+```ts
+await expect(promise).rejects.toMatchObject({ data: { code: 'PRO_REQUIRED' } })
+```
+
+`accessError` throws a `ConvexError` carrying `{ code }`, so the code is always
+available. This applies to every refusal assertion in Tasks 6-11.
+
 **A SCHEMA TEST THAT ONLY INSERTS A HAPPY-PATH ROW PINS ALMOST NOTHING.** Task 4
 shipped with three prescribed tests and FIVE surviving mutants: both compound indexes
 could have their field order reversed, a nested validator field could be renamed, the
@@ -101,6 +130,7 @@ Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 | `convex/schema.ts` | **Modify.** Add `teamChallenges`; add `acceptsChallenges` to `teams`. |
 | `convex/challenges.ts` | **Create.** `*For` helpers holding the logic, plus the thin public mutations/queries that supply inputs. |
 | `convex/challenges.test.ts` | **Create.** Database-level behaviour driven through `ctx.db`. |
+| `src/lib/convex-error.ts` | **Modify, on every task that adds an `AccessCode`** — Tasks 5, 7 and 9. See the ground rule below; one half of it is not compiler-enforced. |
 | `convex/teamStats.ts` | **Modify.** Extend `sweep` to close due challenges and expire stale proposals. |
 | `convex/chatNotify.ts` | **Modify.** One comment correction only (it claims to be the app's only user-typed push body). |
 | `src/routes/team.tsx` | **Modify.** Challenges section. |
