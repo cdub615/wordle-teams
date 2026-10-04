@@ -1,5 +1,5 @@
-import { addDays, addMonths, daysOfMonth, monthOf } from './puzzleDay.ts'
-import type { PuzzleDay } from './puzzleDay.ts'
+import { addDays, addMonths, monthOf } from './puzzleDay.ts'
+import type { PuzzleDay, PuzzleMonth } from './puzzleDay.ts'
 
 /**
  * THE RULES OF A TEAM-VS-TEAM CHALLENGE, in one dependency-light module.
@@ -36,7 +36,8 @@ export const PROPOSAL_TTL_DAYS = 7
 
 /**
  * Fewer than this many days left in the month at acceptance and the window runs
- * to the end of the FOLLOWING month instead.
+ * to the end of the FOLLOWING month instead. It is the window's LENGTH, since the
+ * window starts the day after acceptance.
  *
  * WITHOUT THIS RULE a late-month challenge is born guaranteed-'void', because it
  * cannot reach MIN_CHALLENGE_BOARDS, which is a bad first experience of the
@@ -50,10 +51,14 @@ export type ChallengeWindow = { startDay: PuzzleDay; endDay: PuzzleDay }
 /**
  * The REAL last day of a month. NOT monthRange(month).end: that is the
  * lexicographic bound '<month>-31' even in February, which is not a date, so it
- * would be a wrong endDay and would also skew the remaining-days count.
+ * would be a wrong endDay and would also skew the window-length count.
+ *
+ * ARITHMETIC, NOT daysOfMonth(month).at(-1): the array form needs an assertion
+ * over a reachable undefined (a malformed month yields an empty array), which
+ * is the shape monthWindow.ts rejected for the same reason.
  */
-function lastDayOf(month: string): PuzzleDay {
-  return daysOfMonth(month).at(-1) as PuzzleDay
+function lastDayOf(month: PuzzleMonth): PuzzleDay {
+  return addDays(`${addMonths(month, 1)}-01`, -1)
 }
 
 /**
@@ -75,8 +80,8 @@ export function windowFor(acceptedOn: PuzzleDay): ChallengeWindow {
   const thisMonthEnd = lastDayOf(month)
 
   // Inclusive: a start day equal to the month end leaves one day, not zero.
-  const remaining = Number(thisMonthEnd.slice(8, 10)) - Number(startDay.slice(8, 10)) + 1
-  if (remaining < SHORT_WINDOW_DAYS) {
+  const windowDays = Number(thisMonthEnd.slice(-2)) - Number(startDay.slice(-2)) + 1
+  if (windowDays < SHORT_WINDOW_DAYS) {
     return { startDay, endDay: lastDayOf(addMonths(month, 1)) }
   }
   return { startDay, endDay: thisMonthEnd }

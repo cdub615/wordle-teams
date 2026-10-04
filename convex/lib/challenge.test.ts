@@ -1,3 +1,9 @@
+/**
+ * WHY THESE CASES. A threshold tested in one direction is vacuous, so both sides
+ * of SHORT_WINDOW_DAYS are asserted. Both lastDayOf call sites (the same-month
+ * branch and the following-month branch) are covered with real month lengths,
+ * so substituting monthRange(month).end on either branch fails.
+ */
 import { describe, expect, test } from 'vitest'
 import {
   MAX_ACTIVE_CHALLENGES,
@@ -25,7 +31,7 @@ describe('windowFor', () => {
     expect(windowFor('2026-10-04')).toEqual({ startDay: '2026-10-05', endDay: '2026-10-31' })
   })
 
-  // SHORT_WINDOW_DAYS = 7, counted INCLUSIVELY from startDay to month end.
+  // Counted INCLUSIVELY from startDay to month end.
   test('at the short-window boundary the window still ends with this month', () => {
     // start 2026-10-25, end 2026-10-31 => 7 days remaining, which is NOT fewer than 7.
     expect(windowFor('2026-10-24')).toEqual({ startDay: '2026-10-25', endDay: '2026-10-31' })
@@ -46,5 +52,9 @@ describe('windowFor', () => {
 
   test('handles February in a leap year', () => {
     expect(windowFor('2028-02-01')).toEqual({ startDay: '2028-02-02', endDay: '2028-02-29' })
+  })
+
+  test('handles a NON-leap February', () => {
+    expect(windowFor('2026-02-01')).toEqual({ startDay: '2026-02-02', endDay: '2026-02-28' })
   })
 })
