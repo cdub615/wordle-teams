@@ -86,3 +86,67 @@ export function windowFor(acceptedOn: PuzzleDay): ChallengeWindow {
   }
   return { startDay, endDay: thisMonthEnd }
 }
+
+export type ChallengeMemberTotal = { playerId: string; boards: number; attempts: number }
+export type ChallengeTotals = {
+  boards: number
+  attempts: number
+  members: Array<ChallengeMemberTotal>
+}
+
+/** The shape of teamMonthStats.days[], narrowed to what a projection needs. */
+export type StatsDay = {
+  puzzleDay: string
+  entries: ReadonlyArray<{ playerId: string; attempts: number }>
+}
+
+/**
+ * One team's totals over a challenge window.
+ *
+ * READS days[], NEVER members[], AND THAT IS THE WHOLE POINT. members[] holds
+ * WHOLE-MONTH totals, and a challenge window is almost never a whole month, so
+ * using it would silently count boards played before acceptance — exactly the
+ * retroactivity windowFor exists to prevent. days[] is complete for the month,
+ * so summing the entries inside the window is both correct and the only correct
+ * source.
+ *
+ * ONLY boards AND attempts ARE DERIVABLE THIS WAY — not solved/failed, which
+ * exist only on members[]. That is sufficient and not a gap: a failed board is
+ * already folded into attempts as 7 by attemptsFor, so nothing in the metric,
+ * the outcome or the snapshot needs a separate failure count. Do not reach for
+ * members[] to recover one.
+ *
+ * TAKES days RATHER THAN A STATS DOCUMENT so the caller can concatenate two
+ * months for the SHORT_WINDOW_DAYS case without this function knowing about
+ * documents at all.
+ *
+ * STRING COMPARISON ON 'YYYY-MM-DD' IS THE DATE COMPARISON. See lib/puzzleDay.ts
+ * on why the format exists.
+ */
+export function teamTotalsOver(
+  days: ReadonlyArray<StatsDay>,
+  startDay: string,
+  endDay: string,
+): ChallengeTotals {
+  const byPlayer = new Map<string, ChallengeMemberTotal>()
+  let boards = 0
+  let attempts = 0
+
+  for (const day of days) {
+    if (day.puzzleDay < startDay || day.puzzleDay > endDay) continue
+    for (const entry of day.entries) {
+      boards += 1
+      attempts += entry.attempts
+      const total = byPlayer.get(entry.playerId) ?? {
+        playerId: entry.playerId,
+        boards: 0,
+        attempts: 0,
+      }
+      total.boards += 1
+      total.attempts += entry.attempts
+      byPlayer.set(entry.playerId, total)
+    }
+  }
+
+  return { boards, attempts, members: [...byPlayer.values()] }
+}

@@ -10,6 +10,7 @@ import {
   MIN_CHALLENGE_BOARDS,
   PROPOSAL_TTL_DAYS,
   SHORT_WINDOW_DAYS,
+  teamTotalsOver,
   windowFor,
 } from './challenge.ts'
 
@@ -56,5 +57,61 @@ describe('windowFor', () => {
 
   test('handles a NON-leap February', () => {
     expect(windowFor('2026-02-01')).toEqual({ startDay: '2026-02-02', endDay: '2026-02-28' })
+  })
+})
+
+const days = [
+  { puzzleDay: '2026-10-04', entries: [{ playerId: 'a', attempts: 3 }] },
+  { puzzleDay: '2026-10-05', entries: [{ playerId: 'a', attempts: 4 }, { playerId: 'b', attempts: 2 }] },
+  { puzzleDay: '2026-10-31', entries: [{ playerId: 'b', attempts: 7 }] },
+  { puzzleDay: '2026-11-01', entries: [{ playerId: 'a', attempts: 5 }] },
+]
+
+describe('teamTotalsOver', () => {
+  test('counts only days inside the window, both bounds inclusive', () => {
+    const totals = teamTotalsOver(days, '2026-10-05', '2026-10-31')
+    expect(totals.boards).toBe(3)
+    expect(totals.attempts).toBe(4 + 2 + 7)
+  })
+
+  test('excludes the day before the window, which is the retroactivity guard', () => {
+    const totals = teamTotalsOver(days, '2026-10-05', '2026-10-31')
+    expect(totals.members.find((m) => m.playerId === 'a')?.attempts).toBe(4)
+  })
+
+  test('excludes the day after the window', () => {
+    const totals = teamTotalsOver(days, '2026-10-05', '2026-10-31')
+    expect(totals.boards).not.toBe(4)
+  })
+
+  test('splits totals per player', () => {
+    const totals = teamTotalsOver(days, '2026-10-05', '2026-10-31')
+    expect(totals.members).toEqual(
+      expect.arrayContaining([
+        { playerId: 'a', boards: 1, attempts: 4 },
+        { playerId: 'b', boards: 2, attempts: 9 },
+      ]),
+    )
+  })
+
+  test('a failed board contributes 7, the attemptsFor sentinel', () => {
+    const totals = teamTotalsOver(days, '2026-10-31', '2026-10-31')
+    expect(totals.attempts).toBe(7)
+    expect(totals.boards).toBe(1)
+  })
+
+  test('an empty window is zero boards rather than a throw', () => {
+    expect(teamTotalsOver(days, '2026-09-01', '2026-09-30')).toEqual({
+      boards: 0,
+      attempts: 0,
+      members: [],
+    })
+  })
+
+  // THE SHORT-WINDOW CASE: two months of days, concatenated by the caller.
+  test('accepts days concatenated from two monthly documents', () => {
+    const totals = teamTotalsOver(days, '2026-10-31', '2026-11-30')
+    expect(totals.boards).toBe(2)
+    expect(totals.attempts).toBe(12)
   })
 })
