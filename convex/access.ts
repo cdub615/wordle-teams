@@ -127,6 +127,14 @@ export type AccessCode =
   | 'INVALID_AVATAR'
   | 'AVATAR_RATE_LIMITED'
   | 'INVALID_PUZZLE_DAY'
+  // wordle-teams-zic8.2. CHALLENGES_REFUSED is the owner's acceptsChallenges
+  // switch; CHALLENGE_LIMIT_REACHED is MAX_ACTIVE_CHALLENGES; CHALLENGE_EXISTS
+  // is the one-live-challenge-per-pair rule; PRO_REQUIRED gates INITIATING a
+  // challenge and never accepting one.
+  | 'CHALLENGES_REFUSED'
+  | 'CHALLENGE_LIMIT_REACHED'
+  | 'CHALLENGE_EXISTS'
+  | 'PRO_REQUIRED'
 
 /**
  * Throws a ConvexError carrying `{ code }`.
