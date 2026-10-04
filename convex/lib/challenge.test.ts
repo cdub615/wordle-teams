@@ -144,8 +144,20 @@ describe('teamTotalsOver', () => {
   })
 })
 
-/** A side with `boards` boards averaging `avg`, at or above the floor. */
-const side = (boards: number, avg: number) => ({ boards, attempts: Math.round(boards * avg) })
+/** A side with `boards` boards averaging exactly `avg`. */
+const side = (boards: number, avg: number) => {
+  const attempts = boards * avg
+  // THE HELPER'S WHOLE VALUE IS THAT `avg` IS THE AVERAGE. A Math.round() here
+  // would make that a lie for any pair that does not divide cleanly —
+  // side(3, 4.5) would claim 4.5 and produce 14/3 = 4.7 — and the resulting test
+  // would assert a winner the values do not produce, passing through the boards
+  // tiebreak for a reason its author never intended. Loud at authoring time
+  // beats silent at review time.
+  if (!Number.isInteger(attempts)) {
+    throw new Error(`side(${boards}, ${avg}): ${attempts} attempts is not a whole number`)
+  }
+  return { boards, attempts }
+}
 
 describe('outcomeOf', () => {
   test('LOWER average guesses wins — the challenger', () => {
@@ -182,9 +194,16 @@ describe('outcomeOf', () => {
 
   // Equal RAW averages, so this pins the boards tiebreak rather than the
   // rounding. Kept for that, under a name that says so.
+  //
+  // BOARDS WELL CLEAR OF MIN_CHALLENGE_BOARDS, deliberately. At 10 the
+  // challenger sat exactly ON the floor, so a mutation of the floor comparison
+  // failed this test as well as the floor test — measured. This test's subject
+  // is the boards tiebreak and it has no business being sensitive to the floor
+  // constant; raise MIN_CHALLENGE_BOARDS and it would fail with 'void', sending
+  // the reader to the wrong place.
   test('equal raw averages fall through to the boards tiebreak', () => {
-    const a = { boards: 10, attempts: 40 } // 4.00 exactly
-    const b = { boards: 11, attempts: 44 } // 4.00 exactly
+    const a = { boards: 20, attempts: 80 } // 4.00 exactly
+    const b = { boards: 22, attempts: 88 } // 4.00 exactly
     expect(outcomeOf(a, b)).toBe('opponent') // b played more boards
   })
 

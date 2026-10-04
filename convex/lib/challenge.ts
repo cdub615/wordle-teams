@@ -189,23 +189,28 @@ export type ChallengeOutcome = 'challenger' | 'opponent' | 'tie' | 'void'
  * engagement.
  */
 export function outcomeOf(
-  challenger: { boards: number; attempts: number },
-  opponent: { boards: number; attempts: number },
+  challenger: { readonly boards: number; readonly attempts: number },
+  opponent: { readonly boards: number; readonly attempts: number },
 ): ChallengeOutcome {
   if (challenger.boards < MIN_CHALLENGE_BOARDS) return 'void'
   if (opponent.boards < MIN_CHALLENGE_BOARDS) return 'void'
 
-  const a = meanAttemptsOf(challenger)
-  const b = meanAttemptsOf(opponent)
+  // NAMED, NOT `a`/`b`. This doc block says direction is the easiest thing here
+  // to implement backwards, and the comparisons below are three lines away — so
+  // they should read as the rule without the reader holding a mapping in their
+  // head. The repo's `a`/`b` precedent (teamStats.ts's statsEqual) is a
+  // SYMMETRIC equality, where transposing is harmless; here it inverts the answer.
+  const challengerMean = meanAttemptsOf(challenger)
+  const opponentMean = meanAttemptsOf(opponent)
   // UNREACHABLE GIVEN THE FLOOR ABOVE — MIN_CHALLENGE_BOARDS > 0, so neither
   // side can have zero boards here. Kept for totality rather than as a guard, and
   // a mutant deleting it SURVIVES the suite. That is expected, not a hole: the
   // alternative is a non-null assertion that would start lying if the floor ever
   // became 0.
-  if (a === null || b === null) return 'void'
+  if (challengerMean === null || opponentMean === null) return 'void'
 
-  if (a < b) return 'challenger'
-  if (b < a) return 'opponent'
+  if (challengerMean < opponentMean) return 'challenger'
+  if (opponentMean < challengerMean) return 'opponent'
   if (challenger.boards > opponent.boards) return 'challenger'
   if (opponent.boards > challenger.boards) return 'opponent'
   return 'tie'
