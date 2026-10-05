@@ -1310,13 +1310,24 @@ type Ctx = { db: GenericDatabaseWriter<DataModel> }
 const NOW = new Date('2026-10-04T12:00:00Z')
 const today = '2026-10-04'
 
-beforeEach(() => {
-  vi.useFakeTimers()
-  vi.setSystemTime(NOW)
-})
-afterEach(() => {
-  vi.useRealTimers()
-})
+/**
+ * SCOPED TO THE DATED DESCRIBES, NOT THE FILE — matching
+ * dashboardBandwidth.test.ts, teamStats.test.ts and reminders.test.ts, which all
+ * combine fake timers with convexTest but put the hooks inside the describe that
+ * needs them. Task 5's 15 tests in this file need no frozen clock, and freezing
+ * it for them would be 15 tests' worth of risk for no benefit.
+ *
+ * Paste this pair INSIDE each describe that passes `today` — that is
+ * `acceptChallengeFor` and `claimChallengeLinkFor`:
+ *
+ *   beforeEach(() => {
+ *     vi.useFakeTimers()
+ *     vi.setSystemTime(NOW)
+ *   })
+ *   afterEach(() => {
+ *     vi.useRealTimers()
+ *   })
+ */
 
 /** A player on two teams, Pro by default. */
 async function seedTwoTeams(ctx: Ctx, { pro = true } = {}) {
