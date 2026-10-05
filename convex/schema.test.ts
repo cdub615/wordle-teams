@@ -767,6 +767,48 @@ describe('teamChallenges', () => {
     })
   })
 
+  // THE SWEEP'S TWO INDEXES (Task 10b). Each query is an equality on status and
+  // a RANGE on the date, which only works with status first — reversing either
+  // index makes the range land on the wrong field. Each assertion picks out one
+  // row of three: the right status on the right side of the bound, against a
+  // wrong-status row and a wrong-date row.
+  test('the sweep indexes find due active rows and stale pending rows', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ours = await ctx.db.insert('teams', aTeam({ name: 'ours' }))
+      const theirs = await ctx.db.insert('teams', aTeam({ name: 'theirs' }))
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const row = (over: Record<string, unknown>) => ({
+        challengerTeamId: ours,
+        opponentTeamId: theirs,
+        proposedBy: playerId,
+        status: 'active' as const,
+        // PAST the expiry bound below, so the active and closed rows are the
+        // wrong-status rows for the expiry query as well.
+        expiresAt: 1_500,
+        createdAt: 1_000,
+        ...over,
+      })
+      const due = await ctx.db.insert('teamChallenges', row({ endDay: '2026-10-31' }))
+      await ctx.db.insert('teamChallenges', row({ endDay: '2026-11-30' }))
+      await ctx.db.insert('teamChallenges', row({ status: 'closed' as const, endDay: '2026-09-30' }))
+
+      const dueRows = await ctx.db
+        .query('teamChallenges')
+        .withIndex('by_status_and_endDay', (q) => q.eq('status', 'active').lte('endDay', '2026-10-31'))
+        .collect()
+      expect(dueRows.map((r) => r._id)).toEqual([due])
+
+      const stale = await ctx.db.insert('teamChallenges', row({ status: 'pending' as const, expiresAt: 2_000 }))
+      await ctx.db.insert('teamChallenges', row({ status: 'pending' as const, expiresAt: 9_000 }))
+      const staleRows = await ctx.db
+        .query('teamChallenges')
+        .withIndex('by_status_and_expiresAt', (q) => q.eq('status', 'pending').lte('expiresAt', 3_000))
+        .collect()
+      expect(staleRows.map((r) => r._id)).toEqual([stale])
+    })
+  })
+
   // WHAT CONVEX-TEST ACTUALLY ENFORCES, measured rather than assumed:
   //   - an UNDECLARED TABLE is ACCEPTED (no validation at all)
   //   - a bad literal in a declared table is REJECTED

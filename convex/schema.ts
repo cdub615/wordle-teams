@@ -839,7 +839,13 @@ export default defineSchema({
   })
     .index('by_token', ['token'])
     .index('by_challenger_and_status', ['challengerTeamId', 'status'])
-    .index('by_opponent_and_status', ['opponentTeamId', 'status']),
+    .index('by_opponent_and_status', ['opponentTeamId', 'status'])
+    // THE DAILY SWEEP'S TWO READS (Task 10b, owner decision D5), so it touches
+    // only live rows rather than walking a table that only ever grows: active
+    // challenges whose window has ended, and pending proposals past their TTL.
+    // STATUS FIRST in both: it is the equality, the date is the range.
+    .index('by_status_and_endDay', ['status', 'endDay'])
+    .index('by_status_and_expiresAt', ['status', 'expiresAt']),
 
   statusMessages: defineTable({
     message: v.string(),

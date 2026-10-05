@@ -10,6 +10,8 @@ import {
   challengeScoreboardFor,
   challengesForTeamFor,
   claimChallengeLinkFor,
+  closeChallengesForDeletedTeam,
+  closeDueChallengeFor,
   closeDueChallengesFor,
   declineChallengeFor,
   headToHeadFor,
@@ -1997,8 +1999,8 @@ describe('the CHALLENGES_ENABLED gate', () => {
 
   // NOTHING THAT ENDS OR REFUSES A CHALLENGE IS GATED: switching the feature off
   // must not strand a running one. The daily close is pinned BEHAVIOURALLY
-  // instead, by 'teamStats.sweep closes due challenges': tests run with
-  // CHALLENGES_ENABLED unset, so a close gated on it would never fire there.
+  // instead, by 'teamStats.sweep closes due challenges', which stubs
+  // CHALLENGES_ENABLED off, so a close gated on it would never fire there.
   test.each(['declineChallenge', 'withdrawChallenge', 'cancelChallenge', 'setAcceptsChallenges'])(
     '%s is NOT gated, so a running challenge can always be ended',
     (name) => {
@@ -2037,6 +2039,7 @@ describe('challengeNotificationBody', () => {
   test('names the opponent', () => {
     expect(challengeNotificationBody('accepted', 'The Wordlers')).toBe('Challenge accepted: The Wordlers')
     expect(challengeNotificationBody('closed', 'The Wordlers')).toBe('Challenge finished: The Wordlers')
+    expect(challengeNotificationBody('cancelled', 'The Wordlers')).toBe('Challenge cancelled: The Wordlers')
   })
 
   test('clamps through the shared rule', () => {
@@ -2045,115 +2048,67 @@ describe('challengeNotificationBody', () => {
       `Challenge finished: ${'n'.repeat(MAX_NOTIFIED_TEAM_NAME - 1)}…`,
     )
   })
+
+  // D6: a member of both teams is told both, challenger first.
+  test('a pair names both teams, challenger first, each clamped on its own', () => {
+    expect(challengeNotificationBody('accepted', ['Challengers', 'Theirs'])).toBe(
+      'Challenge accepted: Challengers vs Theirs',
+    )
+    const a = 'a'.repeat(MAX_NOTIFIED_TEAM_NAME + 1)
+    const b = 'b'.repeat(MAX_NOTIFIED_TEAM_NAME + 1)
+    expect(challengeNotificationBody('closed', [a, b])).toBe(
+      `Challenge finished: ${'a'.repeat(MAX_NOTIFIED_TEAM_NAME - 1)}… vs ${'b'.repeat(MAX_NOTIFIED_TEAM_NAME - 1)}…`,
+    )
+  })
 })
 
+/** Every teamStats:closeChallenge job queued so far, with its args. */
+async function closeJobs(ctx: Ctx) {
+  const rows = await ctx.db.system.query('_scheduled_functions').collect()
+  return rows.filter((row) => row.name === 'teamStats:closeChallenge')
+}
+
+type PushArgs = { playerId: string; notification: { body: string; url: string } }
+const pushArgs = async (ctx: Ctx) => (await pushJobs(ctx)).map((job) => job.args[0] as PushArgs)
+
 describe('closeDueChallengesFor', () => {
-  // endDay is 2026-10-31. Closes on endDay + 2 = 2026-11-02: see the task banner.
-  test('closes on endDay + 2 and freezes a result', async () => {
+  // endDay is 2026-10-31. Due on endDay + 2 = 2026-11-02: see the function's banner.
+  // NOTHING CLOSES INLINE (owner decision D5): the sweep only schedules.
+  test('schedules exactly one close for a challenge due on endDay + 2, and closes nothing itself', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { id, challengerTeamId, theirTeamId } = await seedDueChallenge(ctx)
-      expect(await closeDueChallengesFor(ctx, '2026-11-02')).toMatchObject({ closed: 1 })
-      const doc = (await ctx.db.get(id))!
-      expect(doc.status).toBe('closed')
-      expect(doc.result).toMatchObject({
-        outcome: 'challenger',
-        challenger: { teamId: challengerTeamId, name: 'Challengers', boards: ENOUGH, average: 3 },
-        opponent: { teamId: theirTeamId, name: 'Theirs', boards: ENOUGH, average: 4 },
-      })
-      expect(doc.result!.challenger.members).toEqual([
-        { playerId: expect.any(String), name: 'Ada', boards: ENOUGH, attempts: 3 * ENOUGH, average: 3 },
-      ])
+      const { id } = await seedDueChallenge(ctx)
+      expect(await closeDueChallengesFor(ctx, '2026-11-02')).toEqual({ scheduled: 1, expired: 0 })
+      const jobs = await closeJobs(ctx)
+      expect(jobs).toHaveLength(1)
+      expect(jobs[0].args).toEqual([{ challengeId: id }])
+      expect((await ctx.db.get(id))!.status).toBe('active')
+      expect(await pushJobs(ctx)).toHaveLength(0)
     })
   })
 
   // BOTH SIDES OF THE BOUNDARY. endDay + 1 is the day the Americas are still
   // playing endDay's puzzle.
-  test.each(['2026-10-31', '2026-11-01'])('does not close on %s', async (today) => {
+  test.each(['2026-10-31', '2026-11-01'])('schedules nothing on %s', async (today) => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { id } = await seedDueChallenge(ctx)
-      expect(await closeDueChallengesFor(ctx, today)).toMatchObject({ closed: 0 })
+      expect(await closeDueChallengesFor(ctx, today)).toEqual({ scheduled: 0, expired: 0 })
+      expect(await closeJobs(ctx)).toHaveLength(0)
       expect((await ctx.db.get(id))!.status).toBe('active')
     })
   })
 
-  test('pushes each consenting member the OTHER team\'s name', async () => {
-    const t = convexTest(schema, modules)
-    await t.run(async (ctx) => {
-      const { playerId, accepterId, challengerTeamId, theirTeamId } = await seedDueChallenge(ctx)
-      await closeDueChallengesFor(ctx, '2026-11-02')
-      const jobs = await pushJobs(ctx)
-      const bodyFor = (id: Id<'players'>) =>
-        jobs.find((job) => (job.args[0] as { playerId: string }).playerId === id)?.args[0]
-      expect(jobs).toHaveLength(2)
-      // EACH LINK OPENS THE RECIPIENT'S OWN TEAM, where their scoreboard is.
-      expect(bodyFor(playerId)).toMatchObject({
-        notification: { body: 'Challenge finished: Theirs', url: `/team?team=${challengerTeamId}` },
-      })
-      expect(bodyFor(accepterId)).toMatchObject({
-        notification: { body: 'Challenge finished: Challengers', url: `/team?team=${theirTeamId}` },
-      })
-    })
-  })
-
-  test('a member without push consent is not pushed', async () => {
-    const t = convexTest(schema, modules)
-    await t.run(async (ctx) => {
-      const { accepterId } = await seedDueChallenge(ctx)
-      await ctx.db.patch(accepterId, { reminderDeliveryMethods: ['email'] })
-      await closeDueChallengesFor(ctx, '2026-11-02')
-      expect(await pushJobs(ctx)).toHaveLength(1)
-    })
-  })
-
-  test('running twice neither restates the result nor re-notifies', async () => {
+  // THE INDEX'S eq('status', 'active') DOING ITS JOB. A closed row keeps its
+  // endDay, so without the equality every challenge ever closed would be
+  // re-scheduled every day.
+  test('a closed row is never scheduled, however old its endDay', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { id } = await seedDueChallenge(ctx)
-      await closeDueChallengesFor(ctx, '2026-11-02')
-      const frozen = (await ctx.db.get(id))!.result
-      // failed: 0 IS LOAD-BEARING. Without the status check, the second run
-      // still restates nothing — challengeScoreboardFor refuses a closed row and
-      // the per-row catch swallows it — but it reports the row as FAILED, every
-      // day, forever. Asserting closed: 0 alone let that mutant pass.
-      expect(await closeDueChallengesFor(ctx, '2026-11-03')).toMatchObject({ closed: 0, failed: 0 })
-      expect((await ctx.db.get(id))!.result).toEqual(frozen)
-      expect(await pushJobs(ctx)).toHaveLength(2)
-    })
-  })
-
-  // THE SNAPSHOT IS WHAT MAKES THIS TRUE, and it is why the snapshot exists.
-  test('a later rewrite of the month does NOT restate a closed result', async () => {
-    const t = convexTest(schema, modules)
-    await t.run(async (ctx) => {
-      const { id, playerId, challengerTeamId } = await seedDueChallenge(ctx)
-      await closeDueChallengesFor(ctx, '2026-11-02')
-      const before = (await ctx.db.get(id))!.result
-      const stats = await ctx.db
-        .query('teamMonthStats')
-        .withIndex('by_team_year_month', (q) => q.eq('teamId', challengerTeamId).eq('year', 2026).eq('month', 10))
-        .unique()
-      await ctx.db.patch(stats!._id, { days: octoberDays(playerId, 6, ENOUGH) })
-      await closeDueChallengesFor(ctx, '2026-11-03')
-      expect((await ctx.db.get(id))!.result).toEqual(before)
-    })
-  })
-
-  test('one challenge whose team row is gone does not stop the others closing', async () => {
-    const t = convexTest(schema, modules)
-    await t.run(async (ctx) => {
-      const { id, playerId, challengerTeamId } = await seedDueChallenge(ctx)
-      const otherId = await ctx.db.insert(
-        'teams',
-        aTeam({ legacyId: 901, name: 'Other', playerIds: [playerId], owner: playerId }),
-      )
-      const broken = await seedActive(ctx, challengerTeamId, otherId, playerId)
-      await ctx.db.delete(otherId)
-
-      expect(await closeDueChallengesFor(ctx, '2026-11-02')).toMatchObject({ closed: 1, failed: 1 })
-      expect((await ctx.db.get(id))!.status).toBe('closed')
-      expect((await ctx.db.get(broken._id))!.status).toBe('active')
+      await ctx.db.patch(id, { status: 'closed', endDay: '2026-01-31' })
+      expect(await closeDueChallengesFor(ctx, '2026-11-02')).toEqual({ scheduled: 0, expired: 0 })
+      expect(await closeJobs(ctx)).toHaveLength(0)
     })
   })
 
@@ -2172,7 +2127,7 @@ describe('closeDueChallengesFor', () => {
       })
       const stale = await ctx.db.insert('teamChallenges', pending(Date.now() - 1))
       const live = await ctx.db.insert('teamChallenges', pending(Date.now() + TTL))
-      expect(await closeDueChallengesFor(ctx, '2026-10-20')).toMatchObject({ expired: 1 })
+      expect(await closeDueChallengesFor(ctx, '2026-10-20')).toEqual({ scheduled: 0, expired: 1 })
       expect((await ctx.db.get(stale))!.status).toBe('expired')
       expect((await ctx.db.get(live))!.status).toBe('pending')
     })
@@ -2202,10 +2157,10 @@ describe('closeDueChallengesFor', () => {
     }
   })
 
-  // THE MOST EXPENSIVE MUTANT IN THIS TASK, AND IT SURVIVED THE PLAN'S TESTS.
-  // activate() leaves the proposal's expiresAt on the row, so an expiry branch
-  // that forgot to check status would mark every RUNNING challenge 'expired'
-  // about a week after it was proposed — mid-contest, with no result.
+  // THE MOST EXPENSIVE MUTANT IN TASK 10, AND IT SURVIVED THAT PLAN'S TESTS.
+  // activate() leaves the proposal's expiresAt on the row, so an expiry read
+  // that forgot status would mark every RUNNING challenge 'expired' about a
+  // week after it was proposed — mid-contest, with no result.
   test('a running challenge whose proposal TTL has passed is NOT expired', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -2215,24 +2170,297 @@ describe('closeDueChallengesFor', () => {
       expect((await ctx.db.get(id))!.status).toBe('active')
     })
   })
+
+  // NO "ONE BAD ROW DOES NOT STOP THE OTHERS" TEST ANY MORE, deliberately. That
+  // isolation used to be a try/catch around each close inside this function;
+  // since D5 every close is its own scheduled job, so a throwing close fails only
+  // itself. The isolation is structural and there is nothing here to assert.
+})
+
+describe('closeDueChallengeFor', () => {
+  test('closes and freezes a result', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id, challengerTeamId, theirTeamId } = await seedDueChallenge(ctx)
+      await closeDueChallengeFor(ctx, id)
+      const doc = (await ctx.db.get(id))!
+      expect(doc.status).toBe('closed')
+      expect(doc.result).toMatchObject({
+        outcome: 'challenger',
+        challenger: { teamId: challengerTeamId, name: 'Challengers', boards: ENOUGH, average: 3 },
+        opponent: { teamId: theirTeamId, name: 'Theirs', boards: ENOUGH, average: 4 },
+      })
+      expect(doc.result!.challenger.members).toEqual([
+        { playerId: expect.any(String), name: 'Ada', boards: ENOUGH, attempts: 3 * ENOUGH, average: 3 },
+      ])
+    })
+  })
+
+  test('pushes each consenting member the OTHER team\'s name', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id, playerId, accepterId, challengerTeamId, theirTeamId } = await seedDueChallenge(ctx)
+      await closeDueChallengeFor(ctx, id)
+      const pushes = await pushArgs(ctx)
+      const pushFor = (who: Id<'players'>) => pushes.find((push) => push.playerId === who)
+      expect(pushes).toHaveLength(2)
+      // EACH LINK OPENS THE RECIPIENT'S OWN TEAM, where their scoreboard is.
+      expect(pushFor(playerId)).toMatchObject({
+        notification: { body: 'Challenge finished: Theirs', url: `/team?team=${challengerTeamId}` },
+      })
+      expect(pushFor(accepterId)).toMatchObject({
+        notification: { body: 'Challenge finished: Challengers', url: `/team?team=${theirTeamId}` },
+      })
+    })
+  })
+
+  test('a member without push consent is not pushed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id, playerId, accepterId } = await seedDueChallenge(ctx)
+      await ctx.db.patch(accepterId, { reminderDeliveryMethods: ['email'] })
+      await closeDueChallengeFor(ctx, id)
+      expect((await pushArgs(ctx)).map((push) => push.playerId)).toEqual([playerId])
+    })
+  })
+
+  // THE STATUS CHECK IS THE IDEMPOTENCE GUARD: a retried or duplicated job. Without
+  // it the second call reaches challengeScoreboardFor, which refuses a closed row,
+  // so the job would fail every time it was retried.
+  test('twice in a row: the second call writes nothing and schedules no push', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id } = await seedDueChallenge(ctx)
+      await closeDueChallengeFor(ctx, id)
+      const after = (await ctx.db.get(id))!
+      await closeDueChallengeFor(ctx, id)
+      expect(await ctx.db.get(id)).toEqual(after)
+      expect(await pushJobs(ctx)).toHaveLength(2)
+    })
+  })
+
+  // A CANCEL THAT LANDS BETWEEN THE SWEEP AND THE JOB: the job must not restate it.
+  test('a row cancelled after it was scheduled is left as the cancel froze it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id, playerId } = await seedDueChallenge(ctx)
+      await cancelChallengeFor(ctx, playerId, id)
+      const after = (await ctx.db.get(id))!
+      await closeDueChallengeFor(ctx, id)
+      expect(await ctx.db.get(id)).toEqual(after)
+      expect(await pushJobs(ctx)).toHaveLength(2)
+    })
+  })
+
+  // THE SNAPSHOT IS WHAT MAKES THIS TRUE, and it is why the snapshot exists.
+  test('a later rewrite of the month does NOT restate a closed result', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id, playerId, challengerTeamId } = await seedDueChallenge(ctx)
+      await closeDueChallengeFor(ctx, id)
+      const before = (await ctx.db.get(id))!.result
+      const stats = await ctx.db
+        .query('teamMonthStats')
+        .withIndex('by_team_year_month', (q) => q.eq('teamId', challengerTeamId).eq('year', 2026).eq('month', 10))
+        .unique()
+      await ctx.db.patch(stats!._id, { days: octoberDays(playerId, 6, ENOUGH) })
+      await closeDueChallengeFor(ctx, id)
+      expect((await ctx.db.get(id))!.result).toEqual(before)
+    })
+  })
+
+  // THROUGH THE JOB, so the rejection is the job's own and the row is read back
+  // from a separate transaction.
+  test('a row whose team is gone rejects with INVALID_TEAM and stays active', async () => {
+    const t = convexTest(schema, modules)
+    const { id } = await t.run(async (ctx) => {
+      const seeded = await seedDueChallenge(ctx)
+      await ctx.db.delete(seeded.theirTeamId)
+      return seeded
+    })
+    await expect(t.mutation(internal.teamStats.closeChallenge, { challengeId: id })).rejects.toMatchObject({
+      data: { code: 'INVALID_TEAM' },
+    })
+    expect((await t.run(async (ctx) => await ctx.db.get(id)))!.status).toBe('active')
+  })
 })
 
 describe('teamStats.sweep closes due challenges', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-11-02T00:45:00Z'))
+    // THE CLOSE IS NOT GATED ON CHALLENGES_ENABLED, and this test is what says
+    // so — which only holds while the variable is OFF here. A host shell that
+    // exports CHALLENGES_ENABLED=true would otherwise hide a gated close.
+    vi.stubEnv('CHALLENGES_ENABLED', '')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.useRealTimers()
+  })
+
+  // THE WIRING, end to end: the sweep schedules, the job closes. Each queued
+  // close is run BY HAND rather than through finishAllScheduledFunctions, which
+  // would also run pushSend:deliverTo — a Node action that talks to a push
+  // service.
+  test('the daily sweep schedules a close, and the job closes the challenge', async () => {
+    const t = convexTest(schema, modules)
+    const { id } = await t.run(async (ctx) => await seedDueChallenge(ctx))
+    await t.mutation(internal.teamStats.sweep, {})
+    const jobs = await t.run(async (ctx) => await closeJobs(ctx))
+    expect(jobs).toHaveLength(1)
+    for (const job of jobs) {
+      await t.mutation(internal.teamStats.closeChallenge, job.args[0] as { challengeId: Id<'teamChallenges'> })
+    }
+    expect((await t.run(async (ctx) => await ctx.db.get(id)))!.status).toBe('closed')
+  })
+})
+
+/**
+ * D6: the player seedTwoTeams puts on BOTH teams, plus one member on each side
+ * only. All three consent to push. Each extra player overrides `email`, per
+ * seedAccepter's warning.
+ */
+async function seedSharedPair(ctx: Ctx) {
+  const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+  const challengerOnly = await ctx.db.insert('players', aPlayer({ email: 'challenger-only@example.com' }))
+  const opponentOnly = await ctx.db.insert('players', aPlayer({ email: 'opponent-only@example.com' }))
+  await ctx.db.patch(challengerTeamId, { playerIds: [playerId, challengerOnly] })
+  await ctx.db.patch(opponentTeamId, { playerIds: [playerId, opponentOnly] })
+  for (const id of [playerId, challengerOnly, opponentOnly]) await consentToPush(ctx, id)
+  return { playerId, challengerOnly, opponentOnly, challengerTeamId, opponentTeamId }
+}
+
+describe('a member of both teams gets one push (D6)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
   })
   afterEach(() => {
     vi.useRealTimers()
   })
 
-  // THE WIRING, end to end. Every other close test calls closeDueChallengesFor
-  // directly, so deleting its call from the sweep passed all of them.
-  test('the daily sweep closes a challenge that is due', async () => {
+  // seedTwoTeams names its teams 'Challengers' and 'Opponents'.
+  test('on accept: one push naming both, linking to the challenger; single-team members get one name', async () => {
     const t = convexTest(schema, modules)
-    const { id } = await t.run(async (ctx) => await seedDueChallenge(ctx))
-    await t.mutation(internal.teamStats.sweep, {})
-    expect((await t.run(async (ctx) => await ctx.db.get(id)))!.status).toBe('closed')
+    await t.run(async (ctx) => {
+      const { playerId, challengerOnly, opponentOnly, challengerTeamId, opponentTeamId } = await seedSharedPair(ctx)
+      const id = await proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId)
+      await acceptChallengeFor(ctx, opponentOnly, id, today)
+      const pushes = await pushArgs(ctx)
+      expect(pushes).toHaveLength(3)
+      expect(pushes.filter((push) => push.playerId === playerId)).toEqual([
+        expect.objectContaining({
+          notification: expect.objectContaining({
+            body: 'Challenge accepted: Challengers vs Opponents',
+            url: `/team?team=${challengerTeamId}`,
+          }),
+        }),
+      ])
+      expect(pushes.find((push) => push.playerId === challengerOnly)).toMatchObject({
+        notification: { body: 'Challenge accepted: Opponents', url: `/team?team=${challengerTeamId}` },
+      })
+      expect(pushes.find((push) => push.playerId === opponentOnly)).toMatchObject({
+        notification: { body: 'Challenge accepted: Challengers', url: `/team?team=${opponentTeamId}` },
+      })
+    })
+  })
+
+  test('on close: one push naming both, linking to the challenger; single-team members get one name', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerOnly, opponentOnly, challengerTeamId, opponentTeamId } = await seedSharedPair(ctx)
+      const challenge = await seedActive(ctx, challengerTeamId, opponentTeamId, playerId)
+      await closeDueChallengeFor(ctx, challenge._id)
+      const pushes = await pushArgs(ctx)
+      expect(pushes).toHaveLength(3)
+      expect(pushes.filter((push) => push.playerId === playerId)).toEqual([
+        expect.objectContaining({
+          notification: expect.objectContaining({
+            body: 'Challenge finished: Challengers vs Opponents',
+            url: `/team?team=${challengerTeamId}`,
+          }),
+        }),
+      ])
+      expect(pushes.find((push) => push.playerId === challengerOnly)).toMatchObject({
+        notification: { body: 'Challenge finished: Opponents', url: `/team?team=${challengerTeamId}` },
+      })
+      expect(pushes.find((push) => push.playerId === opponentOnly)).toMatchObject({
+        notification: { body: 'Challenge finished: Challengers', url: `/team?team=${opponentTeamId}` },
+      })
+    })
+  })
+
+  // THE CLAMP IS PER NAME. Clamped as one string, the challenger's 41 code
+  // points alone fill the budget and the opponent vanishes from the body.
+  test('with a 41-code-point name on each side, the shared body keeps a clamped form of BOTH', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, opponentOnly, challengerTeamId, opponentTeamId } = await seedSharedPair(ctx)
+      const a = 'a'.repeat(MAX_NOTIFIED_TEAM_NAME + 1)
+      const b = 'b'.repeat(MAX_NOTIFIED_TEAM_NAME + 1)
+      await ctx.db.patch(challengerTeamId, { name: a })
+      await ctx.db.patch(opponentTeamId, { name: b })
+      const id = await proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId)
+      await acceptChallengeFor(ctx, opponentOnly, id, today)
+      const shared = (await pushArgs(ctx)).find((push) => push.playerId === playerId)
+      expect(shared?.notification.body).toBe(
+        `Challenge accepted: ${'a'.repeat(MAX_NOTIFIED_TEAM_NAME - 1)}… vs ${'b'.repeat(MAX_NOTIFIED_TEAM_NAME - 1)}…`,
+      )
+    })
+  })
+  // "BOTH" IS DECIDED OVER THE ROSTERS BEING NOTIFIED. On a team-deletion close
+  // the deleted team is skipped, so its members who are also on the survivor are
+  // survivor members only: one name, the survivor's own page.
+  test('with skipTeamId nobody is shared: the dual member is told the deleted team, as a survivor', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerOnly, challengerTeamId, opponentTeamId } = await seedSharedPair(ctx)
+      await seedActive(ctx, challengerTeamId, opponentTeamId, playerId)
+      await closeChallengesForDeletedTeam(ctx, opponentTeamId)
+      const pushes = await pushArgs(ctx)
+      expect(pushes.map((push) => push.playerId).sort()).toEqual([playerId, challengerOnly].sort())
+      for (const push of pushes) {
+        expect(push.notification).toEqual({
+          title: 'Wordle Teams',
+          body: 'Challenge finished: Opponents',
+          url: `/team?team=${challengerTeamId}`,
+        })
+      }
+    })
+  })
+})
+
+describe('the link-claim accept push', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // THE PATH WHERE opponentTeamId ARRIVES IN THE SAME PATCH, which is why
+  // activate re-reads the row: the doc read before the patch has no opponent,
+  // and notifyRosters returns early on that, pushing nobody.
+  test('claiming a link pushes both rosters, naming the other team', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await consentToPush(ctx, playerId)
+      await consentToPush(ctx, accepterId)
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      await claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, today)
+      const pushes = await pushArgs(ctx)
+      expect(pushes).toHaveLength(2)
+      expect(pushes.find((push) => push.playerId === playerId)).toMatchObject({
+        notification: { body: 'Challenge accepted: Theirs', url: `/team?team=${challengerTeamId}` },
+      })
+      expect(pushes.find((push) => push.playerId === accepterId)).toMatchObject({
+        notification: { body: 'Challenge accepted: Challengers', url: `/team?team=${theirTeamId}` },
+      })
+    })
   })
 })
 
@@ -2245,6 +2473,23 @@ describe('cancelChallengeFor', () => {
       const doc = (await ctx.db.get(id))!
       expect(doc.status).toBe('closed')
       expect(doc.result?.outcome).toBe('challenger')
+    })
+  })
+
+  // D7. The natural close's 'finished' is pinned in closeDueChallengeFor above.
+  test('cancel pushes "Challenge cancelled", naming the other team', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id, playerId, accepterId, challengerTeamId, theirTeamId } = await seedDueChallenge(ctx)
+      await cancelChallengeFor(ctx, playerId, id)
+      const pushes = await pushArgs(ctx)
+      expect(pushes).toHaveLength(2)
+      expect(pushes.find((push) => push.playerId === playerId)).toMatchObject({
+        notification: { body: 'Challenge cancelled: Theirs', url: `/team?team=${challengerTeamId}` },
+      })
+      expect(pushes.find((push) => push.playerId === accepterId)).toMatchObject({
+        notification: { body: 'Challenge cancelled: Challengers', url: `/team?team=${theirTeamId}` },
+      })
     })
   })
 
@@ -2265,7 +2510,7 @@ describe('cancelChallengeFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { id, playerId } = await seedDueChallenge(ctx)
-      await closeDueChallengesFor(ctx, '2026-11-02')
+      await closeDueChallengeFor(ctx, id)
       await expect(cancelChallengeFor(ctx, playerId, id)).rejects.toMatchObject({
         data: { code: 'CHALLENGE_NOT_ACTIVE' },
       })
