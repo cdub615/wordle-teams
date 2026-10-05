@@ -33,6 +33,10 @@ const LIVE_STATUSES = ['pending', 'active'] as const
  * TWO QUERIES BECAUSE THERE ARE TWO INDEXES, and that is the schema's decision
  * rather than this function's: Convex cannot OR across indexes, and an array of
  * both ids would be unindexable. Four point lookups beats any scan.
+ *
+ * INVARIANT: no row ever has challengerTeamId === opponentTeamId. Such a row would
+ * be returned TWICE, once per index, inflating that team's count. Unreachable today
+ * because the self-challenge check refuses it, but this is where it is written down.
  */
 export async function liveChallengesFor(
   ctx: ReaderCtx,
@@ -102,8 +106,12 @@ export async function requireChallengeablePair(
     throw accessError('CHALLENGE_LIMIT_REACHED')
   }
 
-  // ONE LIVE CHALLENGE PER UNORDERED PAIR. Checked in both directions, because
-  // either team may have been the proposer.
+  // ONE LIVE CHALLENGE PER UNORDERED PAIR. Either team may have been the proposer.
+  // The second clause of the predicate is redundant TODAY: the rows come from
+  // liveChallengesFor(challengerTeamId), so a row whose challenger is the opponent
+  // is in that list only because its opponent is the challenger. The guarantee is
+  // where the array comes from. The clause is kept so the predicate stays correct
+  // if anyone ever passes it a differently-sourced array.
   const existing = (await liveChallengesFor(ctx, challengerTeamId)).find(
     (c) =>
       c.opponentTeamId === opponentTeamId ||
@@ -137,13 +145,16 @@ export async function proposeToTeamFor(
 
   await requireChallengeablePair(ctx, challengerTeamId, opponentTeamId)
 
+  // ONE CLOCK READ, so expiresAt - createdAt is exactly TTL_MS and a test can
+  // assert it without a tolerance.
+  const now = Date.now()
   return await ctx.db.insert('teamChallenges', {
     challengerTeamId,
     opponentTeamId,
     proposedBy: playerId,
     status: 'pending',
-    expiresAt: Date.now() + TTL_MS,
-    createdAt: Date.now(),
+    expiresAt: now + TTL_MS,
+    createdAt: now,
   })
 }
 
@@ -199,13 +210,16 @@ export async function proposeByLinkFor(
   }
 
   const token = newToken()
+  // ONE CLOCK READ, so expiresAt - createdAt is exactly TTL_MS and a test can
+  // assert it without a tolerance.
+  const now = Date.now()
   await ctx.db.insert('teamChallenges', {
     challengerTeamId,
     proposedBy: playerId,
     status: 'pending',
     token,
-    expiresAt: Date.now() + TTL_MS,
-    createdAt: Date.now(),
+    expiresAt: now + TTL_MS,
+    createdAt: now,
   })
   return token
 }

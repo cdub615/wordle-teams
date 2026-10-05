@@ -8,7 +8,7 @@ import {
   proposeByLinkFor,
   proposeToTeamFor,
 } from './challenges.ts'
-import { MAX_ACTIVE_CHALLENGES } from './lib/challenge.ts'
+import { MAX_ACTIVE_CHALLENGES, PROPOSAL_TTL_DAYS } from './lib/challenge.ts'
 import type { DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 
@@ -48,6 +48,9 @@ describe('proposeToTeamFor', () => {
       expect(doc?.status).toBe('pending')
       expect(doc?.opponentTeamId).toBe(opponentTeamId)
       expect(doc?.token).toBeUndefined()
+      // DERIVED FROM THE CONSTANT, not from 604800000: an unasserted cap drifts,
+      // and a literal keeps passing straight through the drift.
+      expect(doc!.expiresAt - doc!.createdAt).toBe(PROPOSAL_TTL_DAYS * 24 * 60 * 60 * 1000)
     })
   })
 
@@ -221,6 +224,34 @@ describe('proposeToTeamFor', () => {
     })
   })
 
+  // KILLS the opponent-threshold mutant `>= MAX_ACTIVE_CHALLENGES - 1`: the
+  // opponent holds a nonzero sub-cap count and the call must still succeed.
+  test('an opponent ONE BELOW the cap is allowed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      for (let i = 0; i < MAX_ACTIVE_CHALLENGES - 1; i++) {
+        const otherId = await ctx.db.insert(
+          'teams',
+          aTeam({ legacyId: 600 + i, name: `other ${i}`, playerIds: [playerId] }),
+        )
+        await ctx.db.insert('teamChallenges', {
+          challengerTeamId: otherId,
+          opponentTeamId,
+          proposedBy: playerId,
+          status: 'active',
+          expiresAt: Date.now() + 1000,
+          startDay: '2026-10-05',
+          endDay: '2026-10-31',
+          createdAt: Date.now(),
+        })
+      }
+      await expect(
+        proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId),
+      ).resolves.toBeDefined()
+    })
+  })
+
   test('PENDING proposals occupy slots too', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -290,9 +321,55 @@ describe('proposeToTeamFor', () => {
       ).rejects.toMatchObject({ data: { code: 'NOT_A_MEMBER' } })
     })
   })
+
+  // THE CHALLENGER-SIDE MEMBERSHIP CHECK, which nothing else pins. Measured:
+  // deleting it from proposeToTeamFor leaves every other test green, and the
+  // opponent-side check would still pass - so a Pro player could name a team
+  // they are not on as the challenger, consuming its cap.
+  test('you cannot propose ON BEHALF OF a team you are not on', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const strangersTeam = await ctx.db.insert('teams', aTeam({ legacyId: 810, name: 'Strangers' }))
+      // ROLES REVERSED: the stranger team as CHALLENGER, a team we are on as opponent.
+      await expect(
+        proposeToTeamFor(ctx, playerId, strangersTeam, challengerTeamId),
+      ).rejects.toMatchObject({ data: { code: 'NOT_A_MEMBER' } })
+    })
+  })
+
+  // THE CHALLENGER-SIDE MEMBERSHIP CHECK, which nothing else pins. Measured:
+  // deleting it from proposeToTeamFor leaves every other test green, and the
+  // opponent-side check would still pass - so a Pro player could name a team
+  // they are not on as the challenger, consuming its cap.
+  test('you cannot propose ON BEHALF OF a team you are not on', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const strangersTeam = await ctx.db.insert('teams', aTeam({ legacyId: 810, name: 'Strangers' }))
+      // ROLES REVERSED: the stranger team as CHALLENGER, a team we are on as opponent.
+      await expect(
+        proposeToTeamFor(ctx, playerId, strangersTeam, challengerTeamId),
+      ).rejects.toMatchObject({ data: { code: 'NOT_A_MEMBER' } })
+    })
+  })
 })
 
 describe('proposeByLinkFor', () => {
+  // proposeByLinkFor's ONLY membership check. Without this test, deleting it
+  // lets any Pro player mint a challenge link for any team in the product.
+  test('you cannot mint a link for a team you are not on', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId } = await seedTwoTeams(ctx)
+      const strangersTeam = await ctx.db.insert('teams', aTeam({ legacyId: 811, name: 'Strangers' }))
+      await expect(proposeByLinkFor(ctx, playerId, strangersTeam)).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
+    })
+  })
+
+
   test('a Pro member gets a token and no opponent', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -304,6 +381,9 @@ describe('proposeByLinkFor', () => {
         .unique()
       expect(doc?.status).toBe('pending')
       expect(doc?.opponentTeamId).toBeUndefined()
+      // DERIVED FROM THE CONSTANT, not from 604800000: an unasserted cap drifts,
+      // and a literal keeps passing straight through the drift.
+      expect(doc!.expiresAt - doc!.createdAt).toBe(PROPOSAL_TTL_DAYS * 24 * 60 * 60 * 1000)
     })
   })
 
