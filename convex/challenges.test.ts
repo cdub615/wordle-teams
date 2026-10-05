@@ -1,4 +1,5 @@
 import { convexTest } from 'convex-test'
+import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
@@ -23,6 +24,7 @@ import { MAX_ACTIVE_CHALLENGES, MIN_CHALLENGE_BOARDS, PROPOSAL_TTL_DAYS } from '
 import type { ChallengeOutcome } from './lib/challenge.ts'
 import { MAX_NOTIFIED_TEAM_NAME } from './lib/pushText.ts'
 import type { DataModel, Doc, Id } from './_generated/dataModel'
+import { internal } from './_generated/api'
 import type { GenericDatabaseWriter } from 'convex/server'
 
 /**
@@ -1947,12 +1949,17 @@ test('ChallengeOutcome is exactly the schema result.outcome union', () => {
 })
 
 describe('the CHALLENGES_ENABLED gate', () => {
+  // ONE READ, as sweeps.test.ts does it.
+  const source = readFileSync(new URL('./challenges.ts', import.meta.url), 'utf8')
+
   /**
-   * The non-comment lines of `export const <name>`'s handler, up to the next
-   * top-level export. The WHOLE body, not just its first line: a not-gated test
-   * that read only the first line passed with the gate on the second.
+   * The code lines of `export const <name>`'s handler, up to the next top-level
+   * export. The WHOLE body, not just its first line: a not-gated test that read
+   * only the first line passed with the gate on the second. Comment lines are
+   * dropped with sweeps.test.ts's filter, so a JSDoc above a gate is not
+   * mistaken for the first statement.
    */
-  function handlerLines(source: string, name: string): string[] {
+  function handlerLines(name: string): string[] {
     const start = source.indexOf(`export const ${name} = `)
     expect(start, `no export const ${name}`).toBeGreaterThan(-1)
     const rest = source.slice(start)
@@ -1962,48 +1969,43 @@ describe('the CHALLENGES_ENABLED gate', () => {
     return body!
       .split('\n')
       .map((line) => line.trim())
-      .filter((line) => line !== '' && !line.startsWith('//'))
+      .filter((line) => line !== '' && !line.startsWith('//') && !line.startsWith('*') && !line.startsWith('/*'))
   }
 
-  const firstHandlerLine = (source: string, name: string) => handlerLines(source, name)[0]
+  // EXACT LINES, NOT toContain. A containment check passed with the `!`
+  // dropped — `if (challengesEnabled(...)) return { enabled: false }` contains
+  // every expected fragment — and on a deployment where the variable is unset,
+  // which is production until wordle-teams-rac closes, that inversion publishes
+  // live scoreboards. Wrappers cannot be driven (wordle-teams-obw), so the whole
+  // line is the only thing that can tell the two apart.
+  const REFUSE = "if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) throw accessError('CHALLENGES_DISABLED')"
+  const ANSWER_DARK = 'if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) return { enabled: false as const }'
 
-  // THE FIVE THAT START, ACTIVATE OR DISPLAY A CHALLENGE. Decline, withdraw,
-  // cancel and the owner's switch are deliberately NOT gated: they only end or
-  // refuse, and switching the feature off must not strand a running challenge.
-  test.each(['proposeToTeam', 'proposeByLink', 'acceptChallenge', 'claimChallengeLink', 'challengesForTeam'])(
-    '%s checks CHALLENGES_ENABLED first',
-    async (name) => {
-      const { readFileSync } = await import('node:fs')
-      const source = readFileSync(new URL('./challenges.ts', import.meta.url), 'utf8')
-      expect(firstHandlerLine(source, name)).toContain('challengesEnabled(process.env.CHALLENGES_ENABLED)')
-    },
-  )
-
-  // THE MUTATIONS REFUSE; THE QUERY ANSWERS. A query that threw on a dark
-  // deployment would put the team page into its error boundary, so it must
-  // RETURN { enabled: false }. Wrappers cannot be driven (wordle-teams-obw),
-  // so this is pinned in source like the gate's position.
+  // THE FOUR THAT START OR ACTIVATE A CHALLENGE REFUSE, as their first statement.
   test.each(['proposeToTeam', 'proposeByLink', 'acceptChallenge', 'claimChallengeLink'])(
-    '%s refuses with CHALLENGES_DISABLED',
-    async (name) => {
-      const { readFileSync } = await import('node:fs')
-      const source = readFileSync(new URL('./challenges.ts', import.meta.url), 'utf8')
-      expect(firstHandlerLine(source, name)).toContain("throw accessError('CHALLENGES_DISABLED')")
+    '%s refuses first when dark',
+    (name) => {
+      expect(handlerLines(name)[0]).toBe(REFUSE)
     },
   )
 
-  test('challengesForTeam answers { enabled: false } rather than throwing', async () => {
-    const { readFileSync } = await import('node:fs')
-    const source = readFileSync(new URL('./challenges.ts', import.meta.url), 'utf8')
-    expect(firstHandlerLine(source, 'challengesForTeam')).toContain('return { enabled: false as const }')
+  // THE QUERY ANSWERS RATHER THAN THROWS: a throw would put the team page into
+  // its error boundary on a dark deployment.
+  test('challengesForTeam answers { enabled: false } first when dark', () => {
+    expect(handlerLines('challengesForTeam')[0]).toBe(ANSWER_DARK)
   })
 
+  // NOTHING THAT ENDS OR REFUSES A CHALLENGE IS GATED: switching the feature off
+  // must not strand a running one. The daily close is pinned BEHAVIOURALLY
+  // instead, by 'teamStats.sweep closes due challenges': tests run with
+  // CHALLENGES_ENABLED unset, so a close gated on it would never fire there.
   test.each(['declineChallenge', 'withdrawChallenge', 'cancelChallenge', 'setAcceptsChallenges'])(
     '%s is NOT gated, so a running challenge can always be ended',
-    async (name) => {
-      const { readFileSync } = await import('node:fs')
-      const source = readFileSync(new URL('./challenges.ts', import.meta.url), 'utf8')
-      expect(handlerLines(source, name).join('\n')).not.toContain('CHALLENGES_ENABLED')
+    (name) => {
+      const body = handlerLines(name).join('\n')
+      for (const marker of ['CHALLENGES_ENABLED', 'challengesEnabled', 'CHALLENGES_DISABLED']) {
+        expect(body).not.toContain(marker)
+      }
     },
   )
 })
@@ -2079,14 +2081,19 @@ describe('closeDueChallengesFor', () => {
   test('pushes each consenting member the OTHER team\'s name', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, accepterId } = await seedDueChallenge(ctx)
+      const { playerId, accepterId, challengerTeamId, theirTeamId } = await seedDueChallenge(ctx)
       await closeDueChallengesFor(ctx, '2026-11-02')
       const jobs = await pushJobs(ctx)
       const bodyFor = (id: Id<'players'>) =>
         jobs.find((job) => (job.args[0] as { playerId: string }).playerId === id)?.args[0]
       expect(jobs).toHaveLength(2)
-      expect(bodyFor(playerId)).toMatchObject({ notification: { body: 'Challenge finished: Theirs' } })
-      expect(bodyFor(accepterId)).toMatchObject({ notification: { body: 'Challenge finished: Challengers' } })
+      // EACH LINK OPENS THE RECIPIENT'S OWN TEAM, where their scoreboard is.
+      expect(bodyFor(playerId)).toMatchObject({
+        notification: { body: 'Challenge finished: Theirs', url: `/team?team=${challengerTeamId}` },
+      })
+      expect(bodyFor(accepterId)).toMatchObject({
+        notification: { body: 'Challenge finished: Challengers', url: `/team?team=${theirTeamId}` },
+      })
     })
   })
 
@@ -2106,7 +2113,11 @@ describe('closeDueChallengesFor', () => {
       const { id } = await seedDueChallenge(ctx)
       await closeDueChallengesFor(ctx, '2026-11-02')
       const frozen = (await ctx.db.get(id))!.result
-      expect(await closeDueChallengesFor(ctx, '2026-11-03')).toMatchObject({ closed: 0 })
+      // failed: 0 IS LOAD-BEARING. Without the status check, the second run
+      // still restates nothing — challengeScoreboardFor refuses a closed row and
+      // the per-row catch swallows it — but it reports the row as FAILED, every
+      // day, forever. Asserting closed: 0 alone let that mutant pass.
+      expect(await closeDueChallengesFor(ctx, '2026-11-03')).toMatchObject({ closed: 0, failed: 0 })
       expect((await ctx.db.get(id))!.result).toEqual(frozen)
       expect(await pushJobs(ctx)).toHaveLength(2)
     })
@@ -2165,6 +2176,63 @@ describe('closeDueChallengesFor', () => {
       expect((await ctx.db.get(stale))!.status).toBe('expired')
       expect((await ctx.db.get(live))!.status).toBe('pending')
     })
+  })
+
+  test('a proposal expires AT expiresAt, not a millisecond after', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+        const { theirTeamId } = await seedAccepter(ctx)
+        const id = await ctx.db.insert('teamChallenges', {
+          challengerTeamId,
+          opponentTeamId: theirTeamId,
+          proposedBy: playerId,
+          status: 'pending',
+          expiresAt: Date.now(),
+          createdAt: Date.now(),
+        })
+        await closeDueChallengesFor(ctx, today)
+        expect((await ctx.db.get(id))!.status).toBe('expired')
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // THE MOST EXPENSIVE MUTANT IN THIS TASK, AND IT SURVIVED THE PLAN'S TESTS.
+  // activate() leaves the proposal's expiresAt on the row, so an expiry branch
+  // that forgot to check status would mark every RUNNING challenge 'expired'
+  // about a week after it was proposed — mid-contest, with no result.
+  test('a running challenge whose proposal TTL has passed is NOT expired', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id } = await seedDueChallenge(ctx)
+      await ctx.db.patch(id, { expiresAt: Date.now() - 1 })
+      expect(await closeDueChallengesFor(ctx, '2026-10-20')).toMatchObject({ expired: 0 })
+      expect((await ctx.db.get(id))!.status).toBe('active')
+    })
+  })
+})
+
+describe('teamStats.sweep closes due challenges', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-02T00:45:00Z'))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // THE WIRING, end to end. Every other close test calls closeDueChallengesFor
+  // directly, so deleting its call from the sweep passed all of them.
+  test('the daily sweep closes a challenge that is due', async () => {
+    const t = convexTest(schema, modules)
+    const { id } = await t.run(async (ctx) => await seedDueChallenge(ctx))
+    await t.mutation(internal.teamStats.sweep, {})
+    expect((await t.run(async (ctx) => await ctx.db.get(id)))!.status).toBe('closed')
   })
 })
 

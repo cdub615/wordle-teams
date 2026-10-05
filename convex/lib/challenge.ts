@@ -61,8 +61,10 @@ export const PROPOSAL_TTL_DAYS = 7
  *
  * WHAT STAYS WORKING WHILE OFF: decline, withdraw, cancel, setAcceptsChallenges
  * and the daily close. Each only ends or refuses something, and turning the
- * feature off must not strand a challenge that is already running. The source
- * test in ../challenges.test.ts pins both lists.
+ * feature off must not strand a challenge that is already running.
+ * ../challenges.test.ts pins the gated and ungated WRAPPERS in source, and pins
+ * the daily close behaviourally ('teamStats.sweep closes due challenges' runs
+ * with this variable unset).
  *
  * TAKES THE VALUE AS A PARAMETER rather than reading process.env itself, for the
  * reason sweeps.ts gives: it keeps the host's shell out of the assertions, and

@@ -677,7 +677,6 @@ async function rosterNamesFor(ctx: ReaderCtx, team: Doc<'teams'>): Promise<Map<s
   return displayNamesFor(players)
 }
 
-
 /**
  * The live scoreboard for an active challenge.
  *
