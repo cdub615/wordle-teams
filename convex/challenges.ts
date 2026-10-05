@@ -541,6 +541,9 @@ async function statsDaysFor(
   return days
 }
 
+/** A row whose player is not on the roster: they left mid-window. */
+const FORMER_MEMBER = 'Former member'
+
 /**
  * ORDER THE MEMBER ROWS HERE, because teamTotalsOver does not.
  *
@@ -603,8 +606,6 @@ async function rosterNamesFor(ctx: ReaderCtx, team: Doc<'teams'>): Promise<Map<s
   return displayNamesFor(players)
 }
 
-/** A row whose player is not on the roster: they left mid-window. */
-const FORMER_MEMBER = 'Former member'
 
 /**
  * The live scoreboard for an active challenge.

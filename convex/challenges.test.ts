@@ -1922,17 +1922,25 @@ test('ChallengeOutcome is exactly the schema result.outcome union', () => {
 })
 
 describe('the CHALLENGES_ENABLED gate', () => {
-  /** The first non-comment line inside `export const <name>`'s handler. */
-  function firstHandlerLine(source: string, name: string): string | undefined {
+  /**
+   * The non-comment lines of `export const <name>`'s handler, up to the next
+   * top-level export. The WHOLE body, not just its first line: a not-gated test
+   * that read only the first line passed with the gate on the second.
+   */
+  function handlerLines(source: string, name: string): string[] {
     const start = source.indexOf(`export const ${name} = `)
     expect(start, `no export const ${name}`).toBeGreaterThan(-1)
-    const body = source.slice(start).split(/handler: async \(.*?\) => \{/)[1]
+    const rest = source.slice(start)
+    const end = rest.indexOf('\nexport ', 1)
+    const body = (end === -1 ? rest : rest.slice(0, end)).split(/handler: async \(.*?\) => \{/)[1]
     expect(body, `no handler in ${name}`).toBeDefined()
     return body!
       .split('\n')
       .map((line) => line.trim())
-      .find((line) => line !== '' && !line.startsWith('//'))
+      .filter((line) => line !== '' && !line.startsWith('//'))
   }
+
+  const firstHandlerLine = (source: string, name: string) => handlerLines(source, name)[0]
 
   // THE FIVE THAT START, ACTIVATE OR DISPLAY A CHALLENGE. Decline, withdraw,
   // cancel and the owner's switch are deliberately NOT gated: they only end or
@@ -1946,6 +1954,25 @@ describe('the CHALLENGES_ENABLED gate', () => {
     },
   )
 
+  // THE MUTATIONS REFUSE; THE QUERY ANSWERS. A query that threw on a dark
+  // deployment would put the team page into its error boundary, so it must
+  // RETURN { enabled: false }. Wrappers cannot be driven (wordle-teams-obw),
+  // so this is pinned in source like the gate's position.
+  test.each(['proposeToTeam', 'proposeByLink', 'acceptChallenge', 'claimChallengeLink'])(
+    '%s refuses with CHALLENGES_DISABLED',
+    async (name) => {
+      const { readFileSync } = await import('node:fs')
+      const source = readFileSync(new URL('./challenges.ts', import.meta.url), 'utf8')
+      expect(firstHandlerLine(source, name)).toContain("throw accessError('CHALLENGES_DISABLED')")
+    },
+  )
+
+  test('challengesForTeam answers { enabled: false } rather than throwing', async () => {
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync(new URL('./challenges.ts', import.meta.url), 'utf8')
+    expect(firstHandlerLine(source, 'challengesForTeam')).toContain('return { enabled: false as const }')
+  })
+
   // cancelChallenge joins this list in Task 10, which is where it comes into
   // existence; listing it before then would fail on `no export const`.
   test.each(['declineChallenge', 'withdrawChallenge', 'setAcceptsChallenges'])(
@@ -1953,7 +1980,7 @@ describe('the CHALLENGES_ENABLED gate', () => {
     async (name) => {
       const { readFileSync } = await import('node:fs')
       const source = readFileSync(new URL('./challenges.ts', import.meta.url), 'utf8')
-      expect(firstHandlerLine(source, name)).not.toContain('CHALLENGES_ENABLED')
+      expect(handlerLines(source, name).join('\n')).not.toContain('CHALLENGES_ENABLED')
     },
   )
 })

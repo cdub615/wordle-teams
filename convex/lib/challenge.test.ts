@@ -229,6 +229,10 @@ describe('outcomeOf', () => {
 describe('challengesEnabled', () => {
   test('only the exact string enables it', () => {
     expect(challengesEnabled(CHALLENGES_ON)).toBe(true)
+    // THE LITERAL AN OPERATOR TYPES INTO THE DASHBOARD. Without it, changing
+    // CHALLENGES_ON passes every test and leaves the feature dark on a
+    // deployment set to 'true'. sweeps.test.ts pins SWEEPS_DISABLED the same way.
+    expect(CHALLENGES_ON).toBe('true')
   })
 
   // FAILS TOWARD OFF: every near-miss is off, so a typo keeps the feature dark

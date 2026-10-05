@@ -13,6 +13,12 @@ export type NamedPlayer = { id: string; firstName: string; lastName: string }
  * in scores-table.tsx; the panel needs the same answer, and two copies of a
  * naming rule is how the same person ends up called two things on one screen.
  *
+ * IN convex/lib/ RATHER THAN src/lib/ SINCE wordle-teams-zic8.2.17, because the
+ * SERVER now needs it too: a challenge scoreboard labels the opposing team's
+ * members, whose names the client cannot see (challenges.ts rosterNamesFor).
+ * The server cannot import src/; the client already imports convex/lib/.
+ * src/lib/display-names.ts re-exports this so its two callers did not move.
+ *
  * A COLLIDING PLAYER WITH AN EMPTY LAST NAME KEEPS THEIR BARE FIRST NAME rather
  * than gaining a trailing space or an "undefined" — `''[0]` is undefined, which
  * is the precise bug lib/initials.ts was written against. They stay ambiguous,
@@ -47,8 +53,13 @@ export function displayNamesFor(players: ReadonlyArray<NamedPlayer>): Map<string
   }
 
   // A repeated id would silently let the later entry win — `new Map` keeps
-  // the last write for a given key. Assumed unreachable: ids are Convex
-  // document ids, unique by construction at both call sites.
+  // the last write for a given key — and, worse, would count that player as
+  // colliding WITH THEMSELVES, so a lone 'Ada' would read 'Ada L'. Assumed
+  // unreachable, but on a weaker footing than "unique by construction": the two
+  // client callers pass Convex documents, while the server caller
+  // (challenges.ts rosterNamesFor) passes `team.playerIds`, an array the schema
+  // does not keep unique. Every writer of playerIds appends only after a
+  // membership check, which is what keeps it so.
   return new Map(
     players.map((p) => {
       const initial = p.lastName.charAt(0)
