@@ -15,6 +15,7 @@ import {
   closeDueChallengesFor,
   declineChallengeFor,
   headToHeadFor,
+  incomingChallengeFor,
   liveChallengeCountFor,
   liveChallengesFor,
   proposeByLinkFor,
@@ -1940,6 +1941,97 @@ describe('challengesForTeamFor', () => {
   })
 })
 
+describe('incomingChallengeFor', () => {
+  // A FIXED `now`, passed in. The helper takes the clock as an argument (see its
+  // comment), so the boundary is pinned on an exact value rather than on
+  // whatever Date.now() reads mid-test.
+  const now = NOW.getTime()
+
+  /** A pending row from `challengerTeamId` to `opponentTeamId`, expiring at `expiresAt`. */
+  async function seedPending(
+    ctx: Ctx,
+    challengerTeamId: Id<'teams'>,
+    opponentTeamId: Id<'teams'>,
+    proposedBy: Id<'players'>,
+    { expiresAt = now + TTL, status = 'pending' as Doc<'teamChallenges'>['status'] } = {},
+  ) {
+    return await ctx.db.insert('teamChallenges', {
+      challengerTeamId,
+      opponentTeamId,
+      proposedBy,
+      status,
+      expiresAt,
+      createdAt: now,
+    })
+  }
+
+  test('true for an incoming, unexpired pending proposal', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await seedPending(ctx, challengerTeamId, theirTeamId, playerId)
+
+      expect(await incomingChallengeFor(ctx, accepterId, theirTeamId, now)).toBe(true)
+    })
+  })
+
+  test('false for an OUTGOING proposal — this team is the challenger', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await seedPending(ctx, challengerTeamId, theirTeamId, playerId)
+
+      expect(await incomingChallengeFor(ctx, playerId, challengerTeamId, now)).toBe(false)
+      // THE SAME ROW IS LIVE FROM THE OTHER SIDE, so the false above is about
+      // direction and not about a row the query could never have found.
+      expect(await incomingChallengeFor(ctx, accepterId, theirTeamId, now)).toBe(true)
+    })
+  })
+
+  test('false once expiresAt <= now, AT the boundary and past it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await seedPending(ctx, challengerTeamId, theirTeamId, playerId, { expiresAt: now })
+
+      // Exactly at expiry: expired (AC5 renders "Expired" at expiresAt <= now).
+      expect(await incomingChallengeFor(ctx, accepterId, theirTeamId, now)).toBe(false)
+      // Past it.
+      expect(await incomingChallengeFor(ctx, accepterId, theirTeamId, now + 1)).toBe(false)
+      // And one millisecond before, it was still live — so the two falses above
+      // are the clock, not a row the query missed.
+      expect(await incomingChallengeFor(ctx, accepterId, theirTeamId, now - 1)).toBe(true)
+    })
+  })
+
+  test.each(['active', 'declined'] as const)('false for an incoming %s row', async (status) => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await seedPending(ctx, challengerTeamId, theirTeamId, playerId, { status })
+
+      expect(await incomingChallengeFor(ctx, accepterId, theirTeamId, now)).toBe(false)
+    })
+  })
+
+  test('a non-member is refused with NOT_A_MEMBER', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      await seedPending(ctx, challengerTeamId, theirTeamId, playerId)
+      // playerId is on the two seedTwoTeams teams, not on 'Theirs'.
+      await expect(
+        incomingChallengeFor(ctx, playerId, theirTeamId, now),
+      ).rejects.toMatchObject({ data: { code: 'NOT_A_MEMBER' } })
+    })
+  })
+})
+
 // SPEC §13. ChallengeOutcome is declared twice — a TS union in lib/challenge.ts
 // and four v.literals in schema.ts — and lib/challenge.ts must stay import-free,
 // so the duplication is unavoidable. This makes the drift a TYPECHECK failure.
@@ -1982,6 +2074,7 @@ describe('the CHALLENGES_ENABLED gate', () => {
   // line is the only thing that can tell the two apart.
   const REFUSE = "if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) throw accessError('CHALLENGES_DISABLED')"
   const ANSWER_DARK = 'if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) return { enabled: false as const }'
+  const ANSWER_FALSE = 'if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) return false'
 
   // THE FOUR THAT START OR ACTIVATE A CHALLENGE REFUSE, as their first statement.
   test.each(['proposeToTeam', 'proposeByLink', 'acceptChallenge', 'claimChallengeLink'])(
@@ -1995,6 +2088,13 @@ describe('the CHALLENGES_ENABLED gate', () => {
   // its error boundary on a dark deployment.
   test('challengesForTeam answers { enabled: false } first when dark', () => {
     expect(handlerLines('challengesForTeam')[0]).toBe(ANSWER_DARK)
+  })
+
+  // THE THIRD PINNED FORM: the dashboard nudge's query answers a bare `false`.
+  // It is subscribed to on every dashboard load, so a throw would be logged on
+  // every dark deployment, and an inverted gate would light the nudge up there.
+  test('incomingChallenge answers false first when dark', () => {
+    expect(handlerLines('incomingChallenge')[0]).toBe(ANSWER_FALSE)
   })
 
   // NOTHING THAT ENDS OR REFUSES A CHALLENGE IS GATED: switching the feature off

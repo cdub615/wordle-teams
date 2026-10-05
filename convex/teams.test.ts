@@ -57,6 +57,33 @@ describe('getMyTeamsFor', () => {
     })
   })
 
+  test('carries acceptsChallenges as a boolean, with an ABSENT field reading true', async () => {
+    // The schema field is optional and absent means "yes" (every pre-challenge
+    // team). Three teams, three states: absent, explicitly false, explicitly
+    // true. `=== true` would turn the absent one off; the raw field would ship
+    // `undefined` to a Switch that expects a boolean.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ name: 'Absent', playerIds: [ada], owner: ada, createdAt: 1 }))
+      await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 207, name: 'Off', playerIds: [ada], owner: ada, createdAt: 2, acceptsChallenges: false }),
+      )
+      await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 208, name: 'On', playerIds: [ada], owner: ada, createdAt: 3, acceptsChallenges: true }),
+      )
+
+      const teams = await getMyTeamsFor(ctx, ada)
+      expect(teams.map((team) => [team.name, team.acceptsChallenges])).toEqual([
+        ['Absent', true],
+        ['Off', false],
+        ['On', true],
+      ])
+    })
+  })
+
   test('isOwner is false for a member who did not create the team', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {

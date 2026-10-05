@@ -1174,3 +1174,50 @@ export const challengesForTeam = query({
     return { enabled: true as const, ...(await challengesForTeamFor(ctx, player._id, teamId)) }
   },
 })
+
+/**
+ * Whether this team has an incoming, unexpired proposal: the dashboard's
+ * "Your team has been challenged" nudge (owner decision D9). Nothing pushes on a
+ * proposal, so this one boolean is how a challenged team finds out.
+ *
+ * A BOOLEAN AND NOTHING ELSE. No scoreboard, no names, nothing numeric: the
+ * nudge links to /team, which already has everything, and AC3 holds here as
+ * well as there.
+ *
+ * ONE INDEXED QUERY. A team holds at most MAX_ACTIVE_CHALLENGES live rows, so
+ * the pending slice of one index is a handful of documents at most.
+ *
+ * `now` IS A PARAMETER, NOT A Date.now() IN HERE, for two reasons. Convex caches
+ * a query's result and does not re-run it as time passes, so an expiry decided
+ * inside a query stays stale until something else invalidates it — a proposal
+ * that expires while the dashboard is open keeps its nudge until the next write
+ * or reload. That is acceptable for a nudge (accepting is refused server-side
+ * either way), and keeping the clock outside the helper is what lets a test pin
+ * the boundary on a frozen value.
+ */
+export async function incomingChallengeFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+  now: number,
+): Promise<boolean> {
+  await requireTeamMemberFor(ctx, playerId, teamId)
+  const pending = await ctx.db
+    .query('teamChallenges')
+    .withIndex('by_opponent_and_status', (q) =>
+      q.eq('opponentTeamId', teamId).eq('status', 'pending'),
+    )
+    .collect()
+  return pending.some((challenge) => challenge.expiresAt > now)
+}
+
+export const incomingChallenge = query({
+  args: { teamId: v.id('teams') },
+  handler: async (ctx, { teamId }) => {
+    // ANSWERS `false` rather than throws, like challengesForTeam: the dashboard
+    // subscribes to this on every load, dark deployment or not.
+    if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) return false
+    const player = await requirePlayer(ctx)
+    return await incomingChallengeFor(ctx, player._id, teamId, Date.now())
+  },
+})

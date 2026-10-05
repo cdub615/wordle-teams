@@ -34,6 +34,7 @@ import { MonthlyWinnerCelebration } from '#/components/monthly-winner-celebratio
 import { PasskeyOffer } from '#/components/passkey-offer.tsx'
 import { BoardEntryButton, BoardEntrySurface } from '#/components/board-entry/button.tsx'
 import { NextStepCard } from '#/components/onboarding/next-step-card.tsx'
+import { ChallengeNudge } from '#/components/challenges/challenge-nudge.tsx'
 import { onboardingFactsFrom } from '#/lib/onboarding-facts.ts'
 import { DashboardError } from '#/components/dashboard-error.tsx'
 import { Button } from '#/components/ui/button.tsx'
@@ -533,6 +534,24 @@ function Dashboard() {
     convexQuery(api.scores.monthWindow, monthWindowArgs),
   )
   const earliestMonth = monthWindowInputs?.earliestMonth ?? null
+
+  /*
+    THE CHALLENGE NUDGE (zic8.2.12, owner decision D9): one boolean, "does the
+    selected team have an incoming, unexpired proposal". Nothing pushes on a
+    proposal, so this line on the dashboard is how a challenged team finds out.
+
+    useQuery, NOT useSuspenseQuery, like the chat-unread signal and monthWindow
+    above: it must never block or delay the dashboard. `undefined` (in flight,
+    skipped, or failed) renders nothing — ChallengeNudge shows only on `true`.
+
+    THE SAME membership-gated ARGS AS monthWindow, REUSED rather than restated:
+    the question is about the same selected team, and the same stale-`?team=`
+    refusal the comment above describes would apply here word for word. On a
+    dark deployment the query answers `false` before it reads anything.
+  */
+  const { data: challengedIncoming } = useQuery(
+    convexQuery(api.challenges.incomingChallenge, monthWindowArgs),
+  )
 
   /*
     A FAILURE HERE IS INVISIBLE WITHOUT THIS, AND IT COSTS A PRO SUBSCRIBER THEIR
@@ -1377,6 +1396,14 @@ function Dashboard() {
           a card that is temporary by design. Above the upgrade notice would be
           worse still: that notice is first on all three surfaces on purpose. */}
       {onboardingCard('md:col-span-3')}
+      {/* Below the onboarding card and above TodayPanel: a one-line signal that
+          something on /team wants an answer, in the same first-content slot
+          and for the same reason the onboarding card's note gives. */}
+      <ChallengeNudge
+        teamId={teamParam}
+        incoming={challengedIncoming}
+        className="md:col-span-3"
+      />
       {/*
         THE BOUNDARY IS WHY THE GRID NO LONGER BLANKS (wordle-teams-9ahw).
         ScoresTable (whose `footer` prop renders ScoringLegend, folded in

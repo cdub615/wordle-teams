@@ -137,6 +137,12 @@ export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
         isOwner: team.owner === playerId,
         playWeekends: team.playWeekends,
         showLetters: team.showLetters,
+        // THE OWNER'S "accept challenges" SWITCH (zic8.2.12), as a BOOLEAN.
+        // The schema field is optional and ABSENT MEANS YES — every team that
+        // predates challenges has none — so `!== false`, never `=== true` and
+        // never the raw field: the switch must read "on" for those teams, which
+        // is what proposeToTeamFor already assumes when it lets them be asked.
+        acceptsChallenges: team.acceptsChallenges !== false,
         // WHETHER AN INVITE IS OUTSTANDING, as a boolean.
         //
         // The onboarding card needs to know whether this player has got anyone
