@@ -5488,9 +5488,21 @@ viewer's teams from `getMyTeams`), `onClaim(teamId)` returning a promise, `outco
    replace-navigates to `/login`. The page shows "Opening a challenge" / "One moment…"
    and names nothing — like the join route, it never looks the token up, so an
    anonymous holder learns nothing about whether it is real.
-2. **Signed in:** the route ALSO stashes (the join route's reason: `/app`'s guard
-   drops search params on its way to `/complete-profile`, and the stash survives).
-   The page shows "You've been challenged", one line explaining that a team accepts
+2. **Signed in WITHOUT a player row** (`api.players.needsProfile` is true): the route
+   stashes and replace-navigates to `/app`, whose guard sends them through
+   `/complete-profile`; the resume brings them back. **Signed in WITH a player row:**
+   the route CLEARS any stash on arrival and stashes nothing.
+
+   **WHY NOT STASH FOR EVERY SIGNED-IN VIEWER, as the join route does (defect found by
+   the Task 13 implementer, 2026-10-05).** The join route can, because `/app` SPENDS a
+   join token. Here `/app` only FORWARDS to this page, so a page that re-stashed on
+   every visit would send a player who left without accepting back here on every
+   later dashboard visit, for the life of the tab — and a player with no team could
+   never reach the dashboard to make one. The stash exists only to carry a token
+   through `/login` and `/complete-profile`, so it is set only while there is no
+   player row, and cleared the moment a player arrives here.
+
+   With a player row, the page shows "You've been challenged", one line explaining that a team accepts
    on behalf of its members and the window starts tomorrow, and the viewer's teams.
 3. **One team:** it is pre-selected and the button reads "Accept for <team>". **Several:**
    radio choices, nothing pre-selected, and the button disabled until one is chosen.
@@ -5511,11 +5523,16 @@ viewer's teams from `getMyTeams`), `onClaim(teamId)` returning a promise, `outco
    `typedCodeMessage`, through `mutationErrorMessage`.
 
 **The resume on `/app`:** when the dashboard renders for a player and a challenge token
-is stashed, take it (read AND clear in one step, so a refresh cannot loop) and
-replace-navigate to `/challenge/<token>`. **Only when there is no `?join=` and no
-pending invite**, so the two one-shot flows never race; a pending invite wins and the
-challenge waits for the next dashboard render. Follow `src/lib/use-pending-invite.ts`
-for where and how this runs; read its comments on timing first.
+is stashed, take it (read AND clear in one step) and replace-navigate to
+`/challenge/<token>`. **Only when there is no `?join=` and no pending invite.**
+`usePendingInvite` DESTROYS its stash inside its own effect, so: declare the resume
+hook BEFORE `usePendingInvite` in `Dashboard`, read `?join` from `window.location` as
+that hook does, and add a non-destructive `hasPendingInvite()` peek to
+`src/lib/pending-invite.ts` (add it and `pending-invite.test.ts` to this task's files).
+**"Invite first, then the challenge in the same arrival" is accepted**: once the invite
+stash is taken, the resume may fire on the next effect run while `consumeLink` is still
+in flight — the mutation and its toast survive the navigation. Read
+`src/lib/use-pending-invite.ts`'s comments on timing first.
 
 Tests: 1-7 for the component; `pending-challenge.ts` mirroring
 `pending-invite.test.ts`; the resume as a hook test if `use-pending-invite` has one to
@@ -5524,7 +5541,10 @@ mirror, otherwise report how you pinned it.
 **Mutants to prove:** pre-select with several teams (3); the button enabled with none
 chosen (3); a UTC `today` (5 — if your test can see it; if not, say so); a terminal
 refusal leaving the buttons (6); a recoverable refusal replacing the page (7); the
-resume not clearing the stash (loop); the resume running while an invite is pending.
+resume not clearing the stash (loop); the resume running while an invite is pending;
+**a signed-in player WITH a row being stashed for** (the trap above — pin "a player who
+leaves /challenge reaches /app" with a test that renders the route state for a player
+and asserts the stash is empty afterwards); and a needsProfile viewer NOT stashed.
 
 Four gates; commit. The controller screenshots the page signed in with one team, with
 several, and the dead-link message.
