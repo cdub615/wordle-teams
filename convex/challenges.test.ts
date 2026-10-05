@@ -533,6 +533,28 @@ describe('acceptChallengeFor', () => {
     })
   })
 
+  // A DECLINED PROPOSAL, which the status guard catches but nothing seeded. The
+  // suite otherwise never writes 'declined' or 'expired' at all, so guard 1's
+  // coverage was one status out of the five it refuses.
+  test('a declined challenge may not be accepted', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'declined',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(acceptChallengeFor(ctx, accepterId, id, today)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_NOT_PENDING' },
+      })
+    })
+  })
+
   test('an expired proposal may not be accepted', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -734,10 +756,14 @@ describe('claimChallengeLinkFor', () => {
     })
   })
 
-  // THE EMPTY TOKEN, which reaches by_token as a real probe. Two DIRECT
-  // proposals both key on an absent token, so without the guard .unique() sees
-  // both and throws "not unique" rather than refusing.
-  test('an empty token is refused before the index is probed', async () => {
+  // AN EMPTY TOKEN IS REFUSED — and note what this does NOT prove. '' is not
+  // undefined, so the probe matches nothing and returns null, and the code is
+  // CHALLENGE_LINK_INVALID with or without the guard. Measured: deleting the
+  // guard leaves this test green. It is kept because '' reaching here from a
+  // route param is the likely shape and the answer should be the link code
+  // rather than some incidental error — but the test below is the one that
+  // actually pins the guard.
+  test('an empty token is refused', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
@@ -752,6 +778,37 @@ describe('claimChallengeLinkFor', () => {
       })
       await expect(
         claimChallengeLinkFor(ctx, accepterId, '', theirTeamId, today),
+      ).rejects.toMatchObject({ data: { code: 'CHALLENGE_LINK_INVALID' } })
+    })
+  })
+
+  // THE GUARD'S REAL HAZARD, and the only test that can kill it. teamChallenges
+  // .token is OPTIONAL, so every DIRECT proposal keys on `undefined` in by_token
+  // — and MEASURED: probing with undefined against two tokenless rows makes
+  // .unique() throw "not unique", a confusing failure a long way from its cause.
+  // The `string` signature makes undefined unreachable from TypeScript, which is
+  // exactly why it needs `as never` and why the empty-string test above cannot
+  // substitute. Task 13 feeds this from a route param, where a runtime undefined
+  // is a real arrival.
+  test('an undefined token is refused before the index is probed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      // TWO tokenless rows, so an unguarded probe matches both and .unique()
+      // throws rather than returning.
+      for (const opponentTeamId of [theirTeamId, challengerTeamId]) {
+        await ctx.db.insert('teamChallenges', {
+          challengerTeamId,
+          opponentTeamId,
+          proposedBy: playerId,
+          status: 'pending',
+          expiresAt: Date.now() + TTL,
+          createdAt: Date.now(),
+        })
+      }
+      await expect(
+        claimChallengeLinkFor(ctx, accepterId, undefined as never, theirTeamId, today),
       ).rejects.toMatchObject({ data: { code: 'CHALLENGE_LINK_INVALID' } })
     })
   })
