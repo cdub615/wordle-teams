@@ -167,7 +167,7 @@ describe('public/robots.txt', () => {
     expect(robots.groups[0].userAgents).toEqual(['*'])
   })
 
-  test('disallows exactly /app, /team, /me, /chat, /insights, /complete-profile, /join and /api', () => {
+  test('disallows exactly /app, /team, /me, /chat, /insights, /complete-profile, /join, /challenge and /api', () => {
     // SORTED AND EXHAUSTIVE, not six toContain calls. The mutation a
     // `toContain('Disallow: /app')` cannot see is an ADDED rule — a
     // `Disallow: /privacy` slipped in beneath these would deindex the legal
@@ -190,9 +190,14 @@ describe('public/robots.txt', () => {
     // reason exactly: a sibling top-level route, not a child of /app, so /app's
     // prefix match does not reach it. Its boards all come from a query behind
     // requirePlayer, so a signed-out crawler sees an empty panel.
+    //
+    // /challenge JOINED WITH CHALLENGE LINKS (zic8.2.13), for /join's reason:
+    // the token is in the path, so an indexed /challenge/<token> hands a
+    // stranger's team the right to accept.
     expect([...robots.groups[0].disallow].sort()).toEqual([
       '/api',
       '/app',
+      '/challenge',
       '/chat',
       '/complete-profile',
       '/insights',

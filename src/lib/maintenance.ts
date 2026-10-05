@@ -121,6 +121,14 @@ export const MAINTENANCE_PATH = '/maintenance'
  * no boards in it and no explanation, instead of the page that says what is
  * happening.
  */
+/*
+ * `/challenge` JOINED WITH CHALLENGE LINKS (zic8.2.13), beside `/join` and for
+ * its reasons: a subtree in earnest (`/challenge/$token` is the only route),
+ * and its page decides where to send its holder from `context.isAuthenticated`
+ * and then asks the same Convex deployment for the holder's teams. The same
+ * trade is accepted — the gate answers first, so nothing is stashed, and the
+ * link in the chat message still works afterwards.
+ */
 const GATED_SUBTREES = [
   '/app',
   '/team',
@@ -129,6 +137,7 @@ const GATED_SUBTREES = [
   '/insights',
   '/complete-profile',
   '/join',
+  '/challenge',
 ] as const
 
 /**

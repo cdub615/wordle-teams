@@ -26,6 +26,7 @@ import { Route as AppRouteImport } from './routes/app'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as JoinTokenRouteImport } from './routes/join.$token'
+import { Route as ChallengeTokenRouteImport } from './routes/challenge.$token'
 import { Route as ApiFunnelRouteImport } from './routes/api/funnel'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -114,6 +115,11 @@ const JoinTokenRoute = JoinTokenRouteImport.update({
   path: '/join/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChallengeTokenRoute = ChallengeTokenRouteImport.update({
+  id: '/challenge/$token',
+  path: '/challenge/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiFunnelRoute = ApiFunnelRouteImport.update({
   id: '/api/funnel',
   path: '/api/funnel',
@@ -143,6 +149,7 @@ export interface FileRoutesByFullPath {
   '/team': typeof TeamRoute
   '/terms': typeof TermsRoute
   '/api/funnel': typeof ApiFunnelRoute
+  '/challenge/$token': typeof ChallengeTokenRoute
   '/join/$token': typeof JoinTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -164,6 +171,7 @@ export interface FileRoutesByTo {
   '/team': typeof TeamRoute
   '/terms': typeof TermsRoute
   '/api/funnel': typeof ApiFunnelRoute
+  '/challenge/$token': typeof ChallengeTokenRoute
   '/join/$token': typeof JoinTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -186,6 +194,7 @@ export interface FileRoutesById {
   '/team': typeof TeamRoute
   '/terms': typeof TermsRoute
   '/api/funnel': typeof ApiFunnelRoute
+  '/challenge/$token': typeof ChallengeTokenRoute
   '/join/$token': typeof JoinTokenRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -209,6 +218,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/terms'
     | '/api/funnel'
+    | '/challenge/$token'
     | '/join/$token'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
@@ -230,6 +240,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/terms'
     | '/api/funnel'
+    | '/challenge/$token'
     | '/join/$token'
     | '/api/auth/$'
   id:
@@ -251,6 +262,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/terms'
     | '/api/funnel'
+    | '/challenge/$token'
     | '/join/$token'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
@@ -273,6 +285,7 @@ export interface RootRouteChildren {
   TeamRoute: typeof TeamRoute
   TermsRoute: typeof TermsRoute
   ApiFunnelRoute: typeof ApiFunnelRoute
+  ChallengeTokenRoute: typeof ChallengeTokenRoute
   JoinTokenRoute: typeof JoinTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -398,6 +411,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JoinTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/challenge/$token': {
+      id: '/challenge/$token'
+      path: '/challenge/$token'
+      fullPath: '/challenge/$token'
+      preLoaderRoute: typeof ChallengeTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/funnel': {
       id: '/api/funnel'
       path: '/api/funnel'
@@ -433,6 +453,7 @@ const rootRouteChildren: RootRouteChildren = {
   TeamRoute: TeamRoute,
   TermsRoute: TermsRoute,
   ApiFunnelRoute: ApiFunnelRoute,
+  ChallengeTokenRoute: ChallengeTokenRoute,
   JoinTokenRoute: JoinTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

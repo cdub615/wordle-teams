@@ -49,6 +49,12 @@
 #                     single-use-ish rather than secret-by-obscurity only
 #                     because nothing advertises it. A prefix rule, so it
 #                     covers every token under it.
+#   /challenge        challenge links (/challenge/<token>), for /join's reason
+#                     exactly: the path segment IS the capability. An indexed
+#                     /challenge/<token> hands any team that finds it the right
+#                     to accept somebody's challenge, and the page reveals
+#                     nothing to a signed-out crawler anyway. A prefix rule, so
+#                     it covers every token under it.
 #   /api              /api/auth/$ is Better Auth's proxy to Convex and
 #                     /api/funnel takes analytics beacons. Neither speaks HTML.
 #
@@ -77,6 +83,7 @@ Disallow: /chat
 Disallow: /insights
 Disallow: /complete-profile
 Disallow: /join
+Disallow: /challenge
 Disallow: /api
 
 Sitemap: https://wordleteams.com/sitemap.xml

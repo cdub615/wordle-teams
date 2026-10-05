@@ -66,3 +66,23 @@ export function takePendingInvite(): string | undefined {
     return undefined
   }
 }
+
+/**
+ * Whether a token is stashed, WITHOUT spending it.
+ *
+ * FOR ONE CALLER: the dashboard's challenge resume (lib/use-pending-challenge
+ * .ts), which must stand aside while an invite is waiting so the two one-shot
+ * flows never race. It has to ASK rather than take, because taking is
+ * `usePendingInvite`'s job and its clear is what stops a refused invite from
+ * retrying for ever — a second taker would spend the invite into nothing.
+ *
+ * false when the store is blocked, which agrees with `takePendingInvite`: a
+ * blocked store holds no invite that anyone could spend.
+ */
+export function hasPendingInvite(): boolean {
+  try {
+    return window.sessionStorage.getItem(PENDING_INVITE_KEY) !== null
+  } catch {
+    return false
+  }
+}

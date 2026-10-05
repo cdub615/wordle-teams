@@ -18,6 +18,7 @@ import { formatMonthLabel } from '#/lib/format-day.ts'
 import { useSearchSync } from '#/lib/use-search-sync.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { usePendingInvite } from '#/lib/use-pending-invite.ts'
+import { usePendingChallenge } from '#/lib/use-pending-challenge.ts'
 import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { UnreadBadge } from '#/components/chat/unread-badge.tsx'
 import { chatEntryLabel, hasUnread, unreadTeamIds, useUnreadTeams } from '#/components/chat/use-chat-sync.ts'
@@ -395,6 +396,22 @@ function Dashboard() {
     if (shouldOfferPasskey()) setOfferPasskey(true)
   }, [])
 
+
+  /**
+   * THE OTHER END OF routes/challenge.$token.tsx: a challenge link followed
+   * while signed out (or before /complete-profile) left its token stashed, and
+   * this sends the player back to that page to choose a team. Unlike an invite,
+   * nothing is spent here — the claim happens on that page.
+   *
+   * DECLARED BEFORE usePendingInvite, AND THE ORDER IS THE MECHANISM. An invite
+   * goes first, and usePendingInvite DESTROYS its stash inside its own effect;
+   * effects run in the order their hooks are called, so declared after it this
+   * would always see "no invite" and race the consume. lib/use-pending-
+   * challenge.ts has the rest, and use-pending-challenge.hook.test.ts drives it.
+   */
+  usePendingChallenge(joinParam, (token) => {
+    void navigate({ to: '/challenge/$token', params: { token }, replace: true })
+  })
 
   /**
    * THE OTHER END OF routes/join.$token.tsx, AND THE ONLY PLACE A LINK TOKEN
