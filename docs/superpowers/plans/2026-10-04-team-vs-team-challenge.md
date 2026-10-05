@@ -5388,16 +5388,61 @@ task is closed** — the implementer reports and stops.
 
 **bd:** `wordle-teams-zic8.2.19`.
 
-- Create: `src/components/challenges/propose-challenge-dialog.tsx` + `.hook.test.ts`.
-- Two entry points: pick another team the caller is also on (`proposeToTeam`), or
-  generate a link (`proposeByLink`) and show it once with a Copy button. **The link is
-  shown only in the dialog's response**: `challengesForTeam` deliberately never returns
-  a token, so a dismissed link is not recoverable — the outgoing pending row offers
-  Withdraw, and the user can generate a fresh link. Say so in the dialog copy.
-- Free members see the upgrade path (`team-picker.tsx`'s pattern), never a dead control.
-- Tests: the team list excludes the current team; a non-Pro viewer gets the upgrade
-  path; `PRO_REQUIRED`, `CHALLENGE_LIMIT_REACHED`, `CHALLENGE_EXISTS` and
-  `CHALLENGES_REFUSED` each surface their `convexErrorMessage` copy.
+The "Challenge a team" control in the Challenges card header (12a left a marked slot
+in `challenges-card.tsx`) and the dialog it opens. AC2: a Pro member can propose to
+another team they are on, or make a challenge link; a non-Pro member is shown the
+upgrade path rather than a dead control.
+
+**Files:**
+- Create: `src/components/challenges/propose-challenge-dialog.tsx`
+- Create: `src/lib/share-link.ts` (+ test) — EXTRACTED from
+  `src/components/teams/invite-player-dialog.tsx`'s `shareLink`: `navigator.share`
+  first where it exists, the clipboard as the fallback, and the same handling of a
+  dismissed share sheet and an insecure context. **The invite dialog then calls it,
+  and `invite-player-dialog.hook.test.ts` must pass UNCHANGED** — that is the proof
+  the extraction preserved behaviour. Two copies of a share rule is how the two
+  surfaces come to disagree; that file's own banner says neither API appears
+  anywhere else in `src/`, and after this it still won't, outside the helper.
+- Modify: `src/components/challenges/challenges-card.tsx` (the control, in the slot)
+- Modify: `src/routes/team.tsx` (wires the two mutations and the dialog's data)
+- Create: `src/components/challenges/propose-challenge-dialog.hook.test.ts`
+  (`.ts` + `createElement`, jsdom, no jest-dom — as 12a)
+
+**The control (in the card header):**
+1. A Pro viewer gets a "Challenge a team" button that opens the dialog.
+2. A free viewer gets the same label as an upgrade affordance calling `onUpgrade`
+   (`openUpgrade('insights')`, as 12a's hint does), never a disabled button.
+3. On a dark deployment the card renders nothing (12a), so neither appears.
+
+**The dialog — two entry points:**
+4. **Your other teams:** every team from `getMyTeams` EXCEPT the current one, each a
+   button calling `proposeToTeam({ challengerTeamId: current, opponentTeamId })`.
+   With no other teams, a one-line explanation instead of an empty list, pointing to
+   the link option.
+5. **A challenge link:** "Create a challenge link" calls
+   `proposeByLink({ challengerTeamId })`, builds
+   `` `${window.location.origin}/challenge/${token}` `` (the Task 13 route), and
+   shares it through `src/lib/share-link.ts`. After a clipboard copy the dialog shows
+   a lasting "Link copied", as the invite dialog does.
+6. **The link is shown once.** `challengesForTeam` never returns a token, so a
+   dismissed link cannot be recovered; the dialog says so in one line ("You can
+   withdraw it and make a new one."). Do not add a query that returns tokens.
+7. **Every refusal surfaces its own copy** through `mutationErrorMessage`, in a toast,
+   with the dialog left open so the user can pick another team:
+   `PRO_REQUIRED`, `CHALLENGE_LIMIT_REACHED`, `CHALLENGE_EXISTS`,
+   `CHALLENGES_REFUSED`, `CHALLENGES_DISABLED`. A test per code asserts its
+   `typedCodeMessage` text is what the user sees.
+8. **No double submit:** while a proposal is in flight every team button and the link
+   button are disabled.
+9. On a successful direct proposal: toast "Challenge sent to <team>", close the
+   dialog. (The card's pending list updates by subscription.)
+
+**Mutants to prove:** the current team NOT excluded (4); free viewer gets the dialog
+(2); the link built from the wrong path (5); buttons not disabled in flight (8); the
+dialog closing on a refusal (7); and, for the extraction, clipboard-first instead of
+share-first (the invite dialog's existing tests must catch it).
+
+Four gates; commit. The controller re-shoots the card with the dialog open.
 
 ---
 
