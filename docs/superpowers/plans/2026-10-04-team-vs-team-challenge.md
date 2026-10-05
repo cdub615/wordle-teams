@@ -2611,6 +2611,55 @@ describe('declineChallengeFor', () => {
     })
   })
 
+  // BOTH OF declineChallengeFor's GUARDS, NEITHER OF WHICH THIS PLAN PINNED.
+  // Measured by the Task 8 implementer: deleting either one left all 55 of this
+  // plan's tests green. The status guard is the serious one — without it any
+  // member of the opponent team could "decline" a LIVE contest and flip it to
+  // 'declined', ending a running challenge as though it were never agreed to.
+  test('an ACTIVE challenge cannot be declined', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'active',
+        startDay: '2026-10-05',
+        endDay: '2026-10-31',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(declineChallengeFor(ctx, accepterId, id)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_NOT_PENDING' },
+      })
+      // THE SECOND ASSERTION IS THE POINT: refused, and the row untouched.
+      expect((await ctx.db.get(id))?.status).toBe('active')
+    })
+  })
+
+  // A link proposal has no opponent bound, so there is no team whose member could
+  // decline it. Refused with an accessError rather than crashing inside the
+  // membership lookup on an undefined id.
+  test('a link proposal with no opponent cannot be declined', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(declineChallengeFor(ctx, accepterId, id)).rejects.toMatchObject({
+        data: { code: 'INVALID_TEAM' },
+      })
+    })
+  })
+
   test('a declined challenge frees its slot', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -2885,7 +2934,7 @@ export const setAcceptsChallenges = mutation({
 TZ=UTC pnpm test:once convex/challenges.test.ts > /tmp/t8.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t8.txt
 ```
 
-Expected: `exit=0`, **36** tests in `convex/challenges.test.ts` and **4141** in the full suite.
+Expected: `exit=0`, **57** tests in `convex/challenges.test.ts` and **4162** in the full suite.
 
 - [ ] **Step 5: Commit**
 
