@@ -1933,6 +1933,31 @@ describe('deleting a team resolves its challenges', () => {
     })
   })
 
+  // A DELETION MUST NEVER DEPEND ON A CHALLENGE INVARIANT. The close runs first
+  // in the cascade, and closeOne throws INVALID_TEAM when the other team's row
+  // is gone. If such a row ever existed — a deployment that deleted a team
+  // before the cascade closed challenges — every path that deletes the
+  // survivor would fail with it: deleteTeam, the last member's leave, and the
+  // billing webhook, which Polar would then redeliver forever.
+  test('a challenge whose OTHER team is already gone does not block the deletion', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, doomedId, survivorId } = await seedPair(ctx)
+      const challengeId = await ctx.db.insert('teamChallenges', {
+        challengerTeamId: doomedId, opponentTeamId: survivorId, proposedBy: owner,
+        status: 'active', startDay: '2026-10-05', endDay: '2026-10-31',
+        expiresAt: Date.now(), createdAt: Date.now(),
+      })
+      await ctx.db.delete(survivorId) // the orphaning: no cascade ran for it
+
+      await deleteTeamFor(ctx, owner, doomedId)
+
+      expect(await ctx.db.get(doomedId)).toBeNull()
+      // Nobody is left to hold a record of it, so it is withdrawn, not frozen.
+      expect((await ctx.db.get(challengeId))!.status).toBe('withdrawn')
+    })
+  })
+
   test('a pending proposal is WITHDRAWN', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -1947,10 +1972,13 @@ describe('deleting a team resolves its challenges', () => {
   })
 
   test('the close is the FIRST statement of cascadeDeleteTeam', async () => {
-    // Source position, the way convex/lib/sweeps.test.ts pins its gate: four
-    // callers reach the cascade, and a close moved below the teamMonthStats
-    // deletes would freeze 'void' while every behavioural test above still
-    // passes for deleteTeamFor if someone also moves the aggregate delete.
+    // Source position, the way convex/lib/sweeps.test.ts pins its gate. FOUR
+    // callers reach the cascade, but every behavioural test above drives only
+    // deleteTeamFor — so a close moved OUT of the cascade and into deleteTeamFor
+    // keeps them all green while the last-member leave, the billing downgrade
+    // and e2ePrune silently stop closing challenges. This test is what fails
+    // then. (A close moved below the teamMonthStats deletes is caught by the
+    // behavioural tests too: it freezes 'void'.)
     //
     // THROUGH THE COMPILER, NOT A TEXT SLICE (src/test-support/source-ast.ts).
     // `within` is the cascade's own body, so a call parked in some other

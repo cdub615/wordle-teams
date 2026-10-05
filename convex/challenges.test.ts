@@ -2112,6 +2112,19 @@ describe('closeDueChallengesFor', () => {
     })
   })
 
+  // CONVEX SORTS undefined BEFORE EVERY VALUE IN AN INDEX, so a bare
+  // lte('endDay', …) range admits active rows with no endDay. Unreachable while
+  // activate sets the window in one patch — but if one ever existed it would get
+  // a job every day that fails every day, for good.
+  test('an active row with no endDay is never scheduled', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id } = await seedDueChallenge(ctx)
+      await ctx.db.patch(id, { endDay: undefined })
+      expect(await closeDueChallengesFor(ctx, '2026-11-02')).toEqual({ scheduled: 0, expired: 0 })
+    })
+  })
+
   test('expires a pending proposal past its TTL, and leaves a live one alone', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {

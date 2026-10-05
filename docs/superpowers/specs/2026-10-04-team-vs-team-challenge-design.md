@@ -511,6 +511,7 @@ The daily sweep is not a refresh, but its cost belongs here: it reads only the p
 rows past their TTL and the active rows past their window, through the two status
 indexes, never the whole table. Each due challenge's scoreboard reads happen in its own
 scheduled close job (§9), not in the sweep.
+
 Nothing is ever re-derived from `dailyScores`, and no new aggregate is introduced. With
 `MAX_ACTIVE_CHALLENGES = 5` the worst case is a bounded handful of document reads.
 

@@ -211,7 +211,10 @@ export const sweep = internalMutation({
     // SCHEDULED, NOT CLOSED HERE (Task 10b, owner decision D5): this expires
     // stale proposals and queues one closeChallenge job per due challenge, as
     // the loop above queues one rollupOne per team. A close that throws fails
-    // its own job; it cannot roll this sweep back.
+    // its own job; it cannot roll this sweep back. THIS EXECUTION STILL QUEUES
+    // teams + due challenges jobs, and every challenge comes due on the same
+    // day, so the per-execution scheduling cap is shared with the rollups —
+    // far from it at this scale, but not immune to it.
     //
     // GATED ON SWEEPS_ENABLED ONLY (the switch above), NEVER ON CHALLENGES_ENABLED:
     // turning the feature off must not strand a challenge that is already running.
@@ -265,7 +268,14 @@ export const rollupOne = internalMutation({
 export const closeChallenge = internalMutation({
   args: { challengeId: v.id('teamChallenges') },
   handler: async (ctx, { challengeId }) => {
-    await closeDueChallengeFor(ctx, challengeId)
+    // A FAILED CLOSE IS RETRIED BY TOMORROW'S SWEEP, and nothing else counts it.
+    // Log the id so a row that fails every day can be found from the logs.
+    try {
+      await closeDueChallengeFor(ctx, challengeId)
+    } catch (error) {
+      console.error(`teamStats.closeChallenge: ${challengeId} did not close`)
+      throw error
+    }
   },
 })
 

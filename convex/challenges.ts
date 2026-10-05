@@ -837,6 +837,15 @@ async function closeOne(
  *
  * SYNCHRONOUS, unlike the daily close: the team's aggregate is about to be
  * deleted, so the freeze must read it now, in the deletion's own transaction.
+ *
+ * IT MUST NEVER THROW, because it runs FIRST in cascadeDeleteTeam and every
+ * caller of that — deleteTeam, the last member's leave, the billing webhook —
+ * would fail with it (the webhook then redelivered by Polar, forever). closeOne
+ * throws INVALID_TEAM when the OTHER team's row is gone, so that case is handled
+ * here instead: an active challenge with no surviving opponent is WITHDRAWN.
+ * Nobody is left to hold its record. Unreachable from this code, since every
+ * team deletion runs through this function; reachable from rows written before
+ * it existed.
  */
 export async function closeChallengesForDeletedTeam(
   ctx: SchedulingCtx,
@@ -844,6 +853,12 @@ export async function closeChallengesForDeletedTeam(
 ): Promise<void> {
   for (const challenge of await liveChallengesFor(ctx, teamId)) {
     if (challenge.status === 'pending') {
+      await ctx.db.patch(challenge._id, { status: 'withdrawn' })
+      continue
+    }
+    const otherId =
+      challenge.challengerTeamId === teamId ? challenge.opponentTeamId : challenge.challengerTeamId
+    if (otherId === undefined || (await ctx.db.get(otherId)) === null) {
       await ctx.db.patch(challenge._id, { status: 'withdrawn' })
       continue
     }
@@ -896,7 +911,12 @@ export async function closeDueChallengesFor(
 
   const due = await ctx.db
     .query('teamChallenges')
-    .withIndex('by_status_and_endDay', (q) => q.eq('status', 'active').lte('endDay', addDays(today, -2)))
+    .withIndex('by_status_and_endDay', (q) =>
+      // THE LOWER BOUND IS NOT DECORATION. Convex sorts undefined before every
+      // value, so lte alone admits an active row with no endDay — which would
+      // get a job that fails every day, for good.
+      q.eq('status', 'active').gt('endDay', '').lte('endDay', addDays(today, -2)),
+    )
     .collect()
   for (const challenge of due) {
     await ctx.scheduler.runAfter(0, internal.teamStats.closeChallenge, { challengeId: challenge._id })
