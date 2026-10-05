@@ -135,12 +135,14 @@ export type AccessCode =
   // deliberately. CHALLENGE_LINK_INVALID is the single answer for an unknown,
   // non-pending, expired or absent token, following INVITE_LINK_INVALID (see its
   // paragraph above) so a probe cannot enumerate live tokens.
+  // CHALLENGE_NOT_ACTIVE is a scoreboard asked of a challenge that is not running.
   | 'CHALLENGES_REFUSED'
   | 'CHALLENGE_LIMIT_REACHED'
   | 'CHALLENGE_EXISTS'
   | 'PRO_REQUIRED'
   | 'CHALLENGE_NOT_PENDING'
   | 'CHALLENGE_LINK_INVALID'
+  | 'CHALLENGE_NOT_ACTIVE'
 
 /**
  * Throws a ConvexError carrying `{ code }`.

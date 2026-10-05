@@ -1,7 +1,18 @@
 import { v } from 'convex/values'
-import { mutation } from './_generated/server'
+import { mutation, query } from './_generated/server'
 import { accessError, isProFor, requirePlausibleToday, requirePlayer, requireTeamMemberFor, requireTeamOwnerFor } from './access.ts'
-import { MAX_ACTIVE_CHALLENGES, PROPOSAL_TTL_DAYS, windowFor } from './lib/challenge.ts'
+import {
+  MAX_ACTIVE_CHALLENGES,
+  PROPOSAL_TTL_DAYS,
+  outcomeOf,
+  teamTotalsOver,
+  windowFor,
+  type ChallengeOutcome,
+  type ChallengeTotals,
+  type StatsDay,
+} from './lib/challenge.ts'
+import { meanAttemptsOf } from './lib/teamStats.ts'
+import { monthOf } from './lib/puzzleDay.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter, GenericDatabaseReader } from 'convex/server'
 
@@ -447,5 +458,348 @@ export const setAcceptsChallenges = mutation({
   handler: async (ctx, { teamId, accepts }) => {
     const player = await requirePlayer(ctx)
     await setAcceptsChallengesFor(ctx, player._id, teamId, accepts)
+  },
+})
+
+export type ChallengeMemberRow = {
+  playerId: Id<'players'>
+  boards: number
+  attempts: number
+  average: number | null
+}
+
+export type ChallengeSide = {
+  teamId: Id<'teams'>
+  teamName: string
+  boards: number
+  attempts: number
+  average: number | null
+  members: Array<ChallengeMemberRow>
+}
+
+export type ChallengeScoreboard = {
+  challenger: ChallengeSide
+  opponent: ChallengeSide
+  outcome: ChallengeOutcome
+}
+
+/**
+ * Every monthly document a window touches, for one team, flattened to days[].
+ *
+ * ONE DOCUMENT IN THE ORDINARY CASE AND TWO UNDER THE SHORT-WINDOW RULE, which
+ * is the only way a window crosses a month boundary. Months are enumerated from
+ * the window rather than guessed, so a window that grows later cannot silently
+ * read a month short.
+ *
+ * THE RETURN TYPE NAMES Id<'players'> AND MUST. StatsDay's PlayerId defaults to
+ * `string`, so a bare Array<StatsDay> compiles here and then erases the branding
+ * for everything downstream — teamTotalsOver infers PlayerId from this array,
+ * and sideFrom's playerId stops being an Id. The doc's own days[] type is
+ * already branded; this annotation is what keeps it so.
+ */
+async function statsDaysFor(
+  ctx: ReaderCtx,
+  teamId: Id<'teams'>,
+  startDay: string,
+  endDay: string,
+): Promise<Array<StatsDay<Id<'players'>>>> {
+  const months = new Set([monthOf(startDay), monthOf(endDay)])
+  const days: Array<StatsDay<Id<'players'>>> = []
+  for (const month of months) {
+    const [year, monthNum] = month.split('-').map(Number)
+    const doc = await ctx.db
+      .query('teamMonthStats')
+      .withIndex('by_team_year_month', (q) =>
+        q.eq('teamId', teamId).eq('year', year).eq('month', monthNum),
+      )
+      .unique()
+    // A MISSING DOCUMENT IS ZERO BOARDS, NEVER A THROW. teamMonthStats is
+    // derived data — the rollup skips writing an unchanged month and a team that
+    // has never played has no row at all. Treating absence as an error would
+    // make a brand-new team's scoreboard crash rather than read 0.
+    //
+    // THE SAME PROPERTY IS A HAZARD FOR TEAM DELETION (Task 11): a cascade that
+    // removes teamMonthStats before closing the team's challenges gets a
+    // silently ZEROED, 'void' snapshot from here, never an error.
+    if (doc !== null) days.push(...doc.days)
+  }
+  return days
+}
+
+/**
+ * ORDER THE MEMBER ROWS HERE, because teamTotalsOver does not.
+ *
+ * Its `members` come out of a Map in first-seen order across days[] —
+ * deterministic, but meaningless to a reader: whoever happened to play earliest
+ * in the window lands first. Sort ascending by average so the best performer
+ * leads, and break ties on boards played to match the outcome rule.
+ *
+ * THE NULL BRANCHES ARE UNREACHABLE TODAY: teamTotalsOver creates a member only
+ * from an entry, so every member has boards >= 1 and a non-null average. They
+ * are kept because meanAttemptsOf's type says null, and a null must never sort
+ * as 0 — a member who did not play would appear to have won. Their mutants
+ * SURVIVE the suite, as outcomeOf's identical null guard does; that is expected.
+ */
+function sideFrom(
+  teamId: Id<'teams'>,
+  teamName: string,
+  totals: ChallengeTotals<Id<'players'>>,
+): ChallengeSide {
+  return {
+    teamId,
+    teamName,
+    boards: totals.boards,
+    attempts: totals.attempts,
+    average: meanAttemptsOf(totals),
+    // NO `as Id<'players'>` CAST, and none is needed: `totals` is
+    // ChallengeTotals<Id<'players'>> because statsDaysFor's return type says so.
+    // If you find yourself adding a cast here, that annotation has been lost —
+    // fix it there, because a cast is where an Id for the wrong table slips in.
+    members: totals.members
+      .map((m) => ({
+        playerId: m.playerId,
+        boards: m.boards,
+        attempts: m.attempts,
+        average: meanAttemptsOf(m),
+      }))
+      .sort((a, b) => {
+        if (a.average === null) return b.average === null ? 0 : 1
+        if (b.average === null) return -1
+        if (a.average !== b.average) return a.average - b.average
+        return b.boards - a.boards
+      }),
+  }
+}
+
+/**
+ * The live scoreboard for an active challenge.
+ *
+ * READS AT MOST TWO teamMonthStats DOCUMENTS PER SIDE and never touches
+ * dailyScores. That is the whole cost model: the aggregate this projects is
+ * already maintained incrementally on board write by winners.ts, which is the
+ * shape the parent epic's hygiene note asks for.
+ *
+ * ACTIVE ONLY. A closed challenge's numbers are its frozen `result`; recomputing
+ * one live would let a backfilled board restate a finished contest. Task 10's
+ * close calls this on a row that is still 'active', immediately before freezing.
+ */
+export async function challengeScoreboardFor(
+  ctx: ReaderCtx,
+  challenge: Doc<'teamChallenges'>,
+): Promise<ChallengeScoreboard> {
+  if (challenge.status !== 'active') throw accessError('CHALLENGE_NOT_ACTIVE')
+  // NARROWING, NOT A GUARD: an active row always has all three (activate sets
+  // them in one patch). Unreachable past the status check, and its mutant
+  // survives for that reason.
+  if (
+    challenge.startDay === undefined ||
+    challenge.endDay === undefined ||
+    challenge.opponentTeamId === undefined
+  ) {
+    throw accessError('CHALLENGE_NOT_ACTIVE')
+  }
+
+  const { startDay, endDay } = challenge
+  const challengerTeam = await ctx.db.get(challenge.challengerTeamId)
+  const opponentTeam = await ctx.db.get(challenge.opponentTeamId)
+  if (challengerTeam === null || opponentTeam === null) throw accessError('INVALID_TEAM')
+
+  const challengerTotals = teamTotalsOver(
+    await statsDaysFor(ctx, challengerTeam._id, startDay, endDay),
+    startDay,
+    endDay,
+  )
+  const opponentTotals = teamTotalsOver(
+    await statsDaysFor(ctx, opponentTeam._id, startDay, endDay),
+    startDay,
+    endDay,
+  )
+
+  return {
+    challenger: sideFrom(challengerTeam._id, challengerTeam.name, challengerTotals),
+    opponent: sideFrom(opponentTeam._id, opponentTeam.name, opponentTotals),
+    // ARGUMENT ORDER MATTERS AND THE COMPILER CANNOT SEE IT: outcomeOf's two
+    // parameters are structurally identical, so a transposed call compiles and
+    // names the wrong winner. The two "the lower average wins" tests run both
+    // directions through THIS line and are what pin it.
+    outcome: outcomeOf(challengerTotals, opponentTotals),
+  }
+}
+
+export type HeadToHeadRecord = { won: number; lost: number; tied: number; noResult: number }
+
+export type HeadToHead = {
+  opponentTeamId: Id<'teams'>
+  opponentName: string
+  record: HeadToHeadRecord
+}
+
+/**
+ * One team's record against every team it has finished a challenge with, from
+ * the VIEWING team's side, most recently played first.
+ *
+ * READS THE CLOSED SET ONCE — two index queries — and tallies per opponent in
+ * memory. Never one scan per opponent. Reads ZERO teamMonthStats documents: the
+ * snapshot is the record.
+ *
+ * 'void' IS NEITHER A WIN NOR A LOSS. It is counted as noResult and shown as
+ * "no result", because a void means the boards were never there to judge —
+ * folding it into either column would invent an outcome nobody played for.
+ *
+ * THE LABEL IS THE OPPONENT'S NAME AT ITS MOST RECENT CLOSE, read from the
+ * snapshot rather than the live team row. That keeps a deleted opponent
+ * labelled, and costs no extra read.
+ *
+ * A 'closed' ROW WITH NO `result` IS SKIPPED. result-present <=> closed is an
+ * invariant the schema cannot express (spec §13); a row breaking it must not
+ * appear as an opponent with an all-zero tally.
+ *
+ * UNBOUNDED OVER A TEAM'S LIFETIME: closed rows are never deleted. At one
+ * challenge per pair at a time and five at once, that is a few dozen a year per
+ * team. If that ever stops being true, this is the read to bound.
+ */
+export async function headToHeadFor(
+  ctx: ReaderCtx,
+  teamId: Id<'teams'>,
+): Promise<Array<HeadToHead>> {
+  const closed = [
+    ...(await ctx.db
+      .query('teamChallenges')
+      .withIndex('by_challenger_and_status', (q) =>
+        q.eq('challengerTeamId', teamId).eq('status', 'closed'),
+      )
+      .collect()),
+    ...(await ctx.db
+      .query('teamChallenges')
+      .withIndex('by_opponent_and_status', (q) =>
+        q.eq('opponentTeamId', teamId).eq('status', 'closed'),
+      )
+      .collect()),
+  ]
+
+  const byOpponent = new Map<Id<'teams'>, HeadToHead & { lastClosedAt: number }>()
+  for (const challenge of closed) {
+    const result = challenge.result
+    if (result === undefined) continue
+
+    const viewerIsChallenger = challenge.challengerTeamId === teamId
+    const other = viewerIsChallenger ? result.opponent : result.challenger
+    const entry = byOpponent.get(other.teamId) ?? {
+      opponentTeamId: other.teamId,
+      opponentName: other.name,
+      record: { won: 0, lost: 0, tied: 0, noResult: 0 },
+      lastClosedAt: -Infinity,
+    }
+    if (result.closedAt > entry.lastClosedAt) {
+      entry.lastClosedAt = result.closedAt
+      entry.opponentName = other.name
+    }
+
+    switch (result.outcome) {
+      case 'void':
+        entry.record.noResult += 1
+        break
+      case 'tie':
+        entry.record.tied += 1
+        break
+      case 'challenger':
+        if (viewerIsChallenger) entry.record.won += 1
+        else entry.record.lost += 1
+        break
+      case 'opponent':
+        if (viewerIsChallenger) entry.record.lost += 1
+        else entry.record.won += 1
+        break
+    }
+    byOpponent.set(other.teamId, entry)
+  }
+
+  return [...byOpponent.values()]
+    .sort((a, b) => b.lastClosedAt - a.lastClosedAt)
+    .map(({ opponentTeamId, opponentName, record }) => ({ opponentTeamId, opponentName, record }))
+}
+
+/**
+ * A pending proposal as the team page may see it.
+ *
+ * AN EXPLICIT PROJECTION, NEVER THE DOC. The doc carries the link `token` —
+ * a capability that would otherwise reach every member of the challenging
+ * team, Pro or not — and carries no team names. proposeByLink returns the token
+ * once, to the person who made it. AND NOTHING NUMERIC: AC3 says nothing about
+ * either team's scores renders before acceptance.
+ */
+export type PendingChallengeView = {
+  challengeId: Id<'teamChallenges'>
+  /** 'incoming': this team was challenged and may accept or decline. */
+  direction: 'incoming' | 'outgoing'
+  /** null for a link proposal nobody has claimed yet. */
+  otherTeamName: string | null
+  isLink: boolean
+  /** The client renders "expired" against its own clock; see AC5. */
+  expiresAt: number
+  /** The proposer may withdraw; so may the challenging team's owner. */
+  proposedByViewer: boolean
+}
+
+/**
+ * Everything the team page needs about challenges.
+ *
+ * THE PRO GATE IS APPLIED HERE, SERVER-SIDE, AND NOT IN THE COMPONENT. Free
+ * members get both teams' averages, both board counts and the outcome — the
+ * whole result, honestly — and NOT the per-member rows. That is the same line
+ * insights already draws: teamRank sends the free tier a position while
+ * memberAverages is the paid panel. Withholding the rows in the client would
+ * ship them to the browser and hide them with CSS, which is not a gate.
+ *
+ * IN A *For HELPER rather than the query wrapper, because a rule inside
+ * `query({...})` is a rule no test here can execute (wordle-teams-obw).
+ */
+export async function challengesForTeamFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+) {
+  await requireTeamMemberFor(ctx, playerId, teamId)
+  const pro = await isProFor(ctx, playerId)
+
+  const live = await liveChallengesFor(ctx, teamId)
+
+  const active = []
+  for (const challenge of live.filter((c) => c.status === 'active')) {
+    const board = await challengeScoreboardFor(ctx, challenge)
+    active.push({
+      challengeId: challenge._id,
+      startDay: challenge.startDay,
+      endDay: challenge.endDay,
+      viewerIsChallenger: challenge.challengerTeamId === teamId,
+      challenger: pro ? board.challenger : { ...board.challenger, members: [] },
+      opponent: pro ? board.opponent : { ...board.opponent, members: [] },
+      outcome: board.outcome,
+    })
+  }
+
+  const pending: Array<PendingChallengeView> = []
+  for (const challenge of live.filter((c) => c.status === 'pending')) {
+    const incoming = challenge.opponentTeamId === teamId
+    const otherTeamId = incoming ? challenge.challengerTeamId : challenge.opponentTeamId
+    const otherTeam = otherTeamId === undefined ? null : await ctx.db.get(otherTeamId)
+    pending.push({
+      challengeId: challenge._id,
+      direction: incoming ? 'incoming' : 'outgoing',
+      otherTeamName: otherTeam?.name ?? null,
+      isLink: challenge.token !== undefined,
+      expiresAt: challenge.expiresAt,
+      proposedByViewer: challenge.proposedBy === playerId,
+    })
+  }
+
+  return { pro, active, pending, records: await headToHeadFor(ctx, teamId) }
+}
+
+export const challengesForTeam = query({
+  args: { teamId: v.id('teams') },
+  handler: async (ctx, { teamId }) => {
+    const player = await requirePlayer(ctx)
+    return await challengesForTeamFor(ctx, player._id, teamId)
   },
 })

@@ -61,7 +61,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'CHALLENGE_EXISTS' ||
     code === 'PRO_REQUIRED' ||
     code === 'CHALLENGE_NOT_PENDING' ||
-    code === 'CHALLENGE_LINK_INVALID'
+    code === 'CHALLENGE_LINK_INVALID' ||
+    code === 'CHALLENGE_NOT_ACTIVE'
   ) {
     return code
   }
@@ -277,6 +278,8 @@ export function typedCodeMessage(code: AccessCode): string {
       return 'That challenge is no longer waiting for an answer.'
     case 'CHALLENGE_LINK_INVALID':
       return 'That challenge link is no longer valid.'
+    case 'CHALLENGE_NOT_ACTIVE':
+      return "That challenge isn't running."
     default: {
       const _exhaustive: never = code
       return _exhaustive
