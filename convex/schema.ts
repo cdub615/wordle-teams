@@ -52,6 +52,11 @@ const challengeSideValidator = v.object({
   members: v.array(
     v.object({
       playerId: v.id('players'),
+      // THE DISPLAY LABEL AT CLOSE, for the same reason the team's `name` is
+      // frozen above: a rename or a departure must not relabel a finished
+      // contest. Required — no teamChallenges row exists anywhere to migrate,
+      // and optional would let a close freeze a row without it.
+      name: v.string(),
       boards: v.number(),
       attempts: v.number(),
       average: v.union(v.number(), v.null()),

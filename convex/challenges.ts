@@ -12,6 +12,7 @@ import {
   type StatsDay,
 } from './lib/challenge.ts'
 import { meanAttemptsOf } from './lib/teamStats.ts'
+import { displayNamesFor } from './lib/displayNames.ts'
 import { addMonths, monthOf } from './lib/puzzleDay.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter, GenericDatabaseReader } from 'convex/server'
@@ -463,6 +464,8 @@ export const setAcceptsChallenges = mutation({
 
 export type ChallengeMemberRow = {
   playerId: Id<'players'>
+  /** Display label: first name, `First L` on a roster collision, else 'Former member'. */
+  name: string
   boards: number
   attempts: number
   average: number | null
@@ -551,6 +554,7 @@ function sideFrom(
   teamId: Id<'teams'>,
   teamName: string,
   totals: ChallengeTotals<Id<'players'>>,
+  names: Map<string, string>,
 ): ChallengeSide {
   return {
     teamId,
@@ -565,6 +569,7 @@ function sideFrom(
     members: totals.members
       .map((m) => ({
         playerId: m.playerId,
+        name: names.get(m.playerId) ?? FORMER_MEMBER,
         boards: m.boards,
         attempts: m.attempts,
         average: meanAttemptsOf(m),
@@ -577,6 +582,24 @@ function sideFrom(
       }),
   }
 }
+
+/**
+ * Display labels for one team's roster, by player id.
+ *
+ * THE COLLISION SET IS THE WHOLE ROSTER, so a scoreboard calls a player what the
+ * scores table on the same page does. One players read per roster member.
+ */
+async function rosterNamesFor(ctx: ReaderCtx, team: Doc<'teams'>): Promise<Map<string, string>> {
+  const players = []
+  for (const id of team.playerIds) {
+    const player = await ctx.db.get(id)
+    if (player !== null) players.push({ id, firstName: player.firstName, lastName: player.lastName })
+  }
+  return displayNamesFor(players)
+}
+
+/** A row whose player is not on the roster: they left mid-window. */
+const FORMER_MEMBER = 'Former member'
 
 /**
  * The live scoreboard for an active challenge.
@@ -611,6 +634,11 @@ export async function challengeScoreboardFor(
   const opponentTeam = await ctx.db.get(challenge.opponentTeamId)
   if (challengerTeam === null || opponentTeam === null) throw accessError('INVALID_TEAM')
 
+  // ONE players READ PER ROSTER MEMBER PER SIDE, including for free viewers
+  // whose rows challengesForTeamFor then strips. Bounded by roster size.
+  const challengerNames = await rosterNamesFor(ctx, challengerTeam)
+  const opponentNames = await rosterNamesFor(ctx, opponentTeam)
+
   const challengerTotals = teamTotalsOver(
     await statsDaysFor(ctx, challengerTeam._id, startDay, endDay),
     startDay,
@@ -625,8 +653,8 @@ export async function challengeScoreboardFor(
   return {
     startDay,
     endDay,
-    challenger: sideFrom(challengerTeam._id, challengerTeam.name, challengerTotals),
-    opponent: sideFrom(opponentTeam._id, opponentTeam.name, opponentTotals),
+    challenger: sideFrom(challengerTeam._id, challengerTeam.name, challengerTotals, challengerNames),
+    opponent: sideFrom(opponentTeam._id, opponentTeam.name, opponentTotals, opponentNames),
     // ARGUMENT ORDER MATTERS AND THE COMPILER CANNOT SEE IT: outcomeOf's two
     // parameters are structurally identical, so a transposed call compiles and
     // names the wrong winner. The two "the lower average wins" tests run both

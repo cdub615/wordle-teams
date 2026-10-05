@@ -1518,7 +1518,57 @@ describe('challengeScoreboardFor', () => {
         await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
       )
       expect(board.challenger.members.map((m) => m.playerId)).toEqual([third, second, playerId])
-      expect(board.challenger.members[0]).toEqual({ playerId: third, boards: 1, attempts: 3, average: 3 })
+      expect(board.challenger.members[0]).toEqual({
+        playerId: third,
+        name: 'Former member',
+        boards: 1,
+        attempts: 3,
+        average: 3,
+      })
+    })
+  })
+
+  test('member rows carry display names, with an initial only on a first-name collision', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx) // Ada Lovelace
+      const { theirTeamId } = await seedAccepter(ctx)
+      const adaB = await ctx.db.insert('players', aPlayer({ email: 'adab@example.com', lastName: 'Byron' }))
+      const bo = await ctx.db.insert('players', aPlayer({ email: 'bo@example.com', firstName: 'Bo' }))
+      // adaB IS ON THE ROSTER AND PLAYS NOTHING: the collision set is the whole
+      // roster, so playerId is still 'Ada L'.
+      await ctx.db.patch(challengerTeamId, { playerIds: [playerId, adaB, bo] })
+      await seedStats(ctx, challengerTeamId, OCTOBER, [
+        { puzzleDay: '2026-10-05', entries: [{ playerId, attempts: 3 }, { playerId: bo, attempts: 4 }] },
+      ])
+
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
+      expect(board.challenger.members.map((m) => m.name)).toEqual(['Ada L', 'Bo'])
+    })
+  })
+
+  test('a row for a player no longer on the roster is a former member', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const gone = await ctx.db.insert('players', aPlayer({ email: 'gone@example.com', firstName: 'Gus' }))
+      await seedStats(ctx, challengerTeamId, OCTOBER, [
+        { puzzleDay: '2026-10-05', entries: [{ playerId: gone, attempts: 3 }] },
+      ])
+
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
+      // 'Former member', NOT 'Gus': the row's player document exists, but they
+      // are not on this roster, so naming them would be a lookup of anyone's id.
+      expect(board.challenger.members).toEqual([
+        { playerId: gone, name: 'Former member', boards: 1, attempts: 3, average: 3 },
+      ])
     })
   })
 
@@ -1728,6 +1778,8 @@ describe('challengesForTeamFor', () => {
       expect(row.challenger).toMatchObject({ boards: ENOUGH, average: 3, members: [] })
       expect(row.opponent).toMatchObject({ boards: ENOUGH, average: 4, members: [] })
       expect(row.outcome).toBe('challenger')
+      // NAMES ARE STRIPPED WITH THE ROWS: both rosters are Ada Lovelace.
+      expect(JSON.stringify(view)).not.toContain('Ada')
     })
   })
 

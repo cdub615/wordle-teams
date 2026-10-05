@@ -665,7 +665,7 @@ describe('teamChallenges', () => {
             boards: 12,
             attempts: 42,
             average: 3.5,
-            members: [{ playerId, boards: 12, attempts: 42, average: 3.5 }],
+            members: [{ playerId, name: 'Ada', boards: 12, attempts: 42, average: 3.5 }],
           },
           opponent: {
             teamId: opponent,

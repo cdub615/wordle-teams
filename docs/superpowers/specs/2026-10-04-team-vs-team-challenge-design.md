@@ -437,6 +437,10 @@ worse, and this feature must not grow a workaround for them.
   their teams accepts.
 - **Per-member rows** render for Pro only. The free view shows the full result and board
   counts — it is not a teaser that hides who is winning, only who is carrying it.
+- **What crosses the team boundary** in a member row is a display label — a first name,
+  plus a last initial when two players on that team's roster share a first name — and
+  only to Pro members (owner decision D3, 2026-10-05). A row whose player has left the
+  roster is labelled `Former member`. `days[]` still never crosses (AC11).
 
 ## 12. Read cost per refresh
 
@@ -451,6 +455,10 @@ A team with *k* active challenges:
 - *k* `teamMonthStats` documents, one per opponent
 - 2 per team instead of 1 only for a challenge under the §7.4 short-window rule
 - one `teams` document per pending proposal with a known other team, for its name
+- one `players` document per roster member per side, every time a scoreboard is
+  computed, for the member rows' display names — including for free viewers, whose
+  rows are then stripped. Bounded by roster size (single digits). Added 2026-10-05 by
+  owner decision D3.
 - every **closed** `teamChallenges` row the team has ever had, for the head-to-head
   record — unbounded over the team's lifetime, though slow-growing
 
