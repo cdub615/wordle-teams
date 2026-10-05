@@ -5,10 +5,13 @@ import { aPlayer, aTeam } from './fixtures.ts'
 import {
   acceptChallengeFor,
   claimChallengeLinkFor,
+  declineChallengeFor,
   liveChallengeCountFor,
   liveChallengesFor,
   proposeByLinkFor,
   proposeToTeamFor,
+  setAcceptsChallengesFor,
+  withdrawChallengeFor,
 } from './challenges.ts'
 import { MAX_ACTIVE_CHALLENGES, PROPOSAL_TTL_DAYS } from './lib/challenge.ts'
 import type { DataModel } from './_generated/dataModel'
@@ -997,6 +1000,246 @@ describe('claimChallengeLinkFor', () => {
         claimChallengeLinkFor(ctx, accepterId, token, strangersTeam, today),
       ).rejects.toMatchObject({
         data: { code: 'NOT_A_MEMBER' },
+      })
+    })
+  })
+})
+
+describe('declineChallengeFor', () => {
+  test('a member of the challenged team declines', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await declineChallengeFor(ctx, accepterId, id)
+      expect((await ctx.db.get(id))?.status).toBe('declined')
+    })
+  })
+
+  test('a declined challenge frees its slot', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await declineChallengeFor(ctx, accepterId, id)
+      expect(await liveChallengeCountFor(ctx, challengerTeamId)).toBe(0)
+    })
+  })
+})
+
+describe('declineChallengeFor guards', () => {
+  // Without the status guard a member could "decline" a LIVE contest and flip it
+  // to 'declined', ending it as though it were never agreed to.
+  test('an ACTIVE challenge cannot be declined', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'active',
+        startDay: '2026-10-05',
+        endDay: '2026-10-31',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(declineChallengeFor(ctx, accepterId, id)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_NOT_PENDING' },
+      })
+      expect((await ctx.db.get(id))?.status).toBe('active')
+    })
+  })
+
+  // A link proposal has no opponent bound, so there is no team whose member could
+  // decline it. Refused with an accessError rather than a crash inside the lookup.
+  test('a link proposal with no opponent cannot be declined', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(declineChallengeFor(ctx, accepterId, id)).rejects.toMatchObject({
+        data: { code: 'INVALID_TEAM' },
+      })
+    })
+  })
+})
+
+describe('withdrawChallengeFor', () => {
+  test('the proposer withdraws their own pending proposal', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await withdrawChallengeFor(ctx, playerId, id)
+      expect((await ctx.db.get(id))?.status).toBe('withdrawn')
+    })
+  })
+
+  test('an unrelated member cannot withdraw it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(withdrawChallengeFor(ctx, accepterId, id)).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
+    })
+  })
+
+  // NOT_TEAM_OWNER, NOT NOT_A_MEMBER. The test above uses seedAccepter's player,
+  // who is on NO team of the challenger's, so requireTeamOwnerFor refuses at its
+  // FIRST line and the owner branch's second line is never reached. This is the
+  // only assertion that gets there.
+  test('a member of the challenging team who did not propose it cannot withdraw', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const bystander = await ctx.db.insert(
+        'players',
+        aPlayer({ email: 'bystander@example.com', legacyId: '33333333-3333-4333-8333-333333333333' }),
+      )
+      const team = await ctx.db.get(challengerTeamId)
+      await ctx.db.patch(challengerTeamId, { playerIds: [...(team?.playerIds ?? []), bystander] })
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(withdrawChallengeFor(ctx, bystander, id)).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_OWNER' },
+      })
+    })
+  })
+
+  // THE ELSE BRANCH. seedTwoTeams' player is proposer AND owner, so the
+  // happy-path test above cannot tell the two branches apart — a mutant
+  // collapsing the if to a single requireTeamOwnerFor survives it, silently
+  // taking withdrawal away from every non-owner proposer.
+  test('a NON-OWNER proposer withdraws their own proposal', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const proposer = await ctx.db.insert(
+        'players',
+        aPlayer({ email: 'proposer@example.com', legacyId: '44444444-4444-4444-8444-444444444444' }),
+      )
+      const team = await ctx.db.get(challengerTeamId)
+      await ctx.db.patch(challengerTeamId, { playerIds: [...(team?.playerIds ?? []), proposer] })
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: proposer,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await withdrawChallengeFor(ctx, proposer, id)
+      expect((await ctx.db.get(id))?.status).toBe('withdrawn')
+    })
+  })
+
+  test('an ACTIVE challenge cannot be withdrawn — that is cancel', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'active',
+        startDay: '2026-10-05',
+        endDay: '2026-10-31',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(withdrawChallengeFor(ctx, playerId, id)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_NOT_PENDING' },
+      })
+    })
+  })
+})
+
+describe('setAcceptsChallengesFor', () => {
+  test('the owner turns incoming challenges off', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      await setAcceptsChallengesFor(ctx, playerId, challengerTeamId, false)
+      expect((await ctx.db.get(challengerTeamId))?.acceptsChallenges).toBe(false)
+    })
+  })
+
+  // EXPLICIT true, not absence. requireChallengeablePair reads `=== false`, so
+  // both representations of "yes" must round-trip — and a mutant hardcoding
+  // { acceptsChallenges: false } survives a suite that only ever asserts false.
+  test('the owner turns incoming challenges back on', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      await ctx.db.patch(challengerTeamId, { acceptsChallenges: false })
+      await setAcceptsChallengesFor(ctx, playerId, challengerTeamId, true)
+      expect((await ctx.db.get(challengerTeamId))?.acceptsChallenges).toBe(true)
+    })
+  })
+
+  test('a non-owner member cannot', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { challengerTeamId } = await seedTwoTeams(ctx)
+      const otherId = await ctx.db.insert('players', aPlayer({ email: 'other@example.com' }))
+      const team = await ctx.db.get(challengerTeamId)
+      await ctx.db.patch(challengerTeamId, { playerIds: [...(team?.playerIds ?? []), otherId] })
+      await expect(
+        setAcceptsChallengesFor(ctx, otherId, challengerTeamId, false),
+      ).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_OWNER' },
       })
     })
   })

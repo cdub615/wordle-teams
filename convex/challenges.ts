@@ -1,6 +1,6 @@
 import { v } from 'convex/values'
 import { mutation } from './_generated/server'
-import { accessError, isProFor, requirePlausibleToday, requirePlayer, requireTeamMemberFor } from './access.ts'
+import { accessError, isProFor, requirePlausibleToday, requirePlayer, requireTeamMemberFor, requireTeamOwnerFor } from './access.ts'
 import { MAX_ACTIVE_CHALLENGES, PROPOSAL_TTL_DAYS, windowFor } from './lib/challenge.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter, GenericDatabaseReader } from 'convex/server'
@@ -371,5 +371,81 @@ export const claimChallengeLink = mutation({
   handler: async (ctx, { token, opponentTeamId, today }) => {
     const player = await requirePlayer(ctx)
     return await claimChallengeLinkFor(ctx, player._id, token, opponentTeamId, today)
+  },
+})
+
+export async function declineChallengeFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  challengeId: Id<'teamChallenges'>,
+): Promise<void> {
+  const challenge = await ctx.db.get(challengeId)
+  if (challenge === null) throw accessError('INVALID_TEAM')
+  if (challenge.status !== 'pending') throw accessError('CHALLENGE_NOT_PENDING')
+  if (challenge.opponentTeamId === undefined) throw accessError('INVALID_TEAM')
+  await requireTeamMemberFor(ctx, playerId, challenge.opponentTeamId)
+  await ctx.db.patch(challengeId, { status: 'declined' })
+}
+
+/**
+ * Take back a proposal that has not been accepted.
+ *
+ * WITHDRAW IS FOR 'pending' AND CANCEL IS FOR 'active'. They are separate verbs
+ * because they mean different things to the other team: a withdrawn proposal was
+ * never agreed to and leaves no result, while a cancelled challenge was live and
+ * freezes whatever its window held. Collapsing them would let one side end a
+ * running contest as though it had never happened.
+ */
+export async function withdrawChallengeFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  challengeId: Id<'teamChallenges'>,
+): Promise<void> {
+  const challenge = await ctx.db.get(challengeId)
+  if (challenge === null) throw accessError('INVALID_TEAM')
+  if (challenge.status !== 'pending') throw accessError('CHALLENGE_NOT_PENDING')
+
+  // THE PROPOSER, OR THE CHALLENGING TEAM'S OWNER. The owner is the backstop
+  // that replaces the vote the design rejected; they are not in the happy path.
+  if (challenge.proposedBy !== playerId) {
+    await requireTeamOwnerFor(ctx, playerId, challenge.challengerTeamId)
+  } else {
+    await requireTeamMemberFor(ctx, playerId, challenge.challengerTeamId)
+  }
+
+  await ctx.db.patch(challengeId, { status: 'withdrawn' })
+}
+
+export async function setAcceptsChallengesFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+  accepts: boolean,
+): Promise<void> {
+  await requireTeamOwnerFor(ctx, playerId, teamId)
+  await ctx.db.patch(teamId, { acceptsChallenges: accepts })
+}
+
+export const declineChallenge = mutation({
+  args: { challengeId: v.id('teamChallenges') },
+  handler: async (ctx, { challengeId }) => {
+    const player = await requirePlayer(ctx)
+    await declineChallengeFor(ctx, player._id, challengeId)
+  },
+})
+
+export const withdrawChallenge = mutation({
+  args: { challengeId: v.id('teamChallenges') },
+  handler: async (ctx, { challengeId }) => {
+    const player = await requirePlayer(ctx)
+    await withdrawChallengeFor(ctx, player._id, challengeId)
+  },
+})
+
+export const setAcceptsChallenges = mutation({
+  args: { teamId: v.id('teams'), accepts: v.boolean() },
+  handler: async (ctx, { teamId, accepts }) => {
+    const player = await requirePlayer(ctx)
+    await setAcceptsChallengesFor(ctx, player._id, teamId, accepts)
   },
 })
