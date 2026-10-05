@@ -170,8 +170,14 @@ export function ChallengeClaim({
           disabled={chosen === null || pending}
           onClick={accept}
         >
-          {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {chosen ? `Accept for ${chosen.name}` : 'Choose a team to accept'}
+          {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+          {/* A SPAN THAT CAN BREAK ANYWHERE. Team names have no length limit and
+              may have no spaces; the button is a flex row whose bare text item
+              would take the whole unbroken name as its minimum width and push
+              the page sideways at 360px. */}
+          <span className="min-w-0 [overflow-wrap:anywhere]">
+            {chosen ? `Accept for ${chosen.name}` : 'Choose a team to accept'}
+          </span>
         </Button>
       </div>
     </main>

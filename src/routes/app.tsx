@@ -409,7 +409,7 @@ function Dashboard() {
    * would always see "no invite" and race the consume. lib/use-pending-
    * challenge.ts has the rest, and use-pending-challenge.hook.test.ts drives it.
    */
-  usePendingChallenge(joinParam, (token) => {
+  usePendingChallenge(joinParam, consumeInvite.isPending, (token) => {
     void navigate({ to: '/challenge/$token', params: { token }, replace: true })
   })
 

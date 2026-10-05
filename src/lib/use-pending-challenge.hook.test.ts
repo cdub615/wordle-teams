@@ -15,7 +15,7 @@ import { cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { codeOf } from '#/test-support/source-ast.ts'
 import { PENDING_CHALLENGE_KEY, rememberPendingChallenge } from './pending-challenge.ts'
-import { PENDING_INVITE_KEY, rememberPendingInvite } from './pending-invite.ts'
+import { PENDING_INVITE_KEY, takePendingInvite, rememberPendingInvite } from './pending-invite.ts'
 import { usePendingInvite } from './use-pending-invite.ts'
 import {
   challengeClaimArgs,
@@ -90,9 +90,10 @@ describe('useChallengeArrival', () => {
 const resumeAt = (url: string, joinParam?: string) => {
   window.history.replaceState({}, '', url)
   const seen: string[] = []
-  const hook = renderHook((join: string | undefined) => usePendingChallenge(join, (t) => seen.push(t)), {
-    initialProps: joinParam,
-  })
+  const hook = renderHook(
+    (join: string | undefined) => usePendingChallenge(join, false, (t) => seen.push(t)),
+    { initialProps: joinParam },
+  )
   return { seen, ...hook }
 }
 
@@ -142,7 +143,7 @@ describe('usePendingChallenge', () => {
     const order: string[] = []
     const { rerender } = renderHook(
       (join: string | undefined) => {
-        usePendingChallenge(join, (t) => order.push(`challenge:${t}`))
+        usePendingChallenge(join, false, (t) => order.push(`challenge:${t}`))
         usePendingInvite(join, (t) => order.push(`invite:${t}`))
       },
       { initialProps: 'invite' as string | undefined },
@@ -150,6 +151,28 @@ describe('usePendingChallenge', () => {
     expect(order).toEqual(['invite:invite'])
     rerender(undefined)
     expect(order).toEqual(['invite:invite', 'challenge:tok'])
+  })
+
+  // THE REACHABLE PATH, which the ?join= test above cannot see: both links
+  // followed while signed out, so the invite arrives STASHED and joinParam is
+  // undefined throughout. joinParam never changes; the consume's in-flight flag
+  // is what brings the resume back, and it forwards only once that settles.
+  test('a STASHED invite: stands aside, waits out the consume, then forwards in the same arrival', () => {
+    rememberPendingChallenge('tok')
+    rememberPendingInvite('invite')
+    window.history.replaceState({}, '', '/app')
+    const seen: string[] = []
+    const { rerender } = renderHook(
+      (busy: boolean) => usePendingChallenge(undefined, busy, (t) => seen.push(t)),
+      { initialProps: false },
+    )
+    expect(seen).toEqual([]) // the invite is stashed
+    takePendingInvite() // usePendingInvite takes it and starts consumeLink
+    rerender(true)
+    expect(seen).toEqual([]) // consume in flight
+    rerender(false)
+    expect(seen).toEqual(['tok']) // settled: forwarded, same arrival
+    expect(stashed()).toBeNull()
   })
 
   test('routes/app.tsx calls it BEFORE usePendingInvite', () => {

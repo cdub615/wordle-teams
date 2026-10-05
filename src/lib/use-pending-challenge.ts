@@ -88,11 +88,17 @@ export function useChallengeArrival({
  * in the order their hooks are called — so declared after it, this would
  * always find "no invite" and race the consume it is meant to wait for. Here it
  * runs first, sees the invite (a `?join=` in the address bar, or a stashed
- * one), and stands aside without touching its own token. Once the invite is
- * taken, the next run of this effect — `joinParam` changing as useSearchSync
- * drops it, or the next mount — forwards the challenge. That can land while
- * `consumeLink` is still in flight; the mutation and its toast survive the
- * navigation, and the challenge page's team list updates by subscription.
+ * one), and stands aside without touching its own token.
+ *
+ * `inviteBusy` IS WHAT BRINGS IT BACK, NOT `joinParam`. The reachable way to
+ * hold both stashes — a join link and a challenge link followed while signed
+ * out, or before /complete-profile — never has `?join=` in the URL (/login and
+ * the profile redirect both drop it), so joinParam never changes and a
+ * joinParam-only effect would never run again in that arrival. The challenge
+ * would then fire on some later, unrelated dashboard visit (found by the Task
+ * 13 review). Keyed on the consume's in-flight flag instead, this re-runs as
+ * the invite is spent and forwards once it has SETTLED — after consumeLink,
+ * not in the middle of it.
  *
  * `?join=` IS READ FROM window.location, as usePendingInvite reads it, not from
  * the router: the router's copy is what survives a remount after the address
@@ -100,6 +106,8 @@ export function useChallengeArrival({
  */
 export function usePendingChallenge(
   joinParam: string | undefined,
+  /** The invite consume is in flight: wait for it to settle. */
+  inviteBusy: boolean,
   onToken: (token: string) => void,
 ): void {
   const latest = useRef(onToken)
@@ -108,10 +116,11 @@ export function usePendingChallenge(
   useEffect(() => {
     if (new URL(window.location.href).searchParams.has('join')) return
     if (hasPendingInvite()) return
+    if (inviteBusy) return
     const token = takePendingChallenge()
     if (!token) return
     latest.current(token)
-  }, [joinParam])
+  }, [joinParam, inviteBusy])
 }
 
 /**

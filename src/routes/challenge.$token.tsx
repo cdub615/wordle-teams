@@ -31,8 +31,18 @@ export const Route = createFileRoute('/challenge/$token')({
   component: ChallengeLink,
 })
 
+/**
+ * KEYED BY TOKEN. TanStack reuses this component when only the param changes,
+ * so without a key a client-side move from /challenge/A to /challenge/B would
+ * carry A's outcome (say, a dead-link message) and its selection onto B
+ * without ever trying B (found by the Task 13 review).
+ */
 function ChallengeLink() {
   const { token } = Route.useParams()
+  return <ChallengeLinkFor key={token} token={token} />
+}
+
+function ChallengeLinkFor({ token }: { token: string }) {
   // Resolved by the root route's beforeLoad before this renders — see the join
   // route for why this, and not useConvexAuth.
   const { isAuthenticated } = Route.useRouteContext()
