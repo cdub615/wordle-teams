@@ -1911,6 +1911,28 @@ describe('deleting a team resolves its challenges', () => {
     })
   })
 
+  // THE DELETED TEAM ON THE OTHER SIDE. Every test above makes it the
+  // challenger, so a skip that always skipped the CHALLENGER's roster passed
+  // them all — and here would push the deleted team and skip the survivor.
+  test('only the surviving team is pushed when the deleted team was the OPPONENT', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, rival, doomedId, survivorId } = await seedPair(ctx)
+      const challengeId = await ctx.db.insert('teamChallenges', {
+        challengerTeamId: survivorId, opponentTeamId: doomedId, proposedBy: rival,
+        status: 'active', startDay: '2026-10-05', endDay: '2026-10-31',
+        expiresAt: Date.now(), createdAt: Date.now(),
+      })
+      await deleteTeamFor(ctx, owner, doomedId)
+      const jobs = (await ctx.db.system.query('_scheduled_functions').collect())
+        .filter((row) => row.name === 'pushSend:deliverTo')
+      expect(jobs.map((job) => (job.args[0] as { playerId: string }).playerId)).toEqual([rival])
+      // Survivor averaged 4, the deleted team 3: the deleted team won, and the
+      // record says so rather than flattering the side that is left.
+      expect((await ctx.db.get(challengeId))!.result?.outcome).toBe('opponent')
+    })
+  })
+
   test('a pending proposal is WITHDRAWN', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
