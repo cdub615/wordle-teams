@@ -4063,11 +4063,13 @@ EOF
 
 ## Plan Pass on Tasks 10-14 (2026-10-05) — READ BEFORE ANY OF THEM
 
-**TASKS 10-14 BELOW ARE NOT EXECUTABLE AS WRITTEN.** This pass verified every
-zic8.2.16 finding against the code at `b4268a5a`. Nothing below has been applied to
-the task text yet: four findings need an owner decision first (D1-D4), and two of
-those change Task 10's snapshot shape or Task 12's scope. The task text gets
-rewritten once the decisions are made, Task 9 style.
+**DECIDED AND APPLIED (2026-10-05).** The owner took the recommended option on all
+four decisions — D1 consent actions in the section, the switch on team settings, Task
+12 split into 12a/12b; D2 a fail-OFF `CHALLENGES_ENABLED` variable; D3 Pro-gated
+display names, live and frozen; D4 only the surviving team is notified. Tasks 9b, 9c,
+10, 11, 12a, 12b, 13 and 14 below are the rewritten text, and every finding in this
+section is folded into them. **Execution order: 9b, 9c, 10, 11, 12a, 12b, 13, 14.**
+This section is kept as the record of why each task says what it says.
 
 ### Owner decisions needed
 
@@ -4193,220 +4195,442 @@ rewritten once the decisions are made, Task 9 style.
 
 ---
 
-## Task 10: Close on the existing daily sweep, idempotently, with push
+## Task 9b: Display names on member rows, live and frozen (D3)
 
-**bd:** child of `zic8.2`, title "close due challenges on teamStats.sweep + push".
+**bd:** `wordle-teams-zic8.2.17`.
+
+**Owner decision D3 (2026-10-05):** Pro members see the opponent's member rows WITH
+display names, projected server-side under the existing Pro gate, and the frozen
+snapshot stores the name so a closed challenge stays labelled. **This task must land
+before Task 10**, because the first close freezes the snapshot's shape.
 
 **Files:**
-- Modify: `convex/challenges.ts`
-- Modify: `convex/teamStats.ts`
-- Modify: `convex/chatNotify.ts` (one comment correction)
-- Modify: `convex/challenges.test.ts`
-- Modify: `convex/lib/challenge.ts` (notification body)
-- Modify: `convex/lib/challenge.test.ts`
+- Create: `convex/lib/displayNames.ts` — `displayNamesFor` and `NamedPlayer`, MOVED
+  verbatim (doc comment included) from `src/lib/display-names.ts`
+- Modify: `src/lib/display-names.ts` — becomes a one-line re-export, so
+  `today-panel.tsx`, `scores-table.tsx` and `display-names.test.ts` are untouched
+- Modify: `convex/schema.ts` — `challengeSideValidator.members[]` gains `name: v.string()`
+- Modify: `convex/schema.test.ts` — its fully-populated member (line ~668) gains `name`
+- Modify: `convex/challenges.ts`, `convex/challenges.test.ts`
+- Modify: `docs/superpowers/specs/2026-10-04-team-vs-team-challenge-design.md` §11, §12
 
-- [ ] **Step 1: Write the failing test for the notification body**
+**WHY MOVE THE RULE RATHER THAN WRITE A SERVER COPY.** Its own banner: "two copies of
+a naming rule is how the same person ends up called two things on one screen." The
+server cannot import `src/`; the client already imports `convex/lib/` (see
+`src/lib/insights-team.ts`). Moving it keeps one rule.
 
-Append to `convex/lib/challenge.test.ts`:
+**THE COLLISION SET IS THE WHOLE ROSTER, not just the rows**, so a scoreboard calls a
+player what the scores table on the same page calls them. "Ada" with a second Ada who
+did not play in the window is still "Ada L".
+
+**A ROW WHOSE PLAYER IS NOT ON THE ROSTER** (left the team mid-window; their entries
+remain in `days[]` until the next rollup) is labelled `'Former member'`. Never an id,
+never blank.
+
+**READ COST:** one `players` read per roster member per side, every time a scoreboard
+is computed, including for free viewers whose rows are then stripped. Bounded by roster
+size (single digits). Correct spec §12 to say so.
+
+**WHAT CROSSES THE TEAM BOUNDARY** is a display label — a first name, plus a last
+initial on a collision — and only to Pro members. Add one sentence to spec §11 saying
+so, and that `days[]` still never crosses (AC11).
+
+- [ ] **Step 0: Record the baseline** (as Task 9 Step 0).
+
+- [ ] **Step 1: Failing tests** — append to `convex/challenges.test.ts`, in the
+  `challengeScoreboardFor` describe:
 
 ```ts
-import { challengeNotificationBody } from './challenge.ts'
+  test('member rows carry display names, with an initial only on a first-name collision', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx) // Ada Lovelace
+      const { theirTeamId } = await seedAccepter(ctx)
+      const adaB = await ctx.db.insert('players', aPlayer({ email: 'adab@example.com', lastName: 'Byron' }))
+      const bo = await ctx.db.insert('players', aPlayer({ email: 'bo@example.com', firstName: 'Bo' }))
+      // adaB IS ON THE ROSTER AND PLAYS NOTHING: the collision set is the whole
+      // roster, so playerId is still 'Ada L'.
+      await ctx.db.patch(challengerTeamId, { playerIds: [playerId, adaB, bo] })
+      await seedStats(ctx, challengerTeamId, OCTOBER, [
+        { puzzleDay: '2026-10-05', entries: [{ playerId, attempts: 3 }, { playerId: bo, attempts: 4 }] },
+      ])
 
-describe('challengeNotificationBody', () => {
-  test('names the opponent, because concurrency means "your challenge" has no referent', () => {
-    expect(challengeNotificationBody('accepted', 'The Wordlers')).toContain('The Wordlers')
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
+      expect(board.challenger.members.map((m) => m.name)).toEqual(['Ada L', 'Bo'])
+    })
   })
 
-  test('clamps a long team name by CODE POINTS, not UTF-16 units', () => {
-    const emoji = '🎯'.repeat(40)
-    const body = challengeNotificationBody('accepted', emoji)
-    // A lone surrogate renders as the replacement glyph in the shade.
-    expect(body).not.toContain('�')
-    expect([...body].length).toBeLessThan([...emoji].length)
+  test('a row for a player no longer on the roster is a former member', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const gone = await ctx.db.insert('players', aPlayer({ email: 'gone@example.com', firstName: 'Gus' }))
+      await seedStats(ctx, challengerTeamId, OCTOBER, [
+        { puzzleDay: '2026-10-05', entries: [{ playerId: gone, attempts: 3 }] },
+      ])
+
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
+      // 'Former member', NOT 'Gus': the row's player document exists, but they
+      // are not on this roster, so naming them would be a lookup of anyone's id.
+      expect(board.challenger.members).toEqual([
+        { playerId: gone, name: 'Former member', boards: 1, attempts: 3, average: 3 },
+      ])
+    })
+  })
+```
+
+Also update the existing `member rows lead with the lowest average` test's exact
+`toEqual` on `members[0]` to include `name` — the three players there are not on the
+roster, so it is `'Former member'`. **That is a test edit the task prescribes, not a
+weakening; report it.** And the free-member test gains
+`expect(JSON.stringify(view)).not.toContain('Ada')` — names are stripped with the rows.
+
+- [ ] **Step 2: Confirm red** for the right reason (no `name` on rows).
+
+- [ ] **Step 3: Implement.**
+  - Move the rule; `src/lib/display-names.ts` becomes
+    `export { displayNamesFor, type NamedPlayer } from '../../convex/lib/displayNames.ts'`
+    with a one-line comment saying where the rule lives and why.
+  - Schema: `name: v.string()` in `challengeSideValidator.members[]`, between
+    `playerId` and `boards`. **Required, not optional**: no `teamChallenges` row exists
+    in any deployment (this branch has never been deployed), so there is nothing to
+    migrate, and optional would let Task 10 freeze a row without it.
+  - `ChallengeMemberRow` gains `name: string`.
+  - In `challengeScoreboardFor`, after the two team reads:
+
+```ts
+/**
+ * Display labels for one team's roster, by player id.
+ *
+ * THE COLLISION SET IS THE WHOLE ROSTER, so a scoreboard calls a player what the
+ * scores table on the same page does. One players read per roster member.
+ */
+async function rosterNamesFor(ctx: ReaderCtx, team: Doc<'teams'>): Promise<Map<string, string>> {
+  const players = []
+  for (const id of team.playerIds) {
+    const player = await ctx.db.get(id)
+    if (player !== null) players.push({ id, firstName: player.firstName, lastName: player.lastName })
+  }
+  return displayNamesFor(players)
+}
+
+/** A row whose player is not on the roster: they left mid-window. */
+const FORMER_MEMBER = 'Former member'
+```
+
+  `sideFrom` takes the map as a fourth parameter and sets
+  `name: names.get(m.playerId) ?? FORMER_MEMBER`.
+
+- [ ] **Step 4: Prove the tests bite.** Mutants, each RED then reverted:
+
+| # | Mutant | Killed by |
+| --- | --- | --- |
+| 1 | collision set = the row players only, not the roster | "display names … collision" |
+| 2 | `?? FORMER_MEMBER` → `?? ''` | "no longer on the roster" |
+| 3 | names not stripped for free viewers (spread keeps members) | free-member test |
+| 4 | `name` dropped from the schema validator | `pnpm typecheck` |
+
+- [ ] **Step 5: Four gates; commit** (`convex/lib/displayNames.ts src/lib/display-names.ts
+  convex/schema.ts convex/schema.test.ts convex/challenges.ts convex/challenges.test.ts`
+  and the spec). Expected delta: +2 tests, plus any per-tracked-file generated tests for
+  the new module — report the number rather than predicting it.
+
+---
+
+## Task 9c: The deployed-dark switch (D2)
+
+**bd:** `wordle-teams-zic8.2.18`.
+
+**Owner decision D2 (2026-10-05):** a `CHALLENGES_ENABLED` Convex deployment variable,
+**OFF unless it is exactly `'true'`**. While off, the page query reports
+`{ enabled: false }` and nothing else, and the four mutations that START or ACTIVATE a
+challenge refuse. It flips in the Convex dashboard with no deploy. **The rac ship gate
+attaches here:** this variable is not set in production until `wordle-teams-rac` is
+closed (Task 12a Step 0 re-checks it).
+
+**THE POLARITY IS THE OPPOSITE OF `lib/sweeps.ts`, DELIBERATELY.** That module fails
+toward ON because a brake left on is the silent failure. Here the costly mistake is a
+scoreboard published before rac is repaired — a finished result later restated — so
+this fails toward OFF. Say so in the banner, citing sweeps.ts, so nobody "fixes" the
+inconsistency.
+
+**WHAT STAYS WORKING WHILE OFF:** decline, withdraw, cancel, `setAcceptsChallenges` and
+the daily close. Each only ends or refuses something; turning the feature off must not
+strand a challenge that is already running.
+
+**Files:**
+- Modify: `convex/lib/challenge.ts` — `CHALLENGES_ON` and `challengesEnabled(value)`
+- Modify: `convex/lib/challenge.test.ts`
+- Modify: `convex/challenges.ts` — the gate as the FIRST statement of five wrappers
+- Modify: `convex/challenges.test.ts` — a source test that pins that
+- Modify: `convex/access.ts` + `src/lib/convex-error.ts` (BOTH halves) — `CHALLENGES_DISABLED`
+
+- [ ] **Step 1: Failing tests.**
+
+`convex/lib/challenge.test.ts`:
+
+```ts
+describe('challengesEnabled', () => {
+  test('only the exact string enables it', () => {
+    expect(challengesEnabled(CHALLENGES_ON)).toBe(true)
   })
 
-  test('trims trailing whitespace before the ellipsis', () => {
-    const body = challengeNotificationBody('accepted', `${'a'.repeat(28)}     tail`)
-    expect(body).not.toMatch(/\s…/u)
-  })
-
-  test('distinguishes accepted from closed', () => {
-    expect(challengeNotificationBody('accepted', 'X')).not.toBe(
-      challengeNotificationBody('closed', 'X'),
-    )
+  // FAILS TOWARD OFF: every near-miss is off, so a typo keeps the feature dark
+  // rather than publishing it.
+  test.each([undefined, '', 'TRUE', 'True', ' true', '1', 'yes', 'false'])('%j is off', (value) => {
+    expect(challengesEnabled(value)).toBe(false)
   })
 })
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
-
-```bash
-TZ=UTC pnpm test:once convex/lib/challenge.test.ts > /tmp/t10a.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t10a.txt
-```
-
-Expected: non-zero exit, `challengeNotificationBody is not a function`.
-
-- [ ] **Step 3: Implement the notification body**
-
-**First, widen the module's charter by one line.** `convex/lib/challenge.ts`'s banner
-declares the file "THE RULES OF A TEAM-VS-TEAM CHALLENGE… the mutations in
-`../challenges.ts` supply inputs; **this file decides**." `challengeNotificationBody`
-is *presentation*, not a decidable rule, so as written the banner would no longer
-describe its own contents. Add a sentence admitting the one exception and why it lives
-here anyway — the clamping rule is needed on both sides of the wire and the module is
-the client-safe one. A banner that quietly stops being true is how the next reader
-learns to distrust all of them.
-
-**Also add section separators now, and only now.** This task introduces module-private
-constants (`MAX_NOTIFIED_TEAM_NAME`, `ELLIPSIS`) near the bottom, splitting the file's
-constants into two clusters, and brings the file to roughly 255 lines with a second
-concern. `globalThreshold.ts` already uses `── SECTION ──` separators. At Task 3's 212
-lines with one concern and strict constants → window → projection → outcome ordering
-they would have been noise; here they are earned.
-
-Append to `convex/lib/challenge.ts`:
+`convex/challenges.test.ts` — wrappers cannot be driven (wordle-teams-obw), so pin
+the gate's POSITION in source, the way `convex/lib/sweeps.test.ts` pins
+`teamStats.sweep`'s:
 
 ```ts
-/** Visible code points of an opponent name kept in a push body. */
-const MAX_NOTIFIED_TEAM_NAME = 30
-const ELLIPSIS = '…'
+describe('the CHALLENGES_ENABLED gate', () => {
+  /** The first non-comment line inside `export const <name>`'s handler. */
+  function firstHandlerLine(source: string, name: string): string | undefined {
+    const start = source.indexOf(`export const ${name} = `)
+    expect(start, `no export const ${name}`).toBeGreaterThan(-1)
+    const body = source.slice(start).split(/handler: async \(.*?\) => \{/)[1]
+    expect(body, `no handler in ${name}`).toBeDefined()
+    return body!
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line !== '' && !line.startsWith('//'))
+  }
 
-/**
- * The push body for a challenge event.
- *
- * NOT AN INJECTION DEFENCE, and it must never be "hardened" into an escaping
- * routine. The Notification API takes plain text, not markup, and the deep link
- * beside this is built server-side and clamped to the worker's own origin by
- * resolveNotificationUrl. A crafted team name has nowhere to go. This is about
- * presentation and only about presentation.
- *
- * CODE POINTS, NOT String.prototype.slice (wordle-teams-5gm3). Slicing counts
- * UTF-16 units, so a name of emoji would be cut BETWEEN the halves of a
- * surrogate pair — a lone surrogate, which renders as the replacement glyph —
- * and would yield half as many visible characters as the budget says.
- *
- * TRAILING WHITESPACE IS TRIMMED BEFORE THE ELLIPSIS, because a cut lands
- * mid-word as often as not and "Wordle …" reads as a rendering fault rather
- * than a deliberate truncation. The result can be SHORTER than the budget,
- * which is correct: the budget is a ceiling, not a target.
- *
- * THE OPPONENT IS ALWAYS NAMED. A team may hold several challenges at once, so
- * "your challenge finished" has no referent.
- */
-export function challengeNotificationBody(
-  event: 'accepted' | 'closed',
-  opponentName: string,
-): string {
-  const points = [...opponentName]
-  const name =
-    points.length <= MAX_NOTIFIED_TEAM_NAME
-      ? opponentName
-      : `${points.slice(0, MAX_NOTIFIED_TEAM_NAME - 1).join('').replace(/\s+$/u, '')}${ELLIPSIS}`
+  // THE FIVE THAT START, ACTIVATE OR DISPLAY A CHALLENGE. Decline, withdraw,
+  // cancel and the owner's switch are deliberately NOT gated: they only end or
+  // refuse, and switching the feature off must not strand a running challenge.
+  test.each(['proposeToTeam', 'proposeByLink', 'acceptChallenge', 'claimChallengeLink', 'challengesForTeam'])(
+    '%s checks CHALLENGES_ENABLED first',
+    async (name) => {
+      const { readFileSync } = await import('node:fs')
+      const source = readFileSync(new URL('./challenges.ts', import.meta.url), 'utf8')
+      expect(firstHandlerLine(source, name)).toContain('challengesEnabled(process.env.CHALLENGES_ENABLED)')
+    },
+  )
 
-  return event === 'accepted' ? `Challenge accepted: ${name}` : `Challenge finished: ${name}`
+  test.each(['declineChallenge', 'withdrawChallenge', 'cancelChallenge', 'setAcceptsChallenges'])(
+    '%s is NOT gated, so a running challenge can always be ended',
+    async (name) => {
+      const { readFileSync } = await import('node:fs')
+      const source = readFileSync(new URL('./challenges.ts', import.meta.url), 'utf8')
+      expect(firstHandlerLine(source, name)).not.toContain('CHALLENGES_ENABLED')
+    },
+  )
+})
+```
+
+**`cancelChallenge` does not exist until Task 10.** Either land this task after
+Task 10, or leave `cancelChallenge` out of the second list here and add it in Task 10.
+The plan's order puts 9c BEFORE 10, so: leave it out here, and Task 10 Step 9 adds it.
+
+- [ ] **Step 2: Implement.**
+
+```ts
+// lib/challenge.ts
+/** The one value that turns challenges ON. Exported so no caller spells it. */
+export const CHALLENGES_ON = 'true'
+
+export function challengesEnabled(value: string | undefined): boolean {
+  return value === CHALLENGES_ON
 }
 ```
 
-- [ ] **Step 4: Run it and confirm it passes**
-
-```bash
-TZ=UTC pnpm test:once convex/lib/challenge.test.ts > /tmp/t10a.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t10a.txt
-```
-
-Expected: `exit=0`, **30** tests in `convex/lib/challenge.test.ts` (the real baseline there is 26, not 23).
-
-- [ ] **Step 5: Correct the now-false comment in `chatNotify.ts`**
-
-`chatNotify.ts`'s `chatNotificationBody` doc comment ends: "THE BOARD-ENTRY REMINDER NEEDS NONE OF THIS. … This is the app's only push body built from text a user typed." That last clause becomes false with Task 10. Replace it with:
-
-```
- * NO LONGER THE APP'S ONLY USER-TYPED PUSH BODY. challengeNotificationBody in
- * lib/challenge.ts (wordle-teams-zic8.2) interpolates an opposing TEAM NAME and
- * carries a byte-identical clamping rule for the identical reason. If you change
- * the rule here, change it there — two implementations of this is how one surface
- * starts shipping lone surrogates.
-```
-
-- [ ] **Step 6: Write the failing test for the close**
-
-Append to `convex/challenges.test.ts`:
+In each of the four gated mutations, the first statement:
 
 ```ts
-import { closeDueChallengesFor } from './challenges.ts'
+    if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) throw accessError('CHALLENGES_DISABLED')
+```
+
+In `challengesForTeam`, the first statement returns instead of throwing, so a page
+that renders the section never errors on a dark deployment:
+
+```ts
+    if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) return { enabled: false as const }
+```
+
+and the enabled path returns
+`{ enabled: true as const, ...(await challengesForTeamFor(ctx, player._id, teamId)) }`.
+`challengesForTeamFor` itself is unchanged, so none of its tests move.
+
+`CHALLENGES_DISABLED` copy: `"Challenges aren't available yet."`
+
+- [ ] **Step 3: Mutants.** Move the gate to the second line of `acceptChallenge`
+  (RED: the gate test); gate `declineChallenge` (RED); change `===` to a truthiness
+  check (RED: `'false'` and `'1'` cases); drop the `convexErrorCode` chain entry (RED:
+  convex-error.test.ts).
+
+- [ ] **Step 4: Four gates; commit.**
+
+---
+
+## Task 10: Close on the existing daily sweep, idempotently, with push
+
+**bd:** `wordle-teams-zic8.2.10`.
+
+**REWRITTEN 2026-10-05 from the plan pass.** Findings 1-11 applied, plus two found
+while rewriting:
+
+- **THE SWEEP DOES NOT ROLL UP INLINE.** `teamStats.sweep` SCHEDULES `rollupOne` per
+  team, and only for the CURRENT month. The old text's "runs AFTER the rollups so a
+  month that has just ended has its final aggregate" was false twice: the rollups run
+  later, and a just-ended month is not among them. A past month's aggregate is kept
+  current by the INCREMENTAL write path in `winners.ts`, which is what the close
+  relies on. Do not reintroduce the ordering claim.
+- **A UTC CLOSE ON endDay+1 CUTS OFF THE AMERICAS' LAST DAY.** The sweep runs 00:45
+  UTC; on that day a player at UTC-7 is still in the evening of `endDay`, and UTC-12
+  has until 12:00 UTC. Closing then freezes the result without their last-day boards,
+  permanently. **A challenge closes on `endDay + 2` (server day)**, which covers every
+  timezone; results arrive one day later. Spec §9 gains this paragraph.
+
+**Files:**
+- Create: `convex/lib/pushText.ts` (+ `.test.ts`) — the one name clamp
+- Modify: `convex/chatNotify.ts` — use the shared clamp; its "app's only user-typed
+  push body" sentence is corrected
+- Modify: `convex/challenges.ts`, `convex/challenges.test.ts`
+- Modify: `convex/teamStats.ts` — call the close from `sweep`
+- Modify: spec §9 and §13
+
+- [ ] **Step 0: Record the baseline.**
+
+- [ ] **Step 1: One clamp, shared.**
+
+Move `MAX_NOTIFIED_TEAM_NAME` (40) and `ELLIPSIS` from `chatNotify.ts` into
+`convex/lib/pushText.ts` with a new export:
+
+```ts
+/**
+ * A team name as it may appear in a push body: at most MAX_NOTIFIED_TEAM_NAME
+ * code points, cut on a code point and marked with an ellipsis.
+ *
+ * (Move chatNotificationBody's three paragraphs on code points, trailing
+ * whitespace and "not an injection defence" here; they describe this rule.)
+ */
+export function clampTeamNameForPush(name: string): string {
+  const points = [...name]
+  if (points.length <= MAX_NOTIFIED_TEAM_NAME) return name
+  return `${points.slice(0, MAX_NOTIFIED_TEAM_NAME - 1).join('').replace(/\s+$/u, '')}${ELLIPSIS}`
+}
+```
+
+`chatNotificationBody` becomes `` `New messages in ${clampTeamNameForPush(teamName)}` ``.
+Keep `MAX_NOTIFIED_TEAM_NAME` re-exported from `chatNotify.ts` only if
+`chatNotify.test.ts` still imports it from there; prefer pointing the test at the new
+module. **`chatNotify.test.ts`'s `chatNotificationBody` tests must pass UNCHANGED** —
+that is what proves the extraction preserved behaviour. Move the code-point and
+whitespace tests to `pushText.test.ts` only if they are about the clamp rather than the
+chat wording; when in doubt, leave them.
+
+Correct `chatNotify.ts`'s closing sentence: it is no longer the app's only push body
+built from user text; `challengeNotificationBody` in `challenges.ts` interpolates an
+opposing team's name through the same `clampTeamNameForPush`.
+
+- [ ] **Step 2: Failing tests** — append to `convex/challenges.test.ts`. Add imports
+at the TOP of the file: `cancelChallengeFor, challengeNotificationBody,
+closeDueChallengesFor` from `./challenges.ts`, and `MAX_NOTIFIED_TEAM_NAME` from
+`./lib/pushText.ts`.
+
+```ts
+/** Every pushSend:deliverTo job queued so far, with its args. As chatNotify.test.ts. */
+async function pushJobs(ctx: Ctx) {
+  const rows = await ctx.db.system.query('_scheduled_functions').collect()
+  return rows.filter((row) => row.name === 'pushSend:deliverTo')
+}
+
+/** Turn a player's push consent on. aPlayer() ships email-only, so without this every push assertion is 0 === 0. */
+async function consentToPush(ctx: Ctx, playerId: Id<'players'>) {
+  await ctx.db.patch(playerId, { reminderDeliveryMethods: ['email', 'push'] })
+}
+
+/** A due challenge: challenger 3.0 vs opponent 4.0 over ENOUGH boards each. Both players consent to push. */
+async function seedDueChallenge(ctx: Ctx) {
+  const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+  const { accepterId, theirTeamId } = await seedAccepter(ctx)
+  await consentToPush(ctx, playerId)
+  await consentToPush(ctx, accepterId)
+  await seedStats(ctx, challengerTeamId, OCTOBER, octoberDays(playerId, 3, ENOUGH))
+  await seedStats(ctx, theirTeamId, OCTOBER, octoberDays(accepterId, 4, ENOUGH))
+  const challenge = await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
+  return { id: challenge._id, playerId, accepterId, challengerTeamId, theirTeamId }
+}
+
+describe('challengeNotificationBody', () => {
+  test('names the opponent', () => {
+    expect(challengeNotificationBody('accepted', 'The Wordlers')).toBe('Challenge accepted: The Wordlers')
+    expect(challengeNotificationBody('closed', 'The Wordlers')).toBe('Challenge finished: The Wordlers')
+  })
+
+  test('clamps through the shared rule', () => {
+    const long = 'n'.repeat(MAX_NOTIFIED_TEAM_NAME + 10)
+    expect(challengeNotificationBody('closed', long)).toBe(
+      `Challenge finished: ${'n'.repeat(MAX_NOTIFIED_TEAM_NAME - 1)}…`,
+    )
+  })
+})
 
 describe('closeDueChallengesFor', () => {
-  async function seedDueChallenge(ctx: Ctx) {
-    const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
-    const { accepterId, theirTeamId } = await seedAccepter(ctx)
-    await seedStats(ctx, challengerTeamId, playerId, { year: 2026, month: 10 }, octoberDays(3, 12))
-    await seedStats(ctx, theirTeamId, accepterId, { year: 2026, month: 10 }, octoberDays(4, 12))
-    const id = await ctx.db.insert('teamChallenges', {
-      challengerTeamId,
-      opponentTeamId: theirTeamId,
-      proposedBy: playerId,
-      status: 'active',
-      startDay: '2026-10-05',
-      endDay: '2026-10-31',
-      expiresAt: Date.now() + TTL,
-      createdAt: Date.now(),
-    })
-    return { id, challengerTeamId, theirTeamId }
-  }
-
-  test('closes a challenge whose window has ended and freezes the result', async () => {
+  // endDay is 2026-10-31. Closes on endDay + 2 = 2026-11-02: see the task banner.
+  test('closes on endDay + 2 and freezes a result', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { id } = await seedDueChallenge(ctx)
-      await closeDueChallengesFor(ctx, '2026-11-01')
-      const doc = await ctx.db.get(id)
-      expect(doc?.status).toBe('closed')
-      expect(doc?.result?.outcome).toBe('challenger')
-      expect(doc?.result?.challenger.average).toBe(3)
-    })
-  })
-
-  test('does not close a challenge still inside its window', async () => {
-    const t = convexTest(schema, modules)
-    await t.run(async (ctx) => {
-      const { id } = await seedDueChallenge(ctx)
-      await closeDueChallengesFor(ctx, '2026-10-20')
-      expect((await ctx.db.get(id))?.status).toBe('active')
-    })
-  })
-
-  test('closes ON the day after endDay, not before — the boundary', async () => {
-    const t = convexTest(schema, modules)
-    await t.run(async (ctx) => {
-      const { id } = await seedDueChallenge(ctx)
-      await closeDueChallengesFor(ctx, '2026-10-31')
-      expect((await ctx.db.get(id))?.status).toBe('active')
-    })
-  })
-
-  // THE SNAPSHOT IS WHAT MAKES THIS TRUE, and it is why the snapshot exists.
-  test('a later board edit inside the window does NOT restate a closed result', async () => {
-    const t = convexTest(schema, modules)
-    await t.run(async (ctx) => {
-      const { id, challengerTeamId } = await seedDueChallenge(ctx)
-      await closeDueChallengesFor(ctx, '2026-11-01')
-      const before = (await ctx.db.get(id))?.result?.challenger.average
-
-      // Backfill is a free feature: rewrite the month's aggregate.
-      const stats = await ctx.db
-        .query('teamMonthStats')
-        .withIndex('by_team_year_month', (q) =>
-          q.eq('teamId', challengerTeamId).eq('year', 2026).eq('month', 10),
-        )
-        .unique()
-      await ctx.db.patch(stats!._id, {
-        days: octoberDays(6, 12).map((d) => ({
-          puzzleDay: d.puzzleDay,
-          entries: [{ playerId: stats!.days[0].entries[0].playerId, attempts: d.attempts }],
-        })),
+      const { id, challengerTeamId, theirTeamId } = await seedDueChallenge(ctx)
+      expect(await closeDueChallengesFor(ctx, '2026-11-02')).toMatchObject({ closed: 1 })
+      const doc = (await ctx.db.get(id))!
+      expect(doc.status).toBe('closed')
+      expect(doc.result).toMatchObject({
+        outcome: 'challenger',
+        challenger: { teamId: challengerTeamId, name: 'Challengers', boards: ENOUGH, average: 3 },
+        opponent: { teamId: theirTeamId, name: 'Theirs', boards: ENOUGH, average: 4 },
       })
+      expect(doc.result!.challenger.members).toEqual([
+        { playerId: expect.any(String), name: 'Ada', boards: ENOUGH, attempts: 3 * ENOUGH, average: 3 },
+      ])
+    })
+  })
 
+  // BOTH SIDES OF THE BOUNDARY. endDay + 1 is the day the Americas are still
+  // playing endDay's puzzle.
+  test.each(['2026-10-31', '2026-11-01'])('does not close on %s', async (today) => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id } = await seedDueChallenge(ctx)
+      expect(await closeDueChallengesFor(ctx, today)).toMatchObject({ closed: 0 })
+      expect((await ctx.db.get(id))!.status).toBe('active')
+    })
+  })
+
+  test('pushes each consenting member the OTHER team\'s name', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, accepterId } = await seedDueChallenge(ctx)
       await closeDueChallengesFor(ctx, '2026-11-02')
-      expect((await ctx.db.get(id))?.result?.challenger.average).toBe(before)
+      const jobs = await pushJobs(ctx)
+      const bodyFor = (id: Id<'players'>) =>
+        jobs.find((job) => (job.args[0] as { playerId: string }).playerId === id)?.args[0]
+      expect(jobs).toHaveLength(2)
+      expect(bodyFor(playerId)).toMatchObject({ notification: { body: 'Challenge finished: Theirs' } })
+      expect(bodyFor(accepterId)).toMatchObject({ notification: { body: 'Challenge finished: Challengers' } })
+    })
+  })
+
+  test('a member without push consent is not pushed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { accepterId } = await seedDueChallenge(ctx)
+      await ctx.db.patch(accepterId, { reminderDeliveryMethods: ['email'] })
+      await closeDueChallengesFor(ctx, '2026-11-02')
+      expect(await pushJobs(ctx)).toHaveLength(1)
     })
   })
 
@@ -4414,37 +4638,118 @@ describe('closeDueChallengesFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { id } = await seedDueChallenge(ctx)
-      const first = await closeDueChallengesFor(ctx, '2026-11-01')
-      const second = await closeDueChallengesFor(ctx, '2026-11-01')
-      expect(first.closed).toBe(1)
-      expect(second.closed).toBe(0)
-      expect((await ctx.db.get(id))?.result).toBeDefined()
+      await closeDueChallengesFor(ctx, '2026-11-02')
+      const frozen = (await ctx.db.get(id))!.result
+      expect(await closeDueChallengesFor(ctx, '2026-11-03')).toMatchObject({ closed: 0 })
+      expect((await ctx.db.get(id))!.result).toEqual(frozen)
+      expect(await pushJobs(ctx)).toHaveLength(2)
     })
   })
 
-  test('expires a pending proposal past its TTL', async () => {
+  // THE SNAPSHOT IS WHAT MAKES THIS TRUE, and it is why the snapshot exists.
+  test('a later rewrite of the month does NOT restate a closed result', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id, playerId, challengerTeamId } = await seedDueChallenge(ctx)
+      await closeDueChallengesFor(ctx, '2026-11-02')
+      const before = (await ctx.db.get(id))!.result
+      const stats = await ctx.db
+        .query('teamMonthStats')
+        .withIndex('by_team_year_month', (q) => q.eq('teamId', challengerTeamId).eq('year', 2026).eq('month', 10))
+        .unique()
+      await ctx.db.patch(stats!._id, { days: octoberDays(playerId, 6, ENOUGH) })
+      await closeDueChallengesFor(ctx, '2026-11-03')
+      expect((await ctx.db.get(id))!.result).toEqual(before)
+    })
+  })
+
+  test('one challenge whose team row is gone does not stop the others closing', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id, playerId, challengerTeamId } = await seedDueChallenge(ctx)
+      const otherId = await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 901, name: 'Other', playerIds: [playerId], owner: playerId }),
+      )
+      const broken = await seedActive(ctx, challengerTeamId, otherId, playerId)
+      await ctx.db.delete(otherId)
+
+      expect(await closeDueChallengesFor(ctx, '2026-11-02')).toMatchObject({ closed: 1, failed: 1 })
+      expect((await ctx.db.get(id))!.status).toBe('closed')
+      expect((await ctx.db.get(broken._id))!.status).toBe('active')
+    })
+  })
+
+  test('expires a pending proposal past its TTL, and leaves a live one alone', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
       const { theirTeamId } = await seedAccepter(ctx)
-      const id = await ctx.db.insert('teamChallenges', {
+      const pending = (expiresAt: number) => ({
         challengerTeamId,
         opponentTeamId: theirTeamId,
         proposedBy: playerId,
-        status: 'pending',
-        expiresAt: Date.now() - 1,
+        status: 'pending' as const,
+        expiresAt,
         createdAt: Date.now(),
       })
-      await closeDueChallengesFor(ctx, '2026-10-20')
-      expect((await ctx.db.get(id))?.status).toBe('expired')
+      const stale = await ctx.db.insert('teamChallenges', pending(Date.now() - 1))
+      const live = await ctx.db.insert('teamChallenges', pending(Date.now() + TTL))
+      expect(await closeDueChallengesFor(ctx, '2026-10-20')).toMatchObject({ expired: 1 })
+      expect((await ctx.db.get(stale))!.status).toBe('expired')
+      expect((await ctx.db.get(live))!.status).toBe('pending')
+    })
+  })
+})
+
+describe('cancelChallengeFor', () => {
+  test.each(['challenger', 'opponent'] as const)("the %s team's owner may cancel, and it freezes a result", async (side) => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id, playerId, accepterId } = await seedDueChallenge(ctx)
+      await cancelChallengeFor(ctx, side === 'challenger' ? playerId : accepterId, id)
+      const doc = (await ctx.db.get(id))!
+      expect(doc.status).toBe('closed')
+      expect(doc.result?.outcome).toBe('challenger')
     })
   })
 
-  test('leaves a pending proposal inside its TTL alone', async () => {
+  test('a member who is not an owner is refused', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id, theirTeamId } = await seedDueChallenge(ctx)
+      const member = await ctx.db.insert('players', aPlayer({ email: 'member2@example.com' }))
+      const team = (await ctx.db.get(theirTeamId))!
+      await ctx.db.patch(theirTeamId, { playerIds: [...team.playerIds, member] })
+      await expect(cancelChallengeFor(ctx, member, id)).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_OWNER' },
+      })
+    })
+  })
+
+  test('a challenge that is not active is refused', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { id, playerId } = await seedDueChallenge(ctx)
+      await closeDueChallengesFor(ctx, '2026-11-02')
+      await expect(cancelChallengeFor(ctx, playerId, id)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_NOT_ACTIVE' },
+      })
+    })
+  })
+})
+```
+
+And in the existing `acceptChallengeFor` describe (frozen clock), one push test:
+
+```ts
+  test('acceptance pushes both rosters, naming the other team', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
-      const { theirTeamId } = await seedAccepter(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await consentToPush(ctx, playerId)
+      await consentToPush(ctx, accepterId)
       const id = await ctx.db.insert('teamChallenges', {
         challengerTeamId,
         opponentTeamId: theirTeamId,
@@ -4453,126 +4758,71 @@ describe('closeDueChallengesFor', () => {
         expiresAt: Date.now() + TTL,
         createdAt: Date.now(),
       })
-      await closeDueChallengesFor(ctx, '2026-10-20')
-      expect((await ctx.db.get(id))?.status).toBe('pending')
+      await acceptChallengeFor(ctx, accepterId, id, today)
+      const bodies = (await pushJobs(ctx)).map((job) => (job.args[0] as { notification: { body: string } }).notification.body)
+      expect(bodies.sort()).toEqual(['Challenge accepted: Challengers', 'Challenge accepted: Theirs'])
     })
   })
-})
 ```
 
-- [ ] **Step 7: Run it and confirm it fails**
+**Helper placement:** module scope, anywhere. They are only CALLED inside tests,
+which run after the module has evaluated, so the `const`s they read (`ENOUGH`,
+`OCTOBER`) are initialised by then even though they are declared further down.
+`ctx.db.system` is reachable on `Ctx` because `GenericDatabaseWriter` extends
+`GenericDatabaseReader`, which carries `system`; if typecheck disagrees, report it
+rather than casting.
 
-```bash
-TZ=UTC pnpm test:once convex/challenges.test.ts > /tmp/t10b.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t10b.txt
-```
+- [ ] **Step 3: Confirm red.**
 
-Expected: non-zero exit, `closeDueChallengesFor is not a function`.
+- [ ] **Step 4: Implement.** In `convex/challenges.ts`:
 
-- [ ] **Step 8: Implement the close**
-
-Append to `convex/challenges.ts`. Add `internal` from `./_generated/api` and `challengeNotificationBody` to the `lib/challenge.ts` import.
+  - `import type { SchedulingCtx } from './winners.ts'`; `import { internal } from './_generated/api'`;
+    `import { METHODS } from './lib/reminders.ts'`; `import { clampTeamNameForPush } from './lib/pushText.ts'`;
+    `addDays` from `./lib/puzzleDay.ts`.
+  - `const [, PUSH_METHOD] = METHODS` — as `chatNotify.ts:117`. Never the literal.
+  - `activate`, `acceptChallengeFor`, `claimChallengeLinkFor` take `SchedulingCtx`.
+    After `activate`'s patch: re-read the row (it takes an id) and
+    `await notifyRosters(ctx, activated, 'accepted')`.
 
 ```ts
-/**
- * Freeze a challenge's numbers and notify both rosters.
- *
- * IDEMPOTENT BY CONSTRUCTION: a challenge already holding a `result` is skipped
- * by the caller, so a re-run can neither restate a frozen record nor
- * double-notify. The sweep that calls this runs daily and a retried mutation is
- * an ordinary event, so this is a requirement rather than a nicety.
- */
-async function closeOne(ctx: WriterCtx, challenge: Doc<'teamChallenges'>): Promise<void> {
-  const board = await challengeScoreboardFor(ctx, challenge)
-  const strip = (side: ChallengeSide) => ({
-    teamId: side.teamId,
-    // NOTE THE RENAME: ChallengeSide carries `teamName`, the validator requires
-    // `name`. So a spread does NOT work — this mapping is why `strip` exists.
-    // schema.ts's banner: the name at close is the point of a snapshot, because
-    // a rename must not rewrite who a closed challenge was against.
-    name: side.teamName,
-    boards: side.boards,
-    attempts: side.attempts,
-    average: side.average,
-    members: side.members,
-  })
-
-  // ASSERT THE SIDES ARE NOT TRANSPOSED BEFORE FREEZING THEM. `outcome` names
-  // SLOTS ('challenger'/'opponent'), not teams, so a swapped write produces a
-  // plausible scoreboard naming the wrong winner — and the snapshot makes it
-  // permanent. The teamId redundancy against the row's own ids exists precisely
-  // so this is detectable; without a check it buys nothing.
-  if (
-    board.challenger.teamId !== challenge.challengerTeamId ||
-    board.opponent.teamId !== challenge.opponentTeamId
-  ) {
-    throw new Error('challenge sides transposed before freeze')
-  }
-
-  await ctx.db.patch(challenge._id, {
-    status: 'closed',
-    result: {
-      challenger: strip(board.challenger),
-      opponent: strip(board.opponent),
-      outcome: board.outcome,
-      closedAt: Date.now(),
-    },
-  })
-
-  await notifyBothRosters(ctx, challenge, 'closed')
+export function challengeNotificationBody(event: 'accepted' | 'closed', opponentName: string): string {
+  const name = clampTeamNameForPush(opponentName)
+  return event === 'accepted' ? `Challenge accepted: ${name}` : `Challenge finished: ${name}`
 }
 
 /**
- * Push to every consenting member of both teams.
+ * Push to every consenting member of both teams — or of one, when the other has
+ * been deleted (Task 11, owner decision D4: a deleted team's members would be
+ * sent a link to a page that no longer exists).
  *
- * SCHEDULED, NEVER AWAITED. deliverTo is a 'use node' action that talks to a
- * push service over the network; awaiting it would let one dead endpoint fail
- * the whole sweep for everybody else. It carries its own 404/410 cleanup and its
- * own single bounded retry, and nothing here adds to either.
- *
- * GATED ON THE PLAYER'S OWN PUSH CONSENT — the same reminderDeliveryMethods
- * array the board-entry and chat sweeps honour. NO PER-FEATURE SETTING IS
- * INVENTED: the app has one Push switch, and delivering to somebody who turned
- * it off is not a defensible reading of it. It matters beyond tidiness, because
- * turning that switch off deletes only the CURRENT browser's subscription row,
- * so a second device's row can outlive the consent.
- *
- * EACH SIDE IS TOLD THE OTHER TEAM'S NAME, never its own.
+ * (Keep the old notifyBothRosters doc: scheduled never awaited; one Push switch,
+ * no per-feature setting; each side is told the OTHER team's name.)
  */
-async function notifyBothRosters(
-  ctx: WriterCtx,
+async function notifyRosters(
+  ctx: SchedulingCtx,
   challenge: Doc<'teamChallenges'>,
   event: 'accepted' | 'closed',
+  { skipTeamId }: { skipTeamId?: Id<'teams'> } = {},
 ): Promise<void> {
   if (challenge.opponentTeamId === undefined) return
   const challenger = await ctx.db.get(challenge.challengerTeamId)
   const opponent = await ctx.db.get(challenge.opponentTeamId)
   if (challenger === null || opponent === null) return
 
-  const sides = [
+  for (const { team, otherName } of [
     { team: challenger, otherName: opponent.name },
     { team: opponent, otherName: challenger.name },
-  ]
-
-  for (const { team, otherName } of sides) {
+  ]) {
+    if (team._id === skipTeamId) continue
     for (const playerId of team.playerIds) {
       const player = await ctx.db.get(playerId)
-      if (player === null) continue
-      if (!player.reminderDeliveryMethods.includes('push')) continue
-
+      if (player === null || !player.reminderDeliveryMethods.includes(PUSH_METHOD)) continue
       await ctx.scheduler.runAfter(0, internal.pushSend.deliverTo, {
         playerId,
         attempt: 0,
         notification: {
-          // MATCHES THE REMINDER'S AND THE CHAT NOTIFICATION'S title so the
-          // three read as one app in the shade; the names go in the body, where
-          // the whole line is visible rather than in a title the OS truncates
-          // hardest.
           title: 'Wordle Teams',
           body: challengeNotificationBody(event, otherName),
-          // A RELATIVE, SAME-ORIGIN PATH, and it has to stay one — the service
-          // worker clamps this to its own origin precisely because a URL in a
-          // push payload otherwise becomes an open redirect that opens inside
-          // the app.
           url: `/team?team=${team._id}`,
         },
       })
@@ -4581,279 +4831,273 @@ async function notifyBothRosters(
 }
 
 /**
- * Close every challenge whose window has ended, and expire stale proposals.
+ * Freeze an ACTIVE challenge's numbers, then notify.
  *
- * `today` IS THE SERVER'S DAY, supplied by the sweep. A challenge closes on the
- * day AFTER its endDay, so a window ending on the 31st is still live all of the
- * 31st.
+ * THE SNAPSHOT IS BUILT FIELD BY FIELD because ChallengeSide spells the team's
+ * name `teamName` and the validator wants `name`; a spread fails validation.
+ */
+async function closeOne(
+  ctx: SchedulingCtx,
+  challenge: Doc<'teamChallenges'>,
+  notify: { skipTeamId?: Id<'teams'> } = {},
+): Promise<void> {
+  const board = await challengeScoreboardFor(ctx, challenge)
+  const frozen = (side: ChallengeSide) => ({
+    teamId: side.teamId,
+    name: side.teamName,
+    boards: side.boards,
+    attempts: side.attempts,
+    average: side.average,
+    members: side.members,
+  })
+  await ctx.db.patch(challenge._id, {
+    status: 'closed',
+    result: {
+      challenger: frozen(board.challenger),
+      opponent: frozen(board.opponent),
+      outcome: board.outcome,
+      closedAt: Date.now(),
+    },
+  })
+  await notifyRosters(ctx, challenge, 'closed', notify)
+}
+
+/**
+ * Close every active challenge whose window has ended, and expire stale proposals.
+ *
+ * CLOSES ON endDay + 2, NOT endDay + 1. `today` is the server's UTC day and this
+ * runs at 00:45 UTC; on endDay + 1 a player at UTC-12 has until 12:00 UTC to play
+ * endDay's puzzle, and a close then would freeze the result without it, for good.
+ *
+ * THE STATUS CHECK IS THE IDEMPOTENCE GUARD. A closed row is not 'active', so a
+ * re-run skips it. There is deliberately no separate `result !== undefined` check:
+ * after the status check it could never fire.
+ *
+ * ONE BAD ROW DOES NOT STOP THE REST. challengeScoreboardFor throws on a missing
+ * team row before anything is written, so catching it leaves no partial state;
+ * the row stays 'active', is counted in `failed`, and is logged.
+ *
+ * WALKS THE WHOLE TABLE. Correct at this volume — at most MAX_ACTIVE_CHALLENGES live
+ * rows per team, closed rows accumulating slowly. crons.ts records that this
+ * deployment's sweeps cost grows with the DATA; this scan is part of that, and is
+ * the read to index by status if the table passes a few thousand rows.
  */
 export async function closeDueChallengesFor(
-  ctx: WriterCtx,
+  ctx: SchedulingCtx,
   today: string,
-): Promise<{ closed: number; expired: number }> {
+): Promise<{ closed: number; expired: number; failed: number }> {
   let closed = 0
   let expired = 0
+  let failed = 0
   const now = Date.now()
 
-  const all = await ctx.db.query('teamChallenges').collect()
-  for (const challenge of all) {
+  for (const challenge of await ctx.db.query('teamChallenges').collect()) {
     if (challenge.status === 'pending' && challenge.expiresAt <= now) {
       await ctx.db.patch(challenge._id, { status: 'expired' })
       expired += 1
       continue
     }
-    if (challenge.status !== 'active') continue
-    // ALREADY FROZEN — the idempotence guard.
-    if (challenge.result !== undefined) continue
-    if (challenge.endDay === undefined || today <= challenge.endDay) continue
+    if (challenge.status !== 'active' || challenge.endDay === undefined) continue
+    if (today < addDays(challenge.endDay, 2)) continue
 
-    await closeOne(ctx, challenge)
-    closed += 1
+    try {
+      await closeOne(ctx, challenge)
+      closed += 1
+    } catch (error) {
+      console.error(`closeDueChallengesFor: could not close ${challenge._id}`, error)
+      failed += 1
+    }
   }
-
-  return { closed, expired }
+  return { closed, expired, failed }
 }
-
-/**
- * Either owner ends a running challenge early.
- *
- * FREEZES WHAT THE WINDOW HELD rather than discarding it, which is the whole
- * difference from withdraw: this contest was agreed to and played, so it has a
- * result even when it is cut short.
- */
-export async function cancelChallengeFor(
-  ctx: WriterCtx,
-  playerId: Id<'players'>,
-  challengeId: Id<'teamChallenges'>,
-): Promise<void> {
-  const challenge = await ctx.db.get(challengeId)
-  if (challenge === null) throw accessError('INVALID_TEAM')
-  if (challenge.status !== 'active') throw accessError('CHALLENGE_NOT_ACTIVE')
-  if (challenge.opponentTeamId === undefined) throw accessError('CHALLENGE_NOT_ACTIVE')
-
-  // EITHER OWNER. A probe gets NOT_A_MEMBER from the first call it fails.
-  const isChallengerOwner = await ctx.db
-    .get(challenge.challengerTeamId)
-    .then((team) => team?.owner === playerId)
-  if (!isChallengerOwner) {
-    await requireTeamOwnerFor(ctx, playerId, challenge.opponentTeamId)
-  } else {
-    await requireTeamOwnerFor(ctx, playerId, challenge.challengerTeamId)
-  }
-
-  await closeOne(ctx, challenge)
-}
-
-export const cancelChallenge = mutation({
-  args: { challengeId: v.id('teamChallenges') },
-  handler: async (ctx, { challengeId }) => {
-    const player = await requirePlayer(ctx)
-    await cancelChallengeFor(ctx, player._id, challengeId)
-  },
-})
 ```
 
-Also add the accept-time push — in `activate`, after the `patch`:
+  `cancelChallengeFor` and the `cancelChallenge` wrapper as in the previous text of
+  this task, taking `SchedulingCtx`. **Simplify the owner check**: `requireTeamOwnerFor`
+  on the challenger team; on `NOT_TEAM_OWNER` or `NOT_A_MEMBER`, fall through to
+  `requireTeamOwnerFor` on the opponent team, whose refusal is the one that propagates.
+  Report whichever shape you choose and why.
+
+  **`closeOne` writes BEFORE `notifyRosters`. If a future change makes notification
+  throw after the patch, the catch above would count a closed row as failed.** It
+  cannot throw today (it only reads and schedules); say so in a comment.
+
+- [ ] **Step 5: Wire it into the sweep.** In `teamStats.sweep`, AFTER the
+  `sweepsEnabled` gate and after the rollup scheduling loop:
 
 ```ts
-  // ⚠️ DO NOT USE THIS FORM — `activate` takes an ID, so `challenge` is not in
-  // scope here and this would not compile. Step 8b below has the correct version,
-  // which re-reads the row. Left visible rather than deleted because the wrong
-  // shape is the one a reader reconstructs from memory of the old signature.
-```
-
-**Note on `collect()` here.** `closeDueChallengesFor` walks the whole table. That is correct at this volume — the table holds at most `MAX_ACTIVE_CHALLENGES` per team and closed rows accumulate slowly — but `crons.ts` records that run count rather than data volume is what grew the bill, and an unbounded daily scan is the shape to watch. File a bd issue to index by status and range-scan if the table passes a few thousand rows.
-
-- [ ] **Step 8b: Wire the ACCEPTANCE push, which until now no task owned**
-
-Spec §8 says `acceptChallenge` "Schedules push to both rosters" and §10 is titled
-"push on accept **and** on close" — but Task 7 implements no push and, before this
-amendment, neither did any other task. It lands HERE rather than in Task 7 so that
-all push plumbing (`notifyBothRosters`, the consent gate, the scheduled-not-awaited
-rule) lives in one task and is written once.
-
-In `activate` (added in Task 7), after the patch:
-
-```ts
-  // SCHEDULED FROM THE MUTATION, so the decision and the state change commit in
-  // the same transaction — see notifyBothRosters on why that matters for
-  // duplicate pushes. The doc is re-read because activate takes an id.
-  const activated = await ctx.db.get(challengeId)
-  if (activated !== null) await notifyBothRosters(ctx, activated, 'accepted')
-```
-
-`activate` therefore needs `notifyBothRosters` in scope, which this task defines —
-so this step comes after Step 8.
-
-- [ ] **Step 9: Wire it into the existing sweep**
-
-In `convex/teamStats.ts`'s `sweep` handler, after the existing per-team rollup loop and **after** the `sweepsEnabled` gate:
-
-```ts
-    // CHALLENGES CLOSE ON THIS SWEEP RATHER THAN ON A CRON OF THEIR OWN
-    // (wordle-teams-zic8.2). crons.ts records that this deployment's bill grew
-    // with RUN COUNT rather than with data, and that lanes are kept apart
-    // deliberately; a daily pass already running just after midnight UTC is
-    // exactly the right place and time, so adding a lane would be the wrong
-    // trade. It runs AFTER the rollups above so a month that has just ended has
-    // its final aggregate before any challenge is frozen against it.
+    // CHALLENGES CLOSE ON THIS SWEEP, NOT A CRON OF THEIR OWN (wordle-teams-zic8.2):
+    // a daily pass at 00:45 UTC is already the right cadence, and crons.ts keeps
+    // lanes apart deliberately. NOT ORDERED AFTER THE ROLLUPS ABOVE IN ANY USEFUL
+    // SENSE: those are scheduled, run later, and cover only the current month. A
+    // closed window's month is kept current by the incremental write path.
     const challenges = await closeDueChallengesFor(ctx, toPuzzleDay(new Date()))
 ```
 
-Return it alongside the existing counts so the sweep's result reports it.
+  and add `challenges` to the returned object. `sweep`'s ctx is a mutation ctx and
+  satisfies `SchedulingCtx`.
 
-- [ ] **Step 10: Run it and confirm it passes**
+  **Add `cancelChallenge` to Task 9c's "NOT gated" list** in `challenges.test.ts`.
 
-```bash
-TZ=UTC pnpm test:once convex/challenges.test.ts convex/teamStats.test.ts > /tmp/t10b.txt 2>&1; echo "exit=$?"; tail -30 /tmp/t10b.txt
-```
+- [ ] **Step 6: Spec.** §9: the endDay + 2 paragraph, and delete "a challenge already
+  holding a `result` is skipped" in favour of "a challenge no longer `active` is
+  skipped". §13: the idempotency bullet names the status check, not `result`.
 
-Expected: `exit=0`, 45 challenge tests plus the existing teamStats suite.
+- [ ] **Step 7: Mutants.** Each RED, then reverted:
 
-- [ ] **Step 11: Run all four gates**
+| # | Mutant | Killed by |
+| --- | --- | --- |
+| 1 | `addDays(endDay, 2)` → `addDays(endDay, 1)` | "does not close on 2026-11-01" |
+| 2 | → `addDays(endDay, 3)` | "closes on endDay + 2" |
+| 3 | `skipTeamId` ignored | Task 11's survivor-only test (record it here as killed there) |
+| 4 | `otherName` → the team's own name | "pushes each consenting member the OTHER team's name" |
+| 5 | consent check deleted | "without push consent" |
+| 6 | status check `!== 'active'` deleted | "running twice …" |
+| 7 | the try/catch removed | "one challenge whose team row is gone" |
+| 8 | the accept push deleted from `activate` | "acceptance pushes both rosters" |
+| 9 | `'Challenge finished'` ↔ `'Challenge accepted'` swapped | body test |
+| 10 | `frozen` drops `members` | "closes on endDay + 2" (members toEqual) |
+| 11 | `clampTeamNameForPush` bypassed in the challenge body | "clamps through the shared rule" |
+| 12 | cancel owner check accepts any member | "a member who is not an owner" |
 
-```bash
-TZ=UTC pnpm test:once > /tmp/g-test.txt 2>&1; echo "test=$?"
-pnpm typecheck > /tmp/g-tsc.txt 2>&1; echo "tsc=$?"
-pnpm lint > /tmp/g-lint.txt 2>&1; echo "lint=$?"
-pnpm build > /tmp/g-build.txt 2>&1; echo "build=$?"
-```
-
-Expected: all four `=0`. `pushableModules.test.ts` may assert which modules schedule pushes — if it fails, add `challenges.ts` to its list.
-
-- [ ] **Step 12: Commit**
-
-```bash
-git add convex/challenges.ts convex/challenges.test.ts convex/teamStats.ts convex/chatNotify.ts convex/lib/challenge.ts convex/lib/challenge.test.ts
-git commit -F - <<'EOF'
-feat(zic8.2): close on the daily sweep, idempotently, with push on accept/close
-
-Closing rides crons.daily('team month aggregates') rather than taking a lane of
-its own: crons.ts records that this deployment's bill grew with run count rather
-than with data, and a daily pass already running just after midnight UTC is the
-right place and time.
-
-The idempotence test is the important one - running the close twice must neither
-restate the frozen result nor re-notify. The backfill test is the reason the
-snapshot exists at all: rewriting the month's aggregate after close must not
-move a published result.
-
-Push is scheduled and never awaited, gated on the player's single existing Push
-switch with no per-feature setting invented, and always names the opponent
-because a team may hold several challenges at once.
-
-chatNotify's claim to be the app's only user-typed push body is now false and is
-corrected in place.
-
-<YOUR OWN attribution trailer — see below>
-Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
-EOF
-```
+- [ ] **Step 8: Four gates; commit** `convex/lib/pushText.ts convex/lib/pushText.test.ts
+  convex/chatNotify.ts convex/chatNotify.test.ts convex/challenges.ts
+  convex/challenges.test.ts convex/teamStats.ts` and the spec.
 
 ---
 
-## Task 11: Team deletion closes challenges
+## Task 11: Team deletion closes challenges (cascade-first)
 
-**bd:** child of `zic8.2`, title "team deletion cascades to challenges".
+**bd:** `wordle-teams-zic8.2.11`.
 
-**Files:**
-- Modify: `convex/teams.ts` (the delete path)
-- Modify: `convex/challenges.ts`
-- Modify: `convex/teams.test.ts`
+**REWRITTEN 2026-10-05.** `cascadeDeleteTeam` (teams.ts:327) deletes `teamMonthStats`
+around lines 346-350 and the team row at ~413, and it has FOUR callers: `deleteTeamFor`,
+the last-member `leaveTeam` path, `billing.ts`, and `e2ePrune.ts`. The close must be
+**the first statement of `cascadeDeleteTeam`**: after the aggregate is gone,
+`statsDaysFor` reads zero boards and freezes `'void'` WITHOUT throwing, so "before the
+team row" is not enough and nothing would notice. **Owner decision D4:** only the
+SURVIVING team is notified.
 
-- [ ] **Step 1: Find the delete path**
+**Files:** `convex/challenges.ts`, `convex/teams.ts`, `convex/teams.test.ts`.
 
-```bash
-grep -n "deleteTeam\|teamMonthStats" convex/teams.ts | head -20
-```
-
-- [ ] **Step 2: Write the failing test**
-
-Append to `convex/teams.test.ts`, matching that file's existing setup helpers:
+- [ ] **Step 1: Failing tests** — in `convex/teams.test.ts`, driven through
+  `deleteTeamFor` (the real entry point), NOT the helper, so an unwired cascade fails.
+  Seed aggregates on BOTH sides above the floor, so a zeroed close (`void`) and a
+  correct one differ:
 
 ```ts
-describe('deleting a team and its challenges', () => {
-  test('an active challenge is CLOSED, not deleted, so the survivor keeps its record', async () => {
+describe('deleting a team resolves its challenges', () => {
+  async function seedPair(ctx: Ctx) {
+    const owner = await ctx.db.insert('players', aPlayer({ reminderDeliveryMethods: ['email', 'push'] }))
+    const rival = await ctx.db.insert('players', aPlayer({ email: 'rival@example.com', reminderDeliveryMethods: ['email', 'push'] }))
+    const doomedId = await ctx.db.insert('teams', aTeam({ name: 'Doomed', playerIds: [owner], owner }))
+    const survivorId = await ctx.db.insert('teams', aTeam({ legacyId: 900, name: 'Survivor', playerIds: [rival], owner: rival }))
+    const days = (playerId: Id<'players'>, attempts: number) =>
+      Array.from({ length: MIN_CHALLENGE_BOARDS }, (_, i) => ({
+        puzzleDay: `2026-10-${String(i + 5).padStart(2, '0')}`,
+        entries: [{ playerId, attempts }],
+      }))
+    for (const [teamId, playerId, attempts] of [[doomedId, owner, 3], [survivorId, rival, 4]] as const) {
+      await ctx.db.insert('teamMonthStats', {
+        teamId, year: 2026, month: 10, members: [], days: days(playerId, attempts), computedAt: Date.now(),
+      })
+    }
+    return { owner, rival, doomedId, survivorId }
+  }
+
+  test('an active challenge is CLOSED with the real numbers, not zeroed, and the survivor keeps it', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const playerId = await ctx.db.insert('players', aPlayer())
-      const doomedId = await ctx.db.insert(
-        'teams',
-        aTeam({ name: 'Doomed', playerIds: [playerId], owner: playerId }),
-      )
-      const survivorId = await ctx.db.insert(
-        'teams',
-        aTeam({ legacyId: 900, name: 'Survivor', playerIds: [playerId], owner: playerId }),
-      )
+      const { owner, doomedId, survivorId } = await seedPair(ctx)
       const challengeId = await ctx.db.insert('teamChallenges', {
-        challengerTeamId: survivorId,
-        opponentTeamId: doomedId,
-        proposedBy: playerId,
-        status: 'active',
-        startDay: '2026-10-05',
-        endDay: '2026-10-31',
-        expiresAt: Date.now() + TTL,
-        createdAt: Date.now(),
+        challengerTeamId: doomedId, opponentTeamId: survivorId, proposedBy: owner,
+        status: 'active', startDay: '2026-10-05', endDay: '2026-10-31',
+        expiresAt: Date.now(), createdAt: Date.now(),
       })
 
-      await closeChallengesForDeletedTeam(ctx, doomedId)
+      await deleteTeamFor(ctx, owner, doomedId)
 
-      const doc = await ctx.db.get(challengeId)
-      expect(doc).not.toBeNull()
-      expect(doc?.status).toBe('closed')
-      expect(doc?.result).toBeDefined()
+      const doc = (await ctx.db.get(challengeId))!
+      expect(doc.status).toBe('closed')
+      // NOT 'void': the doomed team's aggregate was read before the cascade deleted it.
+      expect(doc.result).toMatchObject({
+        outcome: 'challenger',
+        challenger: { name: 'Doomed', boards: MIN_CHALLENGE_BOARDS, average: 3 },
+        opponent: { name: 'Survivor', average: 4 },
+      })
+    })
+  })
+
+  test('only the surviving team is pushed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, rival, doomedId, survivorId } = await seedPair(ctx)
+      await ctx.db.insert('teamChallenges', {
+        challengerTeamId: doomedId, opponentTeamId: survivorId, proposedBy: owner,
+        status: 'active', startDay: '2026-10-05', endDay: '2026-10-31',
+        expiresAt: Date.now(), createdAt: Date.now(),
+      })
+      await deleteTeamFor(ctx, owner, doomedId)
+      const jobs = (await ctx.db.system.query('_scheduled_functions').collect())
+        .filter((row) => row.name === 'pushSend:deliverTo')
+      expect(jobs.map((job) => (job.args[0] as { playerId: string }).playerId)).toEqual([rival])
     })
   })
 
   test('a pending proposal is WITHDRAWN', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const playerId = await ctx.db.insert('players', aPlayer())
-      const doomedId = await ctx.db.insert('teams', aTeam({ name: 'Doomed', playerIds: [playerId] }))
-      const otherId = await ctx.db.insert('teams', aTeam({ legacyId: 901, name: 'Other' }))
+      const { owner, doomedId, survivorId } = await seedPair(ctx)
       const challengeId = await ctx.db.insert('teamChallenges', {
-        challengerTeamId: doomedId,
-        opponentTeamId: otherId,
-        proposedBy: playerId,
-        status: 'pending',
-        expiresAt: Date.now() + TTL,
-        createdAt: Date.now(),
+        challengerTeamId: doomedId, opponentTeamId: survivorId, proposedBy: owner,
+        status: 'pending', expiresAt: Date.now() + 1000, createdAt: Date.now(),
       })
-
-      await closeChallengesForDeletedTeam(ctx, doomedId)
-      expect((await ctx.db.get(challengeId))?.status).toBe('withdrawn')
+      await deleteTeamFor(ctx, owner, doomedId)
+      expect((await ctx.db.get(challengeId))!.status).toBe('withdrawn')
     })
+  })
+
+  test('the close is the FIRST statement of cascadeDeleteTeam', async () => {
+    // Source position, the way convex/lib/sweeps.test.ts pins its gate: four
+    // callers reach the cascade, and a close moved below the teamMonthStats
+    // deletes would freeze 'void' while every behavioural test above still
+    // passes for deleteTeamFor if someone also moves the aggregate delete.
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync(new URL('./teams.ts', import.meta.url), 'utf8')
+    const after = source.split('export async function cascadeDeleteTeam')[1]!
+    const firstLine = after
+      .slice(after.indexOf('{', after.indexOf(')')) + 1)
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line !== '' && !line.startsWith('//'))
+    expect(firstLine).toContain('closeChallengesForDeletedTeam(ctx, team._id)')
   })
 })
 ```
 
-- [ ] **Step 3: Run it and confirm it fails**
+The source test's slicing is fragile by nature; the implementer may replace it with
+`callSitesOf`/`orderedIn` from `src/test-support/source-ast.ts` if that expresses
+"before every `teamMonthStats` query" more robustly — **report which.** Imports to add
+at the top of `teams.test.ts`: `deleteTeamFor` (if the existing `./teams.ts` import
+block lacks it), `MIN_CHALLENGE_BOARDS` from `./lib/challenge.ts`. For the `Ctx`
+parameter, use the type the file already builds from `GenericMutationCtx<DataModel>`.
 
-```bash
-TZ=UTC pnpm test:once convex/teams.test.ts > /tmp/t11.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t11.txt
-```
+- [ ] **Step 2: Confirm red.**
 
-Expected: non-zero exit, `closeChallengesForDeletedTeam is not a function`.
-
-- [ ] **Step 4: Implement**
-
-Append to `convex/challenges.ts`:
+- [ ] **Step 3: Implement.** In `convex/challenges.ts`:
 
 ```ts
 /**
- * Resolve a deleted team's challenges.
+ * Resolve a deleted team's challenges. Called as the FIRST statement of
+ * cascadeDeleteTeam, before the derived teamMonthStats rows are removed — see
+ * the call site.
  *
- * CLOSED, NOT DELETED, AND THE DISTINCTION MATTERS. teamMonthStats rows beside
- * this are DERIVED and are deleted without ceremony because a lost one costs a
- * recompute and never data. A challenge is not derived — it is a social
- * agreement and a played result — so deleting it would erase the surviving
- * team's record of a contest that really happened.
- *
- * A PENDING PROPOSAL IS WITHDRAWN rather than closed, because it was never
- * agreed to and so has no result to freeze.
+ * CLOSED, NOT DELETED: a challenge is a played result, not derived data.
+ * A PENDING PROPOSAL IS WITHDRAWN, having never been agreed to.
+ * ONLY THE SURVIVOR IS NOTIFIED (owner decision D4).
  */
 export async function closeChallengesForDeletedTeam(
-  ctx: WriterCtx,
+  ctx: SchedulingCtx,
   teamId: Id<'teams'>,
 ): Promise<void> {
   for (const challenge of await liveChallengesFor(ctx, teamId)) {
@@ -4861,325 +5105,157 @@ export async function closeChallengesForDeletedTeam(
       await ctx.db.patch(challenge._id, { status: 'withdrawn' })
       continue
     }
-    if (challenge.result !== undefined) continue
-    await closeOne(ctx, challenge)
+    await closeOne(ctx, challenge, { skipTeamId: teamId })
   }
 }
 ```
 
-Call it from the team delete path in `convex/teams.ts`, **before** the team document is deleted (the scoreboard needs both team docs to read their names):
+In `cascadeDeleteTeam`, as the first statement, with a comment naming the hazard and
+the four callers.
 
-```ts
-  // BEFORE the team row goes, because closing reads both teams' names.
-  await closeChallengesForDeletedTeam(ctx, teamId)
-```
+**Import direction:** `teams.ts` will import from `challenges.ts`. Confirm
+`challenges.ts` imports nothing from `teams.ts` (it does not today) — a cycle here would
+be a module-evaluation-order bug in Convex.
 
-- [ ] **Step 5: Run it and confirm it passes**
+- [ ] **Step 4: Mutants.** Move the call below the `teamMonthStats` deletes (RED: the
+  first test, outcome becomes `'void'`, AND the source test); delete the call (RED);
+  drop `skipTeamId` (RED: survivor-only). Report each.
 
-```bash
-TZ=UTC pnpm test:once convex/teams.test.ts convex/challenges.test.ts > /tmp/t11.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t11.txt
-```
-
-Expected: `exit=0`.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add convex/challenges.ts convex/teams.ts convex/teams.test.ts
-git commit -F - <<'EOF'
-feat(zic8.2): team deletion closes challenges rather than deleting them
-
-teamMonthStats rows are derived and are deleted without ceremony because a lost
-one costs a recompute and never data. A challenge is not derived - it is a
-social agreement and a played result - so deleting it would erase the surviving
-team's record of a contest that really happened. Pending proposals are withdrawn
-instead, having never been agreed to.
-
-Called before the team row is removed, because closing reads both team names.
-
-<YOUR OWN attribution trailer — see below>
-Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
-EOF
-```
+- [ ] **Step 5: Four gates; commit.**
 
 ---
 
-## Task 12: Team page — the Challenges section
+## Task 12a: Team page — scoreboards, the consent actions, and the switch's UI
 
-**bd:** child of `zic8.2`, title "team page Challenges section".
+**bd:** `wordle-teams-zic8.2.12`.
+
+**Owner decision D1 (2026-10-05):** pending rows carry their actions — incoming:
+**Accept / Decline**; outgoing: **Withdraw**, shown to the proposer and to the
+challenging team's owner. Active scoreboards carry **Cancel** for either team's owner.
+The owner's `acceptsChallenges` switch goes on **team settings**. Propose moves to 12b.
+
+- [ ] **Step 0: SHIP GATE CHECK.** `bd show wordle-teams-rac`. Whatever its state, this
+  task proceeds — the UI renders nothing unless `challengesForTeam` reports
+  `enabled: true`, which needs `CHALLENGES_ENABLED=true` on the deployment. **If rac is
+  not closed, do not set that variable on production**, and say so in the report.
+
+- [ ] **Step 0b: `api.d.ts`.** Blocked on `wordle-teams-zic8.2.15` (regenerate against
+  a LOCAL anonymous backend). The controller does this, not the implementer.
 
 **Files:**
 - Create: `src/components/challenges/challenge-scoreboard.tsx`
 - Create: `src/components/challenges/challenges-section.tsx`
-- Create: `src/components/challenges/propose-challenge-dialog.tsx`
-- Modify: `src/routes/team.tsx`
-- Create: `src/components/challenges/-challenges.hook.test.ts`
+- Create: `src/components/challenges/challenges.hook.test.ts` — **`.ts`, with
+  `createElement`, NOT JSX**: `vitest.config.ts` includes `src/**/*.test.ts` only, so a
+  `.tsx` test is SKIPPED SILENTLY and the step reports exit 0 with 0 tests. Follow
+  `src/components/Header.hook.test.ts`. **No `toBeInTheDocument`** —
+  `@testing-library/jest-dom` is not a dependency; use `queryBy…` + `toBeNull()` /
+  `not.toBeNull()`.
+- Modify: `src/routes/team.tsx` — the section, and the owner's switch
 
-- [ ] **Step 1: Read the surrounding patterns before writing anything**
+- [ ] **Step 1: Read the precedents**: `src/routes/team.tsx`, `Header.hook.test.ts`,
+  `team-picker.tsx` (upgrade-path pattern), and how `team.tsx` already calls mutations
+  and surfaces `convexErrorMessage`.
 
-```bash
-sed -n '1,80p' src/routes/team.tsx
-ls src/components
-```
+- [ ] **Step 2: Failing component tests.** Specify, then write, at minimum:
+  1. Scoreboard shows both team names, both averages to 1dp and both board counts.
+  2. It labels the window start ("since 5 Oct").
+  3. A `void` outcome says "not enough boards yet" and names no winner.
+  4. Member rows render when the side carries them, labelled by `name`, and the free
+     view shows the upgrade hint instead. **The component does not gate**: the server
+     already stripped the rows; `pro` only chooses rows vs hint.
+  5. An incoming pending row shows Accept and Decline and no numbers; an outgoing one
+     shows Withdraw only when `proposedByViewer` or the viewer owns the team; a link
+     proposal with no opponent reads as "waiting for a team to claim the link".
+  6. A pending row past `expiresAt` (against an injected `now`) renders "expired" with
+     no actions (AC5).
+  7. Cancel appears on an active scoreboard only for an owner.
+  8. With `enabled: false` the section renders NOTHING — no heading, no empty state.
+  9. The head-to-head list renders `won-lost-tied` with "no result" for void.
 
-Match the existing component conventions — do not introduce a new styling or data-fetching idiom. `useSuspenseQuery` is the established pattern on this route.
+Each action test asserts the mutation is called with the right `challengeId` (mock the
+mutation hook the way the precedent file mocks Convex).
 
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 3-6:** red, build, wire into `team.tsx` with the route's
+  `useSuspenseQuery` pattern against `api.challenges.challengesForTeam`, green. Accept
+  passes the viewer's local `today` (`toPuzzleDay(new Date())`, as other mutations on
+  this route do). The owner's switch calls `setAcceptsChallenges`, beside the team's
+  other owner-only settings.
 
-Components here are testable: 15 `*.hook.test.ts` files run under jsdom, so "edge-runtime, no DOM" is only the default and not a limit. Create `src/components/challenges/-challenges.hook.test.ts`:
+- [ ] **Step 7: Mutants** — at least: drop the `enabled` check (8), show Withdraw to
+  everyone (5), render a winner on void (3), drop the expiry check (6).
 
-```ts
-// @vitest-environment jsdom
-import { render, screen } from '@testing-library/react'
-import { describe, expect, test } from 'vitest'
-import { ChallengeScoreboard } from './challenge-scoreboard.tsx'
+- [ ] **Step 8: Four gates; commit.**
 
-const side = (teamName: string, average: number | null, boards: number) => ({
-  teamId: 'team1' as never,
-  teamName,
-  boards,
-  attempts: Math.round(boards * (average ?? 0)),
-  average,
-  members: [],
-})
+---
 
-describe('ChallengeScoreboard', () => {
-  test('shows both averages and both board counts', () => {
-    render(
-      <ChallengeScoreboard
-        challenger={side('Ours', 3.4, 20)}
-        opponent={side('Theirs', 4.1, 18)}
-        outcome="challenger"
-        startDay="2026-10-12"
-        viewerIsChallenger
-        pro={false}
-      />,
-    )
-    expect(screen.getByText('3.4')).toBeInTheDocument()
-    expect(screen.getByText('4.1')).toBeInTheDocument()
-    expect(screen.getByText(/20/)).toBeInTheDocument()
-    expect(screen.getByText(/18/)).toBeInTheDocument()
-  })
+## Task 12b: The propose dialog
 
-  // A TEAM'S FIGURE IS PER-CHALLENGE, because every window starts on its own
-  // acceptance day. Without the label a member comparing two scoreboards sees
-  // two different averages for their own team and no reason why.
-  test('labels the window start', () => {
-    render(
-      <ChallengeScoreboard
-        challenger={side('Ours', 3.4, 20)}
-        opponent={side('Theirs', 4.1, 18)}
-        outcome="challenger"
-        startDay="2026-10-12"
-        viewerIsChallenger
-        pro={false}
-      />,
-    )
-    expect(screen.getByText(/since/i)).toBeInTheDocument()
-  })
+**bd:** `wordle-teams-zic8.2.19`.
 
-  test('a free viewer gets the result but no per-member rows', () => {
-    render(
-      <ChallengeScoreboard
-        challenger={side('Ours', 3.4, 20)}
-        opponent={side('Theirs', 4.1, 18)}
-        outcome="challenger"
-        startDay="2026-10-12"
-        viewerIsChallenger
-        pro={false}
-      />,
-    )
-    expect(screen.queryByTestId('member-rows')).not.toBeInTheDocument()
-  })
-
-  test('a void result says so instead of naming a winner', () => {
-    render(
-      <ChallengeScoreboard
-        challenger={side('Ours', null, 3)}
-        opponent={side('Theirs', 4.1, 18)}
-        outcome="void"
-        startDay="2026-10-12"
-        viewerIsChallenger
-        pro
-      />,
-    )
-    expect(screen.getByText(/not enough boards/i)).toBeInTheDocument()
-  })
-})
-```
-
-- [ ] **Step 3: Run it and confirm it fails**
-
-```bash
-TZ=UTC pnpm test:once src/components/challenges > /tmp/t12.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t12.txt
-```
-
-Expected: non-zero exit, unresolved `./challenge-scoreboard.tsx`.
-
-- [ ] **Step 4: Build the three components**
-
-`challenge-scoreboard.tsx` renders one challenge: the two team names, the two averages, the two board counts, the window start ("since 12 Oct"), the outcome, and — only when `pro` — a `data-testid="member-rows"` table of per-member averages. A `void` outcome renders "Not enough boards yet" rather than a winner. Follow the existing component conventions found in Step 1 for styling, and reuse whatever card/table primitives the team page already uses rather than introducing new ones.
-
-`challenges-section.tsx` lists active scoreboards and the head-to-head record, and renders the propose affordance: a button for Pro members, and the existing upgrade path for free members, following `team-picker.tsx`'s pattern of showing the upgrade route rather than a dead control.
-
-`propose-challenge-dialog.tsx` offers the two entry points — pick one of your other teams, or generate a link to copy — calling `proposeToTeam` and `proposeByLink`.
-
-- [ ] **Step 5: Wire the section into `src/routes/team.tsx`**
-
-Add the section using the route's existing `useSuspenseQuery` pattern against `api.challenges.challengesForTeam`.
-
-- [ ] **Step 6: Run it and confirm it passes**
-
-```bash
-TZ=UTC pnpm test:once src/components/challenges > /tmp/t12.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t12.txt
-```
-
-Expected: `exit=0`, 4 tests passing.
-
-- [ ] **Step 7: Run all four gates**
-
-```bash
-TZ=UTC pnpm test:once > /tmp/g-test.txt 2>&1; echo "test=$?"
-pnpm typecheck > /tmp/g-tsc.txt 2>&1; echo "tsc=$?"
-pnpm lint > /tmp/g-lint.txt 2>&1; echo "lint=$?"
-pnpm build > /tmp/g-build.txt 2>&1; echo "build=$?"
-```
-
-Expected: all four `=0`.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add src/components/challenges src/routes/team.tsx
-git commit -F - <<'EOF'
-feat(zic8.2): team page Challenges section
-
-Each scoreboard labels its own window start, because every challenge's window
-begins on its own acceptance day - so a team legitimately averages one figure
-against one opponent and another against a second, and without the label a
-member sees two numbers for their own team and no reason why.
-
-A void result says "not enough boards yet" rather than naming a winner. Free
-viewers get both averages, both board counts and the outcome; the per-member
-rows are withheld by the server, not hidden in the component.
-
-<YOUR OWN attribution trailer — see below>
-Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
-EOF
-```
+- Create: `src/components/challenges/propose-challenge-dialog.tsx` + `.hook.test.ts`.
+- Two entry points: pick another team the caller is also on (`proposeToTeam`), or
+  generate a link (`proposeByLink`) and show it once with a Copy button. **The link is
+  shown only in the dialog's response**: `challengesForTeam` deliberately never returns
+  a token, so a dismissed link is not recoverable — the outgoing pending row offers
+  Withdraw, and the user can generate a fresh link. Say so in the dialog copy.
+- Free members see the upgrade path (`team-picker.tsx`'s pattern), never a dead control.
+- Tests: the team list excludes the current team; a non-Pro viewer gets the upgrade
+  path; `PRO_REQUIRED`, `CHALLENGE_LIMIT_REACHED`, `CHALLENGE_EXISTS` and
+  `CHALLENGES_REFUSED` each surface their `convexErrorMessage` copy.
 
 ---
 
 ## Task 13: The challenge link route
 
-**bd:** child of `zic8.2`, title "challenge.$token route".
+**bd:** `wordle-teams-zic8.2.13`.
 
 **Files:**
-- Create: `src/routes/challenge.$token.tsx`
-- Modify: `src/routes/sitemap[.]xml.ts` if it enumerates routes — a tokenised page must not be listed (`wordle-teams-ef9` is the cautionary case: `/maintenance` was in the sitemap and crawlers landed on it)
+- Create: `src/routes/challenge.$token.tsx` (mirrors `join.$token.tsx`)
+- Modify: `public/robots.txt` — `Disallow: /challenge` AND a rationale paragraph in its
+  header block beside `/join`'s: the path segment IS the capability.
+- Modify: `src/crawler-metadata.test.ts` — the sorted exact Disallow list (~line 170)
+  and the test title that names them
+- Modify: `src/lib/maintenance.ts` — add the subtree to `GATED_SUBTREES` (~line 124)
+- Modify: `src/lib/maintenance.test.ts` — its three exact `toEqual` path lists
+  (~lines 159, 193, 204)
+- Commit: the regenerated `src/routeTree.gen.ts`
 
-- [ ] **Step 1: Read the precedent**
+**The sitemap grep in the old text is deleted:** `src/routes/sitemap[.]xml.ts` holds no
+entries, so it could never fail. The real check is `crawler-metadata.test.ts`'s
+"every route in the app is listed, disallowed, or deliberately neither" (~line 591),
+which goes RED the moment the route exists without a Disallow — run it before adding
+the robots line and record that it failed.
 
-```bash
-command cat src/routes/join.\$token.tsx
-```
-
-`join.$token.tsx` is the proven shape for an unauthenticated arrival at a tokenised path. Mirror it: the sign-in bounce, the loading state, the invalid-token message, and the post-auth resume.
-
-- [ ] **Step 2: Build the route**
-
-The page resolves the token, asks which of the viewer's teams should accept (a picker when they are on several, auto-selected when they are on one), and calls `claimChallengeLink` with the viewer's local `today`. An invalid, expired, or already-claimed token shows one message — holding a dead token must not reveal whether it was ever real.
-
-- [ ] **Step 3: Confirm the route is not in the sitemap**
-
-```bash
-grep -rn "challenge" src/routes/sitemap\[.\]xml.ts || echo "not listed - correct"
-```
-
-- [ ] **Step 4: Run all four gates**
-
-```bash
-TZ=UTC pnpm test:once > /tmp/g-test.txt 2>&1; echo "test=$?"
-pnpm typecheck > /tmp/g-tsc.txt 2>&1; echo "tsc=$?"
-pnpm lint > /tmp/g-lint.txt 2>&1; echo "lint=$?"
-pnpm build > /tmp/g-build.txt 2>&1; echo "build=$?"
-```
-
-Expected: all four `=0`. `build` matters most here — a new route changes `routeTree.gen.ts`, which the vite plugin regenerates. Commit the regenerated file.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/routes/challenge.\$token.tsx src/routeTree.gen.ts
-git commit -F - <<'EOF'
-feat(zic8.2): the challenge link claim route
-
-Mirrors join.$token.tsx, the proven shape for an unauthenticated arrival at a
-tokenised path. An invalid, expired or already-claimed token shows ONE message,
-so holding a dead token does not reveal whether it was ever real. Not added to
-the sitemap - see wordle-teams-ef9 for what listing a non-landing route costs.
-
-<YOUR OWN attribution trailer — see below>
-Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
-EOF
-```
+- [ ] The page: the sign-in bounce and post-auth resume as `join.$token.tsx`; a team
+  picker when the viewer is on several teams, auto-selected on one; `claimChallengeLink`
+  with the viewer's local `today`; ONE message for an invalid, expired or claimed token
+  (`CHALLENGE_LINK_INVALID`); and `CHALLENGES_DISABLED` renders the same "not available
+  yet" copy rather than an error page.
+- [ ] Tests: whatever `join.$token`'s route has, mirrored; plus the two exact-list
+  suites above going red then green.
+- [ ] Four gates — `build` regenerates `routeTree.gen.ts`; commit it.
 
 ---
 
 ## Task 14: E2E, then the ship gate
 
-**bd:** child of `zic8.2`, title "challenge e2e spec and ship gate".
+**bd:** `wordle-teams-zic8.2.14`.
 
-**Files:**
-- Create: `e2e/challenge.spec.ts`
-
-- [ ] **Step 1: Write the spec**
-
-Cover the happy path only: a Pro member proposes to a team they are also on, a member of that team accepts, and the scoreboard renders with both averages. The suite catches behaviour, not render order or responsive geometry, so do not try to assert layout here.
-
-- [ ] **Step 2: Run it in the background — it exceeds the foreground timeout**
-
-The full suite takes ~10.7 minutes against a 10-minute foreground cap, so background it or it dies at the last test with no summary. It needs a Convex backend on :3210; `CONVEX_AGENT_MODE=anonymous` provisions a local one needing no secrets.
-
-**Kill any stale dev server on :3000 first.** Playwright attaches to whatever holds that port, and a days-old vite dev made every run test stale code once already.
-
-```bash
-lsof -ti:3000 | xargs -r kill
-CONVEX_AGENT_MODE=anonymous pnpm e2e > /tmp/e2e.txt 2>&1
-```
-
-Run with `run_in_background: true`. When it finishes, read `/tmp/e2e.txt`.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add e2e/challenge.spec.ts
-git commit -F - <<'EOF'
-test(zic8.2): e2e happy path for proposing, accepting and scoring a challenge
-
-<YOUR OWN attribution trailer — see below>
-Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
-EOF
-```
-
-- [ ] **Step 4: THE SHIP GATE — do not release without this**
-
-`wordle-teams-rac` must be resolved in production first. Its step-4 recompute runs through the same path this scoreboard reads, so repairing it after a challenge has been played restates a finished result (design §3.3).
-
-```bash
-bd show wordle-teams-rac
-```
-
-If it is not closed, **stop**. The feature may be merged and deployed dark, but no challenge scoreboard may be visible to users. Report this to the owner rather than deciding it.
-
-- [ ] **Step 5: Close the issues**
-
-```bash
-bd close <each child id>
-bd close wordle-teams-zic8.2
-```
-
-A `bd close` committed together with code records the PRE-close state, so commit the bd change on its own and verify. A bd-only commit aborts on the first try — retry once with `||`, never twice unconditionally, and never `--no-verify`.
+- **Seed with what exists** (the old "no Pro seed" finding was stale):
+  `e2eSeed.ensureTeamFor(A)`, then `ensureSharedTeamFor(A, B, name)` puts A on two
+  teams with B on one; `seedInsightsFor({ email: A, pro: true, boards: 0, … })` makes A
+  Pro. Read each function's args before calling it.
+- **The local e2e backend needs `CHALLENGES_ENABLED=true`.** Find how the e2e setup
+  sets `E2E_TEST_MODE` on the anonymous backend and set this beside it.
+- Happy path: A proposes from team X to team Y; B accepts from Y's page; the scoreboard
+  appears on both pages with both team names and **"not enough boards yet"** — NOT both
+  averages: the window starts the day after acceptance, so a just-accepted challenge
+  has zero boards.
+- Run in the background (~11 min); kill any stale server on :3000 first.
+- **Ship gate:** `wordle-teams-rac` closed in production before `CHALLENGES_ENABLED` is
+  set there. If it is not, the feature merges and deploys dark; report to the owner.
+- Close the issues; a bd-only commit aborts once — retry with `||`.
 
 ---
 
