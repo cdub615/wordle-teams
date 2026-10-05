@@ -4968,6 +4968,17 @@ export async function closeDueChallengesFor(
 
 ---
 
+**AS EXECUTED (aef2cb54 + follow-up):** five of this task's prescribed tests let a
+mutant through, and `convex/challenges.test.ts` is authoritative over the blocks
+above. The worst: deleting `status === 'pending'` from the expiry branch passed,
+and would have expired every RUNNING challenge a week after its proposal, since
+`activate` leaves `expiresAt` on the row. Also added: "running twice" asserts
+`failed: 0` (the per-row catch hid a deleted status check), a driven
+`teamStats.sweep` test, the `<=` expiry boundary on a frozen clock, and the push
+`url`. The Task 9c gate tests were made exact-line in the same pass.
+
+---
+
 ## Task 11: Team deletion closes challenges (cascade-first)
 
 **bd:** `wordle-teams-zic8.2.11`.
