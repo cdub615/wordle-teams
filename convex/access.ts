@@ -130,7 +130,11 @@ export type AccessCode =
   // wordle-teams-zic8.2. CHALLENGES_REFUSED is the owner's acceptsChallenges
   // switch; CHALLENGE_LIMIT_REACHED is MAX_ACTIVE_CHALLENGES; CHALLENGE_EXISTS
   // is the one-live-challenge-per-pair rule; PRO_REQUIRED gates INITIATING a
-  // challenge and never accepting one.
+  // challenge and never accepting one. CHALLENGE_NOT_PENDING is thrown for a
+  // non-'pending' status AND for a passed expiresAt: one code, two conditions,
+  // deliberately. CHALLENGE_LINK_INVALID is the single answer for an unknown,
+  // non-pending, expired or absent token, following INVITE_LINK_INVALID (see its
+  // paragraph above) so a probe cannot enumerate live tokens.
   | 'CHALLENGES_REFUSED'
   | 'CHALLENGE_LIMIT_REACHED'
   | 'CHALLENGE_EXISTS'

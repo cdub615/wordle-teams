@@ -258,7 +258,9 @@ async function activate(
   challengeId: Id<'teamChallenges'>,
   accepterId: Id<'players'>,
   today: string,
-  extra: Partial<Doc<'teamChallenges'>> = {},
+  // NARROWED ON PURPOSE: the spread below is last, so a wider type would let a
+  // caller clobber status/acceptedBy/startDay/endDay, the fields this exists to set.
+  extra: Partial<Pick<Doc<'teamChallenges'>, 'opponentTeamId'>> = {},
 ): Promise<void> {
   const { startDay, endDay } = windowFor(requirePlausibleToday(today))
   // THE ID, NOT THE DOC. The claim path patches opponentTeamId first, so a
@@ -282,6 +284,9 @@ export async function acceptChallengeFor(
   challengeId: Id<'teamChallenges'>,
   today: string,
 ): Promise<void> {
+  // Bounded up front, so a wrong-clock caller is told so before anything else.
+  // activate re-applies it; it is pure, so the repeat is free.
+  requirePlausibleToday(today)
   const challenge = await ctx.db.get(challengeId)
   if (challenge === null) throw accessError('INVALID_TEAM')
   if (challenge.status !== 'pending') throw accessError('CHALLENGE_NOT_PENDING')
@@ -328,6 +333,12 @@ export async function claimChallengeLinkFor(
   // from its cause. An empty token is also not a token. Task 13 adds a ROUTE
   // PARAM feeding this, which is exactly how an empty string gets here.
   if (!token) throw accessError('CHALLENGE_LINK_INVALID')
+  requirePlausibleToday(today)
+
+  // MEMBERSHIP BEFORE THE TOKEN LOOKUP, DELIBERATELY. After it, NOT_A_MEMBER
+  // would mean "the token is real, live and unclaimed" and CHALLENGE_LINK_INVALID
+  // "it is not", which is exactly the distinction the answers below exist to hide.
+  await requireTeamMemberFor(ctx, playerId, opponentTeamId)
 
   const challenge = await ctx.db
     .query('teamChallenges')
@@ -340,7 +351,6 @@ export async function claimChallengeLinkFor(
   if (challenge.status !== 'pending') throw accessError('CHALLENGE_LINK_INVALID')
   if (challenge.expiresAt <= Date.now()) throw accessError('CHALLENGE_LINK_INVALID')
 
-  await requireTeamMemberFor(ctx, playerId, opponentTeamId)
   await requireChallengeablePair(ctx, challenge.challengerTeamId, opponentTeamId, challenge._id)
 
   // ONE PATCH, via activate's `extra` — see its comment on why it takes an id.
