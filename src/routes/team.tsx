@@ -12,6 +12,7 @@ import { MyTeamsCard } from '#/components/teams/my-teams-card.tsx'
 import { UpdateTeamDialog } from '#/components/teams/update-team-dialog.tsx'
 import { ScoringSystemCard } from '#/components/scoring-system-card.tsx'
 import { ChallengesCard, ChallengesCardSkeleton } from '#/components/challenges/challenges-card.tsx'
+import { ProposeChallengeDialog } from '#/components/challenges/propose-challenge-dialog.tsx'
 import type { ChallengeId } from '#/components/challenges/types.ts'
 import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
@@ -238,6 +239,8 @@ function TeamSettingsPage() {
           <TeamChallenges
             key={selectedTeam.id}
             teamId={selectedTeam.id}
+            teamName={selectedTeam.name}
+            teams={teams}
             isOwner={selectedTeam.isOwner}
             acceptsChallenges={selectedTeam.acceptsChallenges}
           />
@@ -326,13 +329,21 @@ function TeamSettingsPage() {
  * (see PendingChallengeRow), and a lazy initial state keeps the read out of
  * render. A proposal that lapses while the page stays open keeps its buttons
  * until the next visit; the server refuses the accept either way.
+ *
+ * THE PROPOSE DIALOG (Task 12b) IS MOUNTED HERE, beside the card rather than
+ * inside it, so the card stays plain props: it only reports the tap. `teams` is
+ * the page's own getMyTeams answer; the dialog leaves the current team out.
  */
 function TeamChallenges({
   teamId,
+  teamName,
+  teams,
   isOwner,
   acceptsChallenges,
 }: {
   teamId: Id<'teams'>
+  teamName: string
+  teams: ReadonlyArray<{ id: Id<'teams'>; name: string }>
   isOwner: boolean
   acceptsChallenges: boolean
 }) {
@@ -345,6 +356,9 @@ function TeamChallenges({
   const withdraw = useMutation({ mutationFn: useConvexMutation(api.challenges.withdrawChallenge) })
   const cancel = useMutation({ mutationFn: useConvexMutation(api.challenges.cancelChallenge) })
   const setAccepts = useMutation({ mutationFn: useConvexMutation(api.challenges.setAcceptsChallenges) })
+  const proposeToTeam = useMutation({ mutationFn: useConvexMutation(api.challenges.proposeToTeam) })
+  const proposeByLink = useMutation({ mutationFn: useConvexMutation(api.challenges.proposeByLink) })
+  const [proposeOpen, setProposeOpen] = useState(false)
 
   const run = async (
     challengeId: ChallengeId,
@@ -366,60 +380,72 @@ function TeamChallenges({
   }
 
   return (
-    <ChallengesCard
-      view={view}
-      isOwner={isOwner}
-      acceptsChallenges={acceptsChallenges}
-      now={now}
-      busyId={busyId}
-      acceptsPending={setAccepts.isPending}
-      // The viewer's LOCAL day, as every other dated mutation on these routes
-      // sends it: the window starts the day after acceptance, in their zone.
-      onAccept={(challengeId) =>
-        run(
-          challengeId,
-          () => accept.mutateAsync({ challengeId, today: toPuzzleDay(new Date()) }),
-          'Challenge accepted',
-          'Could not accept that challenge',
-        )
-      }
-      onDecline={(challengeId) =>
-        run(
-          challengeId,
-          () => decline.mutateAsync({ challengeId }),
-          'Challenge declined',
-          'Could not decline that challenge',
-        )
-      }
-      onWithdraw={(challengeId) =>
-        run(
-          challengeId,
-          () => withdraw.mutateAsync({ challengeId }),
-          'Challenge withdrawn',
-          'Could not withdraw that challenge',
-        )
-      }
-      onCancel={(challengeId) =>
-        run(
-          challengeId,
-          () => cancel.mutateAsync({ challengeId }),
-          'Challenge ended',
-          'Could not end that challenge',
-        )
-      }
-      onSetAcceptsChallenges={(accepts) => {
-        setAccepts.mutate(
-          { teamId, accepts },
-          {
-            onError: (error) =>
-              toast.error(mutationErrorMessage(error, 'Could not change that setting')),
-          },
-        )
-      }}
-      // 'insights': its headline ("See who's actually beating whom") is the
-      // per-player comparison this hint withholds. A challenges-specific
-      // origin would mean a new UpgradeOrigin and headline in lib/plans.ts.
-      onUpgrade={() => openUpgrade('insights')}
-    />
+    <>
+      <ChallengesCard
+        view={view}
+        isOwner={isOwner}
+        acceptsChallenges={acceptsChallenges}
+        now={now}
+        busyId={busyId}
+        acceptsPending={setAccepts.isPending}
+        // The viewer's LOCAL day, as every other dated mutation on these routes
+        // sends it: the window starts the day after acceptance, in their zone.
+        onAccept={(challengeId) =>
+          run(
+            challengeId,
+            () => accept.mutateAsync({ challengeId, today: toPuzzleDay(new Date()) }),
+            'Challenge accepted',
+            'Could not accept that challenge',
+          )
+        }
+        onDecline={(challengeId) =>
+          run(
+            challengeId,
+            () => decline.mutateAsync({ challengeId }),
+            'Challenge declined',
+            'Could not decline that challenge',
+          )
+        }
+        onWithdraw={(challengeId) =>
+          run(
+            challengeId,
+            () => withdraw.mutateAsync({ challengeId }),
+            'Challenge withdrawn',
+            'Could not withdraw that challenge',
+          )
+        }
+        onCancel={(challengeId) =>
+          run(
+            challengeId,
+            () => cancel.mutateAsync({ challengeId }),
+            'Challenge ended',
+            'Could not end that challenge',
+          )
+        }
+        onSetAcceptsChallenges={(accepts) => {
+          setAccepts.mutate(
+            { teamId, accepts },
+            {
+              onError: (error) =>
+                toast.error(mutationErrorMessage(error, 'Could not change that setting')),
+            },
+          )
+        }}
+        // 'insights': its headline ("See who's actually beating whom") is the
+        // per-player comparison this hint withholds. A challenges-specific
+        // origin would mean a new UpgradeOrigin and headline in lib/plans.ts.
+        onUpgrade={() => openUpgrade('insights')}
+        onChallenge={() => setProposeOpen(true)}
+      />
+      <ProposeChallengeDialog
+        open={proposeOpen}
+        onOpenChange={setProposeOpen}
+        teamId={teamId}
+        teamName={teamName}
+        teams={teams}
+        proposeToTeam={proposeToTeam.mutateAsync}
+        proposeByLink={proposeByLink.mutateAsync}
+      />
+    </>
   )
 }

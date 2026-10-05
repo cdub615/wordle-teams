@@ -4,6 +4,8 @@ import { Skeleton } from '#/components/ui/skeleton.tsx'
 import { Label } from '#/components/ui/label.tsx'
 import { Separator } from '#/components/ui/separator.tsx'
 import { Switch } from '#/components/ui/switch.tsx'
+import { Button } from '#/components/ui/button.tsx'
+import { Sparkles, Swords } from 'lucide-react'
 import { ChallengeScoreboard } from './challenge-scoreboard.tsx'
 import { PendingChallengeRow } from './pending-challenge-row.tsx'
 import type { ChallengeId, ChallengesView, HeadToHeadView } from './types.ts'
@@ -35,6 +37,7 @@ export function ChallengesCard({
   onCancel,
   onSetAcceptsChallenges,
   onUpgrade,
+  onChallenge,
   className,
   acceptsPending = false,
 }: {
@@ -51,6 +54,8 @@ export function ChallengesCard({
   onCancel: (challengeId: ChallengeId) => void
   onSetAcceptsChallenges: (accepts: boolean) => void
   onUpgrade?: () => void
+  /** Opens the propose dialog. Only a Pro viewer's control calls it. */
+  onChallenge: () => void
   className?: string
   /** The switch's mutation is in flight: disabled, so a second click is not lost. */
   acceptsPending?: boolean
@@ -67,8 +72,26 @@ export function ChallengesCard({
         <CardTitle asChild>
           <div className="flex min-w-0 items-center justify-between gap-2">
             <h2>Challenges</h2>
-            {/* Task 12b's "Challenge a team" control goes here, beside the
-                heading, the way CurrentTeamCard's owner buttons sit. */}
+            {/* "CHALLENGE A TEAM" (Task 12b), beside the heading the way
+                CurrentTeamCard's owner buttons sit. ONE LABEL FOR BOTH TIERS:
+                a free viewer gets the same words as an upgrade affordance
+                (the Sparkles, as the scoreboard's Pro hint has), never a
+                disabled button — a dead control says "not for you" without
+                saying what would change that. proposeToTeam refuses a free
+                caller with PRO_REQUIRED anyway; this keeps them from finding
+                out by being refused. Any member may propose, not only the
+                owner, so this is not owner-gated. */}
+            {pro ? (
+              <Button type="button" variant="outline" size="sm" onClick={onChallenge}>
+                <Swords className="h-4 w-4" aria-hidden="true" />
+                Challenge a team
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" size="sm" onClick={onUpgrade}>
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+                Challenge a team
+              </Button>
+            )}
           </div>
         </CardTitle>
       </CardHeader>

@@ -388,6 +388,7 @@ function card(
       onWithdraw: vi.fn(),
       onCancel: vi.fn(),
       onSetAcceptsChallenges,
+      onChallenge: vi.fn(),
       acceptsPending,
     }),
   )

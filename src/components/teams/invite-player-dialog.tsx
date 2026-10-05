@@ -18,6 +18,7 @@ import { Input } from '#/components/ui/input.tsx'
 import { Label } from '#/components/ui/label.tsx'
 import { Separator } from '#/components/ui/separator.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
+import { shareLink } from '#/lib/share-link.ts'
 import { useVisualViewport } from '#/lib/use-visual-viewport.ts'
 import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -42,12 +43,12 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * is now a "Share a link" half below the form, which mints a token
  * (convex/inviteLinks.ts createLink) and hands the URL to the platform.
  *
- * BOTH BROWSER APIS ARE FEATURE-DETECTED, AND THIS IS THE APP'S FIRST USE OF
- * EITHER — neither `navigator.share` nor `navigator.clipboard` appears anywhere
- * else in src/. `navigator.share` is absent on most desktop browsers, and BOTH
- * are absent outside a secure context, which is not a hypothetical: an http://
- * LAN address is how this app gets opened on a real phone during development.
- * See shareLink for what each absence does.
+ * BOTH BROWSER APIS ARE FEATURE-DETECTED. `navigator.share` is absent on most
+ * desktop browsers, and BOTH are absent outside a secure context, which is not a
+ * hypothetical: an http:// LAN address is how this app gets opened on a real
+ * phone during development. This dialog was the app's first use of either; the
+ * rule now lives in lib/share-link.ts (zic8.2.19), shared with the challenge
+ * dialog, and handleShare below only words each outcome.
  */
 export function InvitePlayerDialog({
   open,
@@ -162,50 +163,34 @@ export function InvitePlayerDialog({
   /**
    * Mint a link and hand it to the platform.
    *
-   * navigator.share FIRST, WHERE IT EXISTS, AND THAT ORDER IS THE POINT. This
-   * is a phone-first action and the native sheet — Messages, WhatsApp, the
-   * group chat the team already lives in — is the whole reason a link beats
-   * typing an address. The clipboard is the FALLBACK, for the desktop browsers
-   * that have no share sheet at all. Reversing them would technically work and
-   * would throw away the feature's reason for existing.
-   *
-   * AN AbortError IS NOT A FAILURE. It is what both APIs throw when the user
-   * dismisses the share sheet, which is a decision they made on purpose. An
-   * error toast for it would tell somebody who just changed their mind that the
-   * app is broken.
-   *
-   * THE CLIPBOARD IS FEATURE-DETECTED TOO, not merely called. `navigator.
-   * clipboard` is `undefined` outside a secure context, so on an http:// LAN
-   * address — how this app is opened on a real phone in development — the bare
-   * call is a TypeError that lands in the catch below and reports "Could not
-   * create an invite link" about a link that was created successfully. The
-   * explicit branch says the true thing and points at the email field, which is
-   * two inches up the same dialog and still works.
+   * THE ORDER (share sheet first, clipboard as the fallback), the AbortError
+   * rule and the feature detection all live in lib/share-link.ts — read its
+   * header before changing anything here. This function owns only the words:
+   * `'unavailable'` points at the email field, which is two inches up the same
+   * dialog and still works, and `'copied'` is the only outcome that leaves a
+   * lasting confirmation, since the share sheet gives its own feedback.
    *
    * NOT `void createLink.mutateAsync(...)`: a rejecting mutation with nothing
    * attached is an unhandled rejection. This is the try/catch-and-toast shape
-   * notifications-tab.tsx:213 and my-teams-card.tsx:50 use.
+   * notifications-tab.tsx:213 and my-teams-card.tsx:50 use. A share that fails
+   * for any reason other than a dismissal is rethrown by shareLink and lands
+   * here too.
    */
-  const shareLink = async () => {
+  const handleShare = async () => {
     setSharing(true)
     try {
       const token = await createLink.mutateAsync({ teamId })
-      const url = `${window.location.origin}/join/${token}`
-      if (navigator.share) {
-        await navigator.share({ title: `Join ${teamName} on Wordle Teams`, url })
-        return
-      }
-      if (!navigator.clipboard) {
+      const outcome = await shareLink({
+        title: `Join ${teamName} on Wordle Teams`,
+        url: `${window.location.origin}/join/${token}`,
+      })
+      if (outcome === 'unavailable') {
         toast.error('This browser cannot copy the link. Invite by email above instead.')
-        return
+      } else if (outcome === 'copied') {
+        setCopied(true)
+        toast.success('Invite link copied')
       }
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      toast.success('Invite link copied')
     } catch (error) {
-      // An AbortError is the user dismissing the share sheet, which is not a
-      // failure and must not raise a toast.
-      if (error instanceof Error && error.name === 'AbortError') return
       toast.error(mutationErrorMessage(error, 'Could not create an invite link'))
     } finally {
       setSharing(false)
@@ -308,7 +293,7 @@ export function InvitePlayerDialog({
             className="w-full"
             disabled={sharing}
             aria-disabled={sharing}
-            onClick={shareLink}
+            onClick={handleShare}
           >
             {sharing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
