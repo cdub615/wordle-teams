@@ -136,6 +136,8 @@ export type AccessCode =
   // non-pending, expired or absent token, following INVITE_LINK_INVALID (see its
   // paragraph above) so a probe cannot enumerate live tokens.
   // CHALLENGE_NOT_ACTIVE is a scoreboard asked of a challenge that is not running.
+  // CHALLENGES_DISABLED is the CHALLENGES_ENABLED deployment switch being off
+  // (lib/challenge.ts challengesEnabled); only starting or activating refuses.
   | 'CHALLENGES_REFUSED'
   | 'CHALLENGE_LIMIT_REACHED'
   | 'CHALLENGE_EXISTS'
@@ -143,6 +145,7 @@ export type AccessCode =
   | 'CHALLENGE_NOT_PENDING'
   | 'CHALLENGE_LINK_INVALID'
   | 'CHALLENGE_NOT_ACTIVE'
+  | 'CHALLENGES_DISABLED'
 
 /**
  * Throws a ConvexError carrying `{ code }`.

@@ -62,7 +62,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'PRO_REQUIRED' ||
     code === 'CHALLENGE_NOT_PENDING' ||
     code === 'CHALLENGE_LINK_INVALID' ||
-    code === 'CHALLENGE_NOT_ACTIVE'
+    code === 'CHALLENGE_NOT_ACTIVE' ||
+    code === 'CHALLENGES_DISABLED'
   ) {
     return code
   }
@@ -280,6 +281,10 @@ export function typedCodeMessage(code: AccessCode): string {
       return 'That challenge link is no longer valid.'
     case 'CHALLENGE_NOT_ACTIVE':
       return "That challenge isn't running."
+    case 'CHALLENGES_DISABLED':
+      // The CHALLENGES_ENABLED deployment switch is off. "Yet" because the
+      // switch exists to hold the feature dark until it ships.
+      return "Challenges aren't available yet."
     default: {
       const _exhaustive: never = code
       return _exhaustive

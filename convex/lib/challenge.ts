@@ -37,6 +37,46 @@ export const MAX_ACTIVE_CHALLENGES = 5
 export const PROPOSAL_TTL_DAYS = 7
 
 /**
+ * WHETHER CHALLENGES ARE ON FOR THIS DEPLOYMENT (owner decision D2,
+ * wordle-teams-zic8.2.18).
+ *
+ * Read from the CHALLENGES_ENABLED Convex deployment variable, so it flips in
+ * the dashboard with no deploy. While off, `challengesForTeam` reports
+ * `{ enabled: false }` and nothing else, and the four mutations that START or
+ * ACTIVATE a challenge — proposeToTeam, proposeByLink, acceptChallenge,
+ * claimChallengeLink — refuse with CHALLENGES_DISABLED.
+ *
+ * THE POLARITY IS THE OPPOSITE OF lib/sweeps.ts, DELIBERATELY. DO NOT "FIX" THE
+ * INCONSISTENCY. sweeps.ts fails towards ON — only the exact string 'false'
+ * stops the sweeps — because there the silent failure is a brake left on. Here
+ * the costly mistake points the other way: a scoreboard published before
+ * wordle-teams-rac is repaired is a finished result that later has to be
+ * restated, in front of both teams. So this is an ALLOW-list: ONLY the exact
+ * string 'true' turns challenges on. Unset, empty, 'TRUE', ' true', '1' and
+ * 'yes' all keep the feature dark. A typo costs a feature that stays off a
+ * little longer, which is visible and recoverable; it never publishes one.
+ *
+ * THE rac SHIP GATE ATTACHES HERE: this variable is not set in production until
+ * wordle-teams-rac is closed.
+ *
+ * WHAT STAYS WORKING WHILE OFF: decline, withdraw, cancel, setAcceptsChallenges
+ * and the daily close. Each only ends or refuses something, and turning the
+ * feature off must not strand a challenge that is already running. The source
+ * test in ../challenges.test.ts pins both lists.
+ *
+ * TAKES THE VALUE AS A PARAMETER rather than reading process.env itself, for the
+ * reason sweeps.ts gives: it keeps the host's shell out of the assertions, and
+ * makes every call site name the variable it consults.
+ */
+
+/** The one value that turns challenges ON. Exported so no caller spells it. */
+export const CHALLENGES_ON = 'true'
+
+export function challengesEnabled(value: string | undefined): boolean {
+  return value === CHALLENGES_ON
+}
+
+/**
  * Fewer than this many days left in the month at acceptance and the window runs
  * to the end of the FOLLOWING month instead. It is the window's LENGTH, since the
  * window starts the day after acceptance.

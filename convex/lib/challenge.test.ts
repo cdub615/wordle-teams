@@ -10,6 +10,8 @@
  */
 import { describe, expect, test } from 'vitest'
 import {
+  CHALLENGES_ON,
+  challengesEnabled,
   MAX_ACTIVE_CHALLENGES,
   MIN_CHALLENGE_BOARDS,
   outcomeOf,
@@ -221,5 +223,17 @@ describe('outcomeOf', () => {
     const a = { boards: 25, attempts: 99 } // 3.96 raw, 4.0 displayed
     const b = { boards: 50, attempts: 202 } // 4.04 raw, 4.0 displayed
     expect(outcomeOf(a, b)).toBe('opponent')
+  })
+})
+
+describe('challengesEnabled', () => {
+  test('only the exact string enables it', () => {
+    expect(challengesEnabled(CHALLENGES_ON)).toBe(true)
+  })
+
+  // FAILS TOWARD OFF: every near-miss is off, so a typo keeps the feature dark
+  // rather than publishing it.
+  test.each([undefined, '', 'TRUE', 'True', ' true', '1', 'yes', 'false'])('%j is off', (value) => {
+    expect(challengesEnabled(value)).toBe(false)
   })
 })

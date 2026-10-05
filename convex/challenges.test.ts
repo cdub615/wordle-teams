@@ -1920,3 +1920,40 @@ test('ChallengeOutcome is exactly the schema result.outcome union', () => {
     NonNullable<Doc<'teamChallenges'>['result']>['outcome']
   >()
 })
+
+describe('the CHALLENGES_ENABLED gate', () => {
+  /** The first non-comment line inside `export const <name>`'s handler. */
+  function firstHandlerLine(source: string, name: string): string | undefined {
+    const start = source.indexOf(`export const ${name} = `)
+    expect(start, `no export const ${name}`).toBeGreaterThan(-1)
+    const body = source.slice(start).split(/handler: async \(.*?\) => \{/)[1]
+    expect(body, `no handler in ${name}`).toBeDefined()
+    return body!
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line !== '' && !line.startsWith('//'))
+  }
+
+  // THE FIVE THAT START, ACTIVATE OR DISPLAY A CHALLENGE. Decline, withdraw,
+  // cancel and the owner's switch are deliberately NOT gated: they only end or
+  // refuse, and switching the feature off must not strand a running challenge.
+  test.each(['proposeToTeam', 'proposeByLink', 'acceptChallenge', 'claimChallengeLink', 'challengesForTeam'])(
+    '%s checks CHALLENGES_ENABLED first',
+    async (name) => {
+      const { readFileSync } = await import('node:fs')
+      const source = readFileSync(new URL('./challenges.ts', import.meta.url), 'utf8')
+      expect(firstHandlerLine(source, name)).toContain('challengesEnabled(process.env.CHALLENGES_ENABLED)')
+    },
+  )
+
+  // cancelChallenge joins this list in Task 10, which is where it comes into
+  // existence; listing it before then would fail on `no export const`.
+  test.each(['declineChallenge', 'withdrawChallenge', 'setAcceptsChallenges'])(
+    '%s is NOT gated, so a running challenge can always be ended',
+    async (name) => {
+      const { readFileSync } = await import('node:fs')
+      const source = readFileSync(new URL('./challenges.ts', import.meta.url), 'utf8')
+      expect(firstHandlerLine(source, name)).not.toContain('CHALLENGES_ENABLED')
+    },
+  )
+})

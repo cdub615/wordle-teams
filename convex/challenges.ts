@@ -2,6 +2,7 @@ import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { accessError, isProFor, requirePlausibleToday, requirePlayer, requireTeamMemberFor, requireTeamOwnerFor } from './access.ts'
 import {
+  challengesEnabled,
   MAX_ACTIVE_CHALLENGES,
   PROPOSAL_TTL_DAYS,
   outcomeOf,
@@ -182,6 +183,7 @@ export async function proposeToTeamFor(
 export const proposeToTeam = mutation({
   args: { challengerTeamId: v.id('teams'), opponentTeamId: v.id('teams') },
   handler: async (ctx, { challengerTeamId, opponentTeamId }) => {
+    if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) throw accessError('CHALLENGES_DISABLED')
     const player = await requirePlayer(ctx)
     return await proposeToTeamFor(ctx, player._id, challengerTeamId, opponentTeamId)
   },
@@ -248,6 +250,7 @@ export async function proposeByLinkFor(
 export const proposeByLink = mutation({
   args: { challengerTeamId: v.id('teams') },
   handler: async (ctx, { challengerTeamId }) => {
+    if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) throw accessError('CHALLENGES_DISABLED')
     const player = await requirePlayer(ctx)
     return await proposeByLinkFor(ctx, player._id, challengerTeamId)
   },
@@ -373,6 +376,7 @@ export async function claimChallengeLinkFor(
 export const acceptChallenge = mutation({
   args: { challengeId: v.id('teamChallenges'), today: v.string() },
   handler: async (ctx, { challengeId, today }) => {
+    if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) throw accessError('CHALLENGES_DISABLED')
     const player = await requirePlayer(ctx)
     await acceptChallengeFor(ctx, player._id, challengeId, today)
   },
@@ -381,6 +385,7 @@ export const acceptChallenge = mutation({
 export const claimChallengeLink = mutation({
   args: { token: v.string(), opponentTeamId: v.id('teams'), today: v.string() },
   handler: async (ctx, { token, opponentTeamId, today }) => {
+    if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) throw accessError('CHALLENGES_DISABLED')
     const player = await requirePlayer(ctx)
     return await claimChallengeLinkFor(ctx, player._id, token, opponentTeamId, today)
   },
@@ -836,7 +841,10 @@ export async function challengesForTeamFor(
 export const challengesForTeam = query({
   args: { teamId: v.id('teams') },
   handler: async (ctx, { teamId }) => {
+    // RETURNS rather than throws, so a page that renders the section never
+    // errors on a dark deployment.
+    if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) return { enabled: false as const }
     const player = await requirePlayer(ctx)
-    return await challengesForTeamFor(ctx, player._id, teamId)
+    return { enabled: true as const, ...(await challengesForTeamFor(ctx, player._id, teamId)) }
   },
 })
