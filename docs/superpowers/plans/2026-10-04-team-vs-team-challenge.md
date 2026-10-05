@@ -4061,6 +4061,138 @@ EOF
 
 ---
 
+## Plan Pass on Tasks 10-14 (2026-10-05) — READ BEFORE ANY OF THEM
+
+**TASKS 10-14 BELOW ARE NOT EXECUTABLE AS WRITTEN.** This pass verified every
+zic8.2.16 finding against the code at `b4268a5a`. Nothing below has been applied to
+the task text yet: four findings need an owner decision first (D1-D4), and two of
+those change Task 10's snapshot shape or Task 12's scope. The task text gets
+rewritten once the decisions are made, Task 9 style.
+
+### Owner decisions needed
+
+- **D1 — the consent UI no task builds.** No task renders accept, decline,
+  withdraw, cancel or the owner's `acceptsChallenges` switch, so AC3 and AC4 cannot
+  be met and Task 14's "a member accepts" has nothing to click. Task 9's `pending`
+  projection already carries what the buttons need (`direction`,
+  `proposedByViewer`, `challengeId`). Proposed: incoming rows get Accept/Decline,
+  outgoing rows get Withdraw (proposer or challenger's owner), active rows get
+  Cancel (either owner), and the switch goes on team settings. Split Task 12 into
+  12a (scoreboard + section + consent actions) and 12b (propose dialog).
+- **D2 — "deployed dark" has no mechanism**, and the rac gate sits in Task 14, two
+  tasks after Task 12 wires the UI in unconditionally. Proposed: a server-side
+  `CHALLENGES_ENABLED` deployment env var, **failing toward OFF** (the opposite of
+  `lib/sweeps.ts`, deliberately: there the costly mistake is the brake left on,
+  here it is a scoreboard published before rac). `challengesForTeamFor` returns
+  `{ enabled: false }` and the propose/accept mutations refuse while it is off.
+  It flips in the Convex dashboard with no deploy. The rac gate moves to Task 12
+  Step 0: the var is not set in production until rac closes.
+- **D3 — opponent member rows cannot be labelled** (wordle-teams-zic8.2.17). Rows
+  carry only `playerId`, and no query gives team A the names on team B. The
+  snapshot validator has no `name` either, and **Task 10's first close freezes
+  that shape.** Options: (a) project names server-side under the Pro gate and add
+  `name` to the snapshot before Task 10; (b) name your own team's rows only; (c)
+  drop the opponent's rows. This is also the spec §3 cross-team-visibility
+  question, so it is not an implementation call.
+- **D4 — who hears that a deleted team's challenge closed.** `closeOne` pushes to
+  both rosters; on deletion one roster's team no longer exists and the deep link
+  is dead. Proposed: notify the surviving team only.
+
+### Verified findings that are mechanical — applied when the task text is rewritten
+
+**Task 10**
+1. **Its tests call Task 9's OLD helpers.** `seedStats(ctx, teamId, playerId, …)`
+   and `octoberDays(3, 12)` no longer exist; Task 9 changed both signatures
+   (`seedStats(ctx, teamId, month, days)`, `octoberDays(playerId, attempts, count)`,
+   `ENOUGH`). This is the meta-lesson from zic8.2.16 recurring: an amended task
+   whose consumers were not re-checked.
+2. `WriterCtx` has no scheduler. `closeOne`, `notifyBothRosters`, `activate` and
+   their callers need `SchedulingCtx` from `winners.ts:73`, which `chat.ts` and
+   `billing.ts` already import.
+3. Hardcoded `'push'`. Derive `PUSH_METHOD` from `METHODS` as `reminders.ts:31` and
+   `chatNotify.ts:117` do; `reminderDeliveryMethods` is `v.array(v.string())`, so a
+   drift would be silent non-delivery.
+4. **Every push path is untested.** `aPlayer()` has `reminderDeliveryMethods:
+   ['email']` (fixtures.ts:26) and no test counts scheduled jobs. Add tests counting
+   `_scheduled_functions`, the way `chatNotify.test.ts:41` does: push only to
+   consenting players, each side's body names the OTHER team, and running the
+   close twice schedules nothing new.
+5. `result !== undefined` sits after `status !== 'active'`, so it can never fire;
+   its mutant survives. The status check IS the idempotence guard. Delete the
+   line and correct spec §13, which names it. The transposition assert is
+   tautological (it compares the board against the ids it was built from) and
+   should go too.
+6. One bad row aborts the whole sweep: `challengeScoreboardFor` throws on a
+   missing team row (pinned in Task 9). Skip and count such rows, logging each;
+   it throws before writing anything, so a catch leaves no partial state.
+7. **`cancelChallengeFor` ships with no tests**, though AC4 requires it. Needed:
+   each side's owner may cancel; a non-owner member gets `NOT_TEAM_OWNER`; a
+   non-active row gets `CHALLENGE_NOT_ACTIVE`; the cancel freezes a result.
+8. The clamp is not "byte-identical": `chatNotify.ts:71` exports
+   `MAX_NOTIFIED_TEAM_NAME = 40`, and the plan adds a private 30 with the same
+   name. Extract one pure clamp into `convex/lib/` and use it for both bodies,
+   rather than adding a "change one, change the other" comment. The body is
+   server-only, so it does not belong in client-safe `lib/challenge.ts` (and that
+   module's banner then needs no exception).
+9. **The citation is inverted.** `crons.ts:140` says the bill grew with **DATA**,
+   not run count. Step 9's comment, Step 12's commit message and the
+   `collect()` note all say the reverse.
+10. `pushableModules.test.ts` holds no list of push modules; it pins that nothing
+    the CLI pushes evaluates `import.meta`. Drop the Step 11 sentence.
+11. Imports mid-file (Step 1 and Step 6); test counts as absolute numbers.
+
+**Task 11** — the finding is **wider than zic8.2.16 recorded.**
+12. `cascadeDeleteTeam` (teams.ts:327) deletes `teamMonthStats` at lines 346-350
+    and the team row at 413. It has **four** callers: `deleteTeamFor`
+    (teams.ts:430), last-member `leaveTeam` (549), `billing.ts:431`, and
+    `e2ePrune.ts:314`. The close must be **the first statement of
+    `cascadeDeleteTeam`**, which covers all four. "Before the team row is deleted"
+    is not enough: after the aggregate goes, `statsDaysFor` reads zero boards and
+    freezes `void` without throwing.
+13. Both prescribed tests seed no aggregate, so a zeroed close and a correct one
+    look the same, and both call the helper directly, so they pass if the cascade
+    is never wired. Required instead: seed `teamMonthStats` on both sides above
+    the floor, drive `cascadeDeleteTeam` itself, and assert a **non-void** outcome
+    and real averages in the frozen result.
+
+**Task 12**
+14. The component test is JSX in a `.ts` file. Renaming it to `.tsx` makes vitest
+    **skip it silently** (`vitest.config.ts:20` includes `src/**/*.test.ts` only;
+    the repo has zero `.tsx` tests), so the step would report exit 0 with 0 tests.
+    Use `createElement` in a `.hook.test.ts`, as `Header.hook.test.ts` does.
+    `toBeInTheDocument` needs `@testing-library/jest-dom`, which is not a
+    dependency.
+15. zic8.2.15 (regenerate `api.d.ts` against a LOCAL anonymous backend) must land
+    first, as the Ground Rules say.
+16. Free-tier copy: `challengesForTeamFor` already strips rows server-side, so the
+    component's `pro` prop only chooses between "rows" and "upgrade hint"; it is not
+    a gate.
+
+**Task 13**
+17. A new route turns exact-list assertions red in two suites the task never names:
+    `src/crawler-metadata.test.ts` (sorted Disallow list at :170; "every route is
+    listed, disallowed or deliberately neither" at :591) and
+    `src/lib/maintenance.test.ts` (three `toEqual` path lists at :159, :193, :204).
+    It also needs `Disallow: /challenge` plus its rationale paragraph in
+    `public/robots.txt` (the path is a capability, exactly like `/join`), and an
+    entry in `GATED_SUBTREES` (`src/lib/maintenance.ts:124`).
+18. Step 3's sitemap grep can never fail: `src/routes/sitemap[.]xml.ts` holds no
+    entries. The crawler test at :591 is the real check.
+
+**Task 14**
+19. **NOT A GAP — the zic8.2.16 finding is stale.** `e2eSeed.seedInsightsFor` takes
+    `pro: boolean` and writes `playerMembership` (e2eSeed.ts:309-314), and
+    `e2e/insights.spec.ts` already uses it. `ensureTeamFor(A)` +
+    `ensureSharedTeamFor(A, B)` puts A on two teams with B on one, so the happy
+    path is seedable today.
+20. **"The scoreboard renders with both averages" cannot happen in an e2e run.**
+    The window starts the day AFTER acceptance, so a freshly accepted challenge has
+    zero boards and is `void`. Assert the "not enough boards yet" state and both
+    team names, not averages.
+21. The rac gate moves to Task 12 Step 0 under D2.
+
+---
+
 ## Task 10: Close on the existing daily sweep, idempotently, with push
 
 **bd:** child of `zic8.2`, title "close due challenges on teamStats.sweep + push".
