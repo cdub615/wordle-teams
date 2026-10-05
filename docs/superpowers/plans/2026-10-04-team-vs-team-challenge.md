@@ -176,11 +176,11 @@ describe('the constants', () => {
 
 describe('windowFor', () => {
   test('starts the day AFTER acceptance, so nothing retroactive counts', () => {
-    expect(windowFor('2026-10-04').startDay).toBe('2026-10-05')
+    expect(windowFor(today).startDay).toBe('2026-10-05')
   })
 
   test('ends with the calendar month when the month has room', () => {
-    expect(windowFor('2026-10-04')).toEqual({ startDay: '2026-10-05', endDay: '2026-10-31' })
+    expect(windowFor(today)).toEqual({ startDay: '2026-10-05', endDay: '2026-10-31' })
   })
 
   // SHORT_WINDOW_DAYS = 7, counted INCLUSIVELY from startDay to month end.
@@ -1273,7 +1273,7 @@ Create `convex/challenges.test.ts`:
 
 ```ts
 import { convexTest } from 'convex-test'
-import { describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { liveChallengeCountFor, proposeToTeamFor } from './challenges.ts'
@@ -1290,6 +1290,33 @@ import type { GenericDatabaseWriter } from 'convex/server'
  */
 const modules = import.meta.glob('./**/*.ts')
 type Ctx = { db: GenericDatabaseWriter<DataModel> }
+
+/**
+ * A FROZEN CLOCK, AND EVERY DATE BELOW IS ONLY MEANINGFUL UNDER IT.
+ *
+ * requirePlausibleToday bounds the accepter's `today` to +/-1 day of the SERVER's
+ * day (access.ts, via isPlausibleToday). So a hardcoded '2026-10-04' is
+ * INVALID_DATE from 2026-10-06 onward — a suite that breaks BY ITSELF, two days
+ * after it was written, with a refusal that looks like a product bug. Measured:
+ * at server day 2026-10-06 the bound rejects it.
+ *
+ * DERIVING THE EXPECTED WINDOW FROM windowFor INSTEAD WOULD BE TAUTOLOGICAL —
+ * asserting the implementation against itself. So the clock moves and the
+ * expectation stays literal. Same pattern as dashboardBandwidth.test.ts.
+ *
+ * MUST BE FILE-SCOPED, above every describe, because Task 7's dated tests and
+ * Task 5's undated ones share the file.
+ */
+const NOW = new Date('2026-10-04T12:00:00Z')
+const today = '2026-10-04'
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  vi.setSystemTime(NOW)
+})
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 /** A player on two teams, Pro by default. */
 async function seedTwoTeams(ctx: Ctx, { pro = true } = {}) {
@@ -1569,6 +1596,7 @@ export async function requireChallengeablePair(
   ctx: ReaderCtx,
   challengerTeamId: Id<'teams'>,
   opponentTeamId: Id<'teams'>,
+  exceptId?: Id<'teamChallenges'>,
 ): Promise<void> {
   if (challengerTeamId === opponentTeamId) throw accessError('INVALID_TEAM')
 
@@ -1577,16 +1605,26 @@ export async function requireChallengeablePair(
   // ABSENT MEANS YES. Only an explicit false refuses.
   if (opponent.acceptsChallenges === false) throw accessError('CHALLENGES_REFUSED')
 
-  if ((await liveChallengeCountFor(ctx, challengerTeamId)) >= MAX_ACTIVE_CHALLENGES) {
-    throw accessError('CHALLENGE_LIMIT_REACHED')
-  }
-  if ((await liveChallengeCountFor(ctx, opponentTeamId)) >= MAX_ACTIVE_CHALLENGES) {
-    throw accessError('CHALLENGE_LIMIT_REACHED')
-  }
+  // EXCLUDE THE CHALLENGE IN FLIGHT. On the accept and claim paths the row being
+  // brought to life is ITSELF 'pending', so liveChallengesFor returns it for both
+  // teams. Measured: without this, requireChallengeablePair hands back
+  // CHALLENGE_EXISTS for the very challenge being accepted, and
+  // acceptChallengeFor can NEVER succeed. The caps are off by one for the same
+  // reason, so a proposal made in a team's last free slot could never be
+  // activated — a bug no prescribed test could see. Propose passes nothing,
+  // because there is no row yet.
+  const challengerLive = (await liveChallengesFor(ctx, challengerTeamId)).filter(
+    (c) => c._id !== exceptId,
+  )
+  const opponentLive = (await liveChallengesFor(ctx, opponentTeamId)).filter(
+    (c) => c._id !== exceptId,
+  )
+  if (challengerLive.length >= MAX_ACTIVE_CHALLENGES) throw accessError('CHALLENGE_LIMIT_REACHED')
+  if (opponentLive.length >= MAX_ACTIVE_CHALLENGES) throw accessError('CHALLENGE_LIMIT_REACHED')
 
   // ONE LIVE CHALLENGE PER UNORDERED PAIR. Checked in both directions, because
   // either team may have been the proposer.
-  const existing = (await liveChallengesFor(ctx, challengerTeamId)).find(
+  const existing = challengerLive.find(
     (c) =>
       c.opponentTeamId === opponentTeamId ||
       (c.challengerTeamId === opponentTeamId && c.opponentTeamId === challengerTeamId),
@@ -1718,20 +1756,38 @@ describe('proposeByLinkFor', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx, { pro: false })
-      await expect(proposeByLinkFor(ctx, playerId, challengerTeamId)).rejects.toThrow()
+      await expect(proposeByLinkFor(ctx, playerId, challengerTeamId)).rejects.toMatchObject({
+        data: { code: 'PRO_REQUIRED' },
+      })
     })
   })
 
   // PROVES THE CALL RUNS IN THIS RUNTIME; it does NOT prove unguessability — a
   // counter would satisfy this too. The source of the bytes is a code-review
   // obligation. Same note as inviteLinks' newToken.
+  // EACH ROW IS WITHDRAWN BEFORE THE NEXT DRAW. proposeByLinkFor counts
+  // 'pending' against MAX_ACTIVE_CHALLENGES, which is 5 — so an unguarded
+  // 25-iteration loop throws CHALLENGE_LIMIT_REACHED at i = 5. Measured against
+  // the real function, which is already on disk.
+  //
+  // THE SHAPE ASSERTION IS NOT DECORATION: 32 hex chars is the 16 bytes newToken
+  // draws. Without it the suite cannot tell Uint8Array(16) from Uint8Array(2) —
+  // 25 draws from 65536 collide only about 0.5% of the time, so the set-size
+  // assertion alone survives that mutant.
   test('two tokens never collide', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
       const tokens = new Set<string>()
       for (let i = 0; i < 25; i++) {
-        tokens.add(await proposeByLinkFor(ctx, playerId, challengerTeamId))
+        const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+        tokens.add(token)
+        expect(token).toMatch(/^[0-9a-f]{32}$/)
+        const doc = await ctx.db
+          .query('teamChallenges')
+          .withIndex('by_token', (q) => q.eq('token', token))
+          .unique()
+        if (doc !== null) await ctx.db.patch(doc._id, { status: 'withdrawn' })
       }
       expect(tokens.size).toBe(25)
     })
@@ -1751,7 +1807,9 @@ describe('proposeByLinkFor', () => {
           createdAt: Date.now(),
         })
       }
-      await expect(proposeByLinkFor(ctx, playerId, challengerTeamId)).rejects.toThrow()
+      await expect(proposeByLinkFor(ctx, playerId, challengerTeamId)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_LIMIT_REACHED' },
+      })
     })
   })
 })
@@ -1869,8 +1927,12 @@ EOF
 **bd:** child of `zic8.2`, title "acceptChallenge and claimChallengeLink".
 
 **Files:**
-- Modify: `convex/challenges.ts`
-- Modify: `convex/challenges.test.ts`
+- Modify: `convex/challenges.ts` — **and note this task EDITS `requireChallengeablePair`,
+  which Task 5 already wrote to disk. It is not purely an append.**
+- Modify: `convex/challenges.test.ts` — **also not purely an append: the frozen-clock
+  block below must go at FILE scope, above Task 5's describe.**
+- Modify: `convex/access.ts`
+- Modify: `src/lib/convex-error.ts` — **both halves**, see Step 4
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1904,7 +1966,7 @@ describe('acceptChallengeFor', () => {
         createdAt: Date.now(),
       })
 
-      await acceptChallengeFor(ctx, accepterId, id, '2026-10-04')
+      await acceptChallengeFor(ctx, accepterId, id, today)
 
       const doc = await ctx.db.get(id)
       expect(doc?.status).toBe('active')
@@ -1927,7 +1989,9 @@ describe('acceptChallengeFor', () => {
         expiresAt: Date.now() + TTL,
         createdAt: Date.now(),
       })
-      await expect(acceptChallengeFor(ctx, playerId, id, '2026-10-04')).rejects.toThrow()
+      await expect(acceptChallengeFor(ctx, playerId, id, today)).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
     })
   })
 
@@ -1944,7 +2008,65 @@ describe('acceptChallengeFor', () => {
         expiresAt: Date.now() - 1,
         createdAt: Date.now(),
       })
-      await expect(acceptChallengeFor(ctx, accepterId, id, '2026-10-04')).rejects.toThrow()
+      await expect(acceptChallengeFor(ctx, accepterId, id, today)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_NOT_PENDING' },
+      })
+    })
+  })
+
+  // THE OFF-BY-ONE THAT NO PRESCRIBED TEST COULD SEE. The pending row being
+  // accepted is itself counted by liveChallengeCountFor, so without `exceptId`
+  // a proposal made in a team's FIFTH and last slot could never be activated —
+  // it would be permanently pending. MAX - 1 others plus this one is exactly MAX.
+  test('the proposal being accepted does not count ITSELF against either cap', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      for (let i = 0; i < MAX_ACTIVE_CHALLENGES - 1; i++) {
+        const otherId = await ctx.db.insert(
+          'teams',
+          aTeam({ legacyId: 900 + i, name: `c${i}` }),
+        )
+        await ctx.db.insert('teamChallenges', {
+          challengerTeamId,
+          opponentTeamId: otherId,
+          proposedBy: playerId,
+          status: 'active',
+          expiresAt: Date.now() + TTL,
+          startDay: '2026-10-05',
+          endDay: '2026-10-31',
+          createdAt: Date.now(),
+        })
+      }
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await acceptChallengeFor(ctx, accepterId, id, today)
+      expect((await ctx.db.get(id))?.status).toBe('active')
+    })
+  })
+
+  // THE opponentTeamId GUARD. Without it requireTeamMemberFor is handed
+  // undefined and ctx.db.get(undefined) is what the caller sees instead.
+  test('a link proposal cannot be accepted through the direct path', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId } = await seedAccepter(ctx)
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      const doc = await ctx.db
+        .query('teamChallenges')
+        .withIndex('by_token', (q) => q.eq('token', token))
+        .unique()
+      await expect(
+        acceptChallengeFor(ctx, accepterId, doc!._id, today),
+      ).rejects.toMatchObject({ data: { code: 'INVALID_TEAM' } })
     })
   })
 
@@ -1963,7 +2085,9 @@ describe('acceptChallengeFor', () => {
         expiresAt: Date.now() + TTL,
         createdAt: Date.now(),
       })
-      await expect(acceptChallengeFor(ctx, accepterId, id, '2026-10-06')).rejects.toThrow()
+      await expect(acceptChallengeFor(ctx, accepterId, id, today)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_NOT_PENDING' },
+      })
     })
   })
 })
@@ -1976,7 +2100,7 @@ describe('claimChallengeLinkFor', () => {
       const { accepterId, theirTeamId } = await seedAccepter(ctx)
       const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
 
-      const id = await claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, '2026-10-04')
+      const id = await claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, today)
 
       const doc = await ctx.db.get(id)
       expect(doc?.status).toBe('active')
@@ -1990,8 +2114,10 @@ describe('claimChallengeLinkFor', () => {
     await t.run(async (ctx) => {
       const { accepterId, theirTeamId } = await seedAccepter(ctx)
       await expect(
-        claimChallengeLinkFor(ctx, accepterId, 'nope', theirTeamId, '2026-10-04'),
-      ).rejects.toThrow()
+        claimChallengeLinkFor(ctx, accepterId, 'nope', theirTeamId, today),
+      ).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_LINK_INVALID' },
+      })
     })
   })
 
@@ -2004,8 +2130,10 @@ describe('claimChallengeLinkFor', () => {
       await ctx.db.patch(theirTeamId, { acceptsChallenges: false })
       const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
       await expect(
-        claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, '2026-10-04'),
-      ).rejects.toThrow()
+        claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, today),
+      ).rejects.toMatchObject({
+        data: { code: 'CHALLENGES_REFUSED' },
+      })
     })
   })
 
@@ -2029,8 +2157,10 @@ describe('claimChallengeLinkFor', () => {
       }
       const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
       await expect(
-        claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, '2026-10-04'),
-      ).rejects.toThrow()
+        claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, today),
+      ).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_LIMIT_REACHED' },
+      })
     })
   })
 
@@ -2051,8 +2181,47 @@ describe('claimChallengeLinkFor', () => {
       })
       const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
       await expect(
-        claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, '2026-10-04'),
-      ).rejects.toThrow()
+        claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, today),
+      ).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_EXISTS' },
+      })
+    })
+  })
+
+  // THE EMPTY TOKEN, which reaches by_token as a real probe. Two DIRECT
+  // proposals both key on an absent token, so without the guard .unique() sees
+  // both and throws "not unique" rather than refusing.
+  test('an empty token is refused before the index is probed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(
+        claimChallengeLinkFor(ctx, accepterId, '', theirTeamId, today),
+      ).rejects.toMatchObject({ data: { code: 'CHALLENGE_LINK_INVALID' } })
+    })
+  })
+
+  // THE SELF-CLAIM, and Task 5's duplicate-unreachability argument rests on it:
+  // liveChallengesFor returns a row twice if a team is on both sides, which
+  // would inflate every cap count thereafter. The claim path is the SECOND way
+  // to reach that state and the only one nothing asserted.
+  test("you cannot claim your own team's link", async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      await expect(
+        claimChallengeLinkFor(ctx, playerId, token, challengerTeamId, today),
+      ).rejects.toMatchObject({ data: { code: 'INVALID_TEAM' } })
     })
   })
 
@@ -2064,8 +2233,10 @@ describe('claimChallengeLinkFor', () => {
       const strangersTeam = await ctx.db.insert('teams', aTeam({ legacyId: 800, name: 'Strangers' }))
       const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
       await expect(
-        claimChallengeLinkFor(ctx, accepterId, token, strangersTeam, '2026-10-04'),
-      ).rejects.toThrow()
+        claimChallengeLinkFor(ctx, accepterId, token, strangersTeam, today),
+      ).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
     })
   })
 })
@@ -2074,7 +2245,7 @@ describe('claimChallengeLinkFor', () => {
 Add near the top of the test file, beside `modules`:
 
 ```ts
-const TTL = 7 * 24 * 60 * 60 * 1000
+const TTL = PROPOSAL_TTL_DAYS * 24 * 60 * 60 * 1000
 ```
 
 - [ ] **Step 2: Run it and confirm it fails**
@@ -2111,16 +2282,24 @@ Then:
  */
 async function activate(
   ctx: WriterCtx,
-  challenge: Doc<'teamChallenges'>,
+  challengeId: Id<'teamChallenges'>,
   accepterId: Id<'players'>,
   today: string,
+  extra: Partial<Doc<'teamChallenges'>> = {},
 ): Promise<void> {
   const { startDay, endDay } = windowFor(requirePlausibleToday(today))
-  await ctx.db.patch(challenge._id, {
+  // THE ID, NOT THE DOC. The claim path patches opponentTeamId first, so a
+  // doc-taking signature would be handed a stale copy — correct today only
+  // because this function reads nothing but the id, and silently wrong the
+  // moment it grows to read another field (a push body naming the opponent is
+  // the obvious candidate). `extra` lets the claim path fold its own patch in
+  // here, so there is one write rather than two.
+  await ctx.db.patch(challengeId, {
     status: 'active',
     acceptedBy: accepterId,
     startDay,
     endDay,
+    ...extra,
   })
 }
 
@@ -2141,9 +2320,14 @@ export async function acceptChallengeFor(
 
   // RE-CHECKED AT ACCEPTANCE, not trusted from propose time: the pair may have
   // filled its slots or turned challenges off while this sat pending.
-  await requireChallengeablePair(ctx, challenge.challengerTeamId, challenge.opponentTeamId)
+  await requireChallengeablePair(
+    ctx,
+    challenge.challengerTeamId,
+    challenge.opponentTeamId,
+    challenge._id,
+  )
 
-  await activate(ctx, challenge, playerId, today)
+  await activate(ctx, challenge._id, playerId, today)
 }
 
 /**
@@ -2165,6 +2349,13 @@ export async function claimChallengeLinkFor(
   opponentTeamId: Id<'teams'>,
   today: string,
 ): Promise<Id<'teamChallenges'>> {
+  // GUARD BEFORE THE LOOKUP, and schema.ts's banner on teamChallenges.token says
+  // why: the field is OPTIONAL, so eq('token', undefined) matches every DIRECT
+  // proposal at once and .unique() throws "not unique" — a failure a long way
+  // from its cause. An empty token is also not a token. Task 13 adds a ROUTE
+  // PARAM feeding this, which is exactly how an empty string gets here.
+  if (!token) throw accessError('CHALLENGE_LINK_INVALID')
+
   const challenge = await ctx.db
     .query('teamChallenges')
     .withIndex('by_token', (q) => q.eq('token', token))
@@ -2177,10 +2368,10 @@ export async function claimChallengeLinkFor(
   if (challenge.expiresAt <= Date.now()) throw accessError('CHALLENGE_LINK_INVALID')
 
   await requireTeamMemberFor(ctx, playerId, opponentTeamId)
-  await requireChallengeablePair(ctx, challenge.challengerTeamId, opponentTeamId)
+  await requireChallengeablePair(ctx, challenge.challengerTeamId, opponentTeamId, challenge._id)
 
-  await ctx.db.patch(challenge._id, { opponentTeamId })
-  await activate(ctx, { ...challenge, opponentTeamId }, playerId, today)
+  // ONE PATCH, via activate's `extra` — see its comment on why it takes an id.
+  await activate(ctx, challenge._id, playerId, today, { opponentTeamId })
   return challenge._id
 }
 
@@ -2201,13 +2392,36 @@ export const claimChallengeLink = mutation({
 })
 ```
 
-- [ ] **Step 4: Add the two remaining access codes**
+- [ ] **Step 4: Add the two remaining access codes — in THREE places, not one**
 
-In `convex/access.ts`, extend the block added in Task 5:
+This step was missing two of the three in the plan's first draft, which is exactly
+how Task 5 lost an hour. See the ground rule: one half has no compiler behind it.
+
+**1. `convex/access.ts`**, extending the block added in Task 5:
 
 ```ts
   | 'CHALLENGE_NOT_PENDING'
   | 'CHALLENGE_LINK_INVALID'
+```
+
+**2. `src/lib/convex-error.ts`**, `convexErrorCode`'s `||` chain. **NO COMPILER
+BEHIND THIS.** Miss it and the copy written below is unreachable, so every user sees
+the generic message instead. `src/lib/convex-error.test.ts` parses the union and is
+the only guard — and it does NOT run under a single-file test of `challenges.test.ts`:
+
+```ts
+    code === 'CHALLENGE_NOT_PENDING' ||
+    code === 'CHALLENGE_LINK_INVALID'
+```
+
+**3. `src/lib/convex-error.ts`**, `typedCodeMessage`. Typecheck-enforced — its
+`default` assigns to `never`, so the build stops until these exist:
+
+```ts
+    case 'CHALLENGE_NOT_PENDING':
+      return 'That challenge is no longer waiting for an answer.'
+    case 'CHALLENGE_LINK_INVALID':
+      return 'That challenge link is no longer valid.'
 ```
 
 - [ ] **Step 5: Add this file to `requirePlausibleToday`'s enumeration**
@@ -2228,12 +2442,26 @@ In `convex/access.ts`, extend the block added in Task 5:
 TZ=UTC pnpm test:once convex/challenges.test.ts > /tmp/t7.txt 2>&1; echo "exit=$?"; tail -30 /tmp/t7.txt
 ```
 
+- [ ] **Step 6b: The two gates this task's new AccessCodes can break**
+
+A single-file vitest run never loads `src/lib/convex-error.test.ts`, and nothing in
+Tasks 5-8 otherwise runs `tsc`. Without this step, a missed half of Step 4 surfaces
+three commits later at Task 9.
+
+```bash
+TZ=UTC pnpm test:once src/lib/convex-error.test.ts > /tmp/t7-ce.txt 2>&1; echo "ce=$?"
+pnpm typecheck > /tmp/t7-tsc.txt 2>&1; echo "tsc=$?"
+```
+
+Both must be 0. `ce` guards `convexErrorCode`'s hand-written chain; `tsc` guards
+`typedCodeMessage`.
+
 Expected: `exit=0`, 24 tests passing.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add convex/challenges.ts convex/challenges.test.ts convex/access.ts
+git add convex/challenges.ts convex/challenges.test.ts convex/access.ts src/lib/convex-error.ts
 git commit -F - <<'EOF'
 feat(zic8.2): accept and claim, with every pair check re-run at acceptance
 
@@ -2254,7 +2482,10 @@ EOF
 
 ---
 
-## Task 8: Decline, withdraw, cancel, and the owner's switch
+## Task 8: Decline, withdraw, and the owner's switch
+
+> `cancelChallengeFor` is NOT in this task — it needs the scoreboard and lands in
+> Task 10. Nothing here references it.
 
 **bd:** child of `zic8.2`, title "decline/withdraw/cancel and setAcceptsChallenges".
 
@@ -2343,7 +2574,66 @@ describe('withdrawChallengeFor', () => {
         expiresAt: Date.now() + TTL,
         createdAt: Date.now(),
       })
-      await expect(withdrawChallengeFor(ctx, accepterId, id)).rejects.toThrow()
+      await expect(withdrawChallengeFor(ctx, accepterId, id)).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
+    })
+  })
+
+  // NOT_TEAM_OWNER, NOT NOT_A_MEMBER. The test above uses seedAccepter's player,
+  // who is on NO team of the challenger's, so requireTeamOwnerFor refuses at its
+  // FIRST line and the owner branch's second line is never reached. This is the
+  // only assertion that gets there.
+  test('a member of the challenging team who did not propose it cannot withdraw', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const bystander = await ctx.db.insert(
+        'players',
+        aPlayer({ email: 'bystander@example.com', legacyId: '33333333-3333-4333-8333-333333333333' }),
+      )
+      const team = await ctx.db.get(challengerTeamId)
+      await ctx.db.patch(challengerTeamId, { playerIds: [...(team?.playerIds ?? []), bystander] })
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(withdrawChallengeFor(ctx, bystander, id)).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_OWNER' },
+      })
+    })
+  })
+
+  // THE ELSE BRANCH. seedTwoTeams' player is proposer AND owner, so the
+  // happy-path test above cannot tell the two branches apart — a mutant
+  // collapsing the if to a single requireTeamOwnerFor survives it, silently
+  // taking withdrawal away from every non-owner proposer.
+  test('a NON-OWNER proposer withdraws their own proposal', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const proposer = await ctx.db.insert(
+        'players',
+        aPlayer({ email: 'proposer@example.com', legacyId: '44444444-4444-4444-8444-444444444444' }),
+      )
+      const team = await ctx.db.get(challengerTeamId)
+      await ctx.db.patch(challengerTeamId, { playerIds: [...(team?.playerIds ?? []), proposer] })
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: proposer,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await withdrawChallengeFor(ctx, proposer, id)
+      expect((await ctx.db.get(id))?.status).toBe('withdrawn')
     })
   })
 
@@ -2362,7 +2652,9 @@ describe('withdrawChallengeFor', () => {
         expiresAt: Date.now() + TTL,
         createdAt: Date.now(),
       })
-      await expect(withdrawChallengeFor(ctx, playerId, id)).rejects.toThrow()
+      await expect(withdrawChallengeFor(ctx, playerId, id)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_NOT_PENDING' },
+      })
     })
   })
 })
@@ -2377,6 +2669,19 @@ describe('setAcceptsChallengesFor', () => {
     })
   })
 
+  // EXPLICIT true, not absence. requireChallengeablePair reads `=== false`, so
+  // both representations of "yes" must round-trip — and a mutant hardcoding
+  // { acceptsChallenges: false } survives a suite that only ever asserts false.
+  test('the owner turns incoming challenges back on', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      await ctx.db.patch(challengerTeamId, { acceptsChallenges: false })
+      await setAcceptsChallengesFor(ctx, playerId, challengerTeamId, true)
+      expect((await ctx.db.get(challengerTeamId))?.acceptsChallenges).toBe(true)
+    })
+  })
+
   test('a non-owner member cannot', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -2386,7 +2691,9 @@ describe('setAcceptsChallengesFor', () => {
       await ctx.db.patch(challengerTeamId, { playerIds: [...(team?.playerIds ?? []), otherId] })
       await expect(
         setAcceptsChallengesFor(ctx, otherId, challengerTeamId, false),
-      ).rejects.toThrow()
+      ).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_OWNER' },
+      })
     })
   })
 })
@@ -2706,8 +3013,8 @@ describe('recordAgainstFor', () => {
         expiresAt: Date.now(),
         createdAt: Date.now(),
         result: {
-          challenger: { teamId: challengerTeamId, boards: 12, attempts: 36, average: 3, members: [] },
-          opponent: { teamId: theirTeamId, boards: 12, attempts: 48, average: 4, members: [] },
+          challenger: { teamId: challengerTeamId, name: 'Challengers', boards: 12, attempts: 36, average: 3, members: [] },
+          opponent: { teamId: theirTeamId, name: 'Theirs', boards: 12, attempts: 48, average: 4, members: [] },
           outcome,
           closedAt: Date.now(),
         },
@@ -2722,7 +3029,7 @@ describe('recordAgainstFor', () => {
     })
   })
 
-  test('the record is from the VIEWING team's side', async () => {
+  test("the record is from the VIEWING team's side", async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
@@ -2737,8 +3044,8 @@ describe('recordAgainstFor', () => {
         expiresAt: Date.now(),
         createdAt: Date.now(),
         result: {
-          challenger: { teamId: challengerTeamId, boards: 12, attempts: 36, average: 3, members: [] },
-          opponent: { teamId: theirTeamId, boards: 12, attempts: 48, average: 4, members: [] },
+          challenger: { teamId: challengerTeamId, name: 'Challengers', boards: 12, attempts: 36, average: 3, members: [] },
+          opponent: { teamId: theirTeamId, name: 'Theirs', boards: 12, attempts: 48, average: 4, members: [] },
           outcome: 'challenger',
           closedAt: Date.now(),
         },
@@ -3346,6 +3653,11 @@ async function closeOne(ctx: WriterCtx, challenge: Doc<'teamChallenges'>): Promi
   const board = await challengeScoreboardFor(ctx, challenge)
   const strip = (side: ChallengeSide) => ({
     teamId: side.teamId,
+    // NOTE THE RENAME: ChallengeSide carries `teamName`, the validator requires
+    // `name`. So a spread does NOT work — this mapping is why `strip` exists.
+    // schema.ts's banner: the name at close is the point of a snapshot, because
+    // a rename must not rewrite who a closed challenge was against.
+    name: side.teamName,
     boards: side.boards,
     attempts: side.attempts,
     average: side.average,
@@ -3516,6 +3828,27 @@ Also add the accept-time push — in `activate`, after the `patch`:
 ```
 
 **Note on `collect()` here.** `closeDueChallengesFor` walks the whole table. That is correct at this volume — the table holds at most `MAX_ACTIVE_CHALLENGES` per team and closed rows accumulate slowly — but `crons.ts` records that run count rather than data volume is what grew the bill, and an unbounded daily scan is the shape to watch. File a bd issue to index by status and range-scan if the table passes a few thousand rows.
+
+- [ ] **Step 8b: Wire the ACCEPTANCE push, which until now no task owned**
+
+Spec §8 says `acceptChallenge` "Schedules push to both rosters" and §10 is titled
+"push on accept **and** on close" — but Task 7 implements no push and, before this
+amendment, neither did any other task. It lands HERE rather than in Task 7 so that
+all push plumbing (`notifyBothRosters`, the consent gate, the scheduled-not-awaited
+rule) lives in one task and is written once.
+
+In `activate` (added in Task 7), after the patch:
+
+```ts
+  // SCHEDULED FROM THE MUTATION, so the decision and the state change commit in
+  // the same transaction — see notifyBothRosters on why that matters for
+  // duplicate pushes. The doc is re-read because activate takes an id.
+  const activated = await ctx.db.get(challengeId)
+  if (activated !== null) await notifyBothRosters(ctx, activated, 'accepted')
+```
+
+`activate` therefore needs `notifyBothRosters` in scope, which this task defines —
+so this step comes after Step 8.
 
 - [ ] **Step 9: Wire it into the existing sweep**
 
@@ -4021,6 +4354,6 @@ A `bd close` committed together with code records the PRE-close state, so commit
 
 **Two things deliberately not in a task.** The §8.3 mid-window roster property needs no code — it is what `teamStats` already does — and it is documented in the spec rather than enforced. The §10 push defects (`2dl6`, `i5pj`, `cvvn`) are explicitly out of scope and must not grow a workaround here.
 
-**Type consistency.** `ChallengeTotals` / `ChallengeMemberTotal` / `StatsDay` (Task 2) are used unchanged in Tasks 9-10. `ChallengeOutcome` (Task 3) is the same union as the schema literal union (Task 4) and the `result.outcome` field. `challengeSideValidator` (Task 4) matches `ChallengeSide` minus `teamName`, which is why `closeOne` has an explicit `strip` — the snapshot stores ids, not names, so a renamed team does not rewrite history. `meanAttemptsOf` is the only averaging function anywhere; no `teamAverageOf` is ever defined.
+**Type consistency.** `ChallengeTotals` / `ChallengeMemberTotal` / `StatsDay` (Task 2) are used unchanged in Tasks 9-10. `ChallengeOutcome` (Task 3) is the same union as the schema literal union (Task 4) and the `result.outcome` field. `challengeSideValidator` (Task 4) requires `name` as well as `teamId`, and `ChallengeSide` spells that field `teamName` — which is why `closeOne` needs an explicit `strip` that RENAMES it rather than a spread. The snapshot stores the name ON PURPOSE: a rename must not rewrite who a closed challenge was against, and the deletion cascade reads both names before the row goes. **This sentence previously claimed the opposite, as settled fact, because the field was added during Task 4's review and never propagated here — two independent adversarial reviewers ranked that contradiction the single most likely thing to stop a later task.** `meanAttemptsOf` is the only averaging function anywhere; no `teamAverageOf` is ever defined.
 
 **One known gap, filed rather than hidden.** `closeDueChallengesFor` uses `collect()` over the whole table. Correct at this volume, wrong eventually. Task 10 Step 8 says to file the bd issue.
