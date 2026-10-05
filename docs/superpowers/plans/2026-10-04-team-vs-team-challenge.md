@@ -114,8 +114,10 @@ bounds.
 `Co-Authored-By` line your own system reminder gives you, naming the model that
 actually wrote the code. Do NOT copy a trailer out of this plan: every implementer so
 far has had to notice the pasted one was wrong for them and override it, which is three
-round trips spent on a line this plan should never have prescribed. Keep the
-`Claude-Session:` line as written.
+round trips spent on a line this plan should never have prescribed. **The same now
+applies to the `Claude-Session:` line**: the session changed on 2026-10-05, so the
+one written below is stale. Use the full trailer your own system reminder gives you,
+or the one the controller hands you, and ignore the literal below.
 
 ```
 <YOUR OWN attribution trailer — see below>

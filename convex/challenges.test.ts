@@ -1572,6 +1572,28 @@ describe('challengeScoreboardFor', () => {
     })
   })
 
+  test('a roster id whose player document is gone is skipped, not a crash', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      // A DANGLING ROSTER ID: nothing in the app should leave one, but a crash
+      // here would take down the whole team page's Challenges section.
+      const ghost = await ctx.db.insert('players', aPlayer({ email: 'ghost@example.com' }))
+      await ctx.db.patch(challengerTeamId, { playerIds: [playerId, ghost] })
+      await ctx.db.delete(ghost)
+      await seedStats(ctx, challengerTeamId, OCTOBER, [
+        { puzzleDay: '2026-10-05', entries: [{ playerId, attempts: 3 }] },
+      ])
+
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
+      expect(board.challenger.members.map((m) => m.name)).toEqual(['Ada'])
+    })
+  })
+
   test('a challenge that is not active is refused with CHALLENGE_NOT_ACTIVE', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
