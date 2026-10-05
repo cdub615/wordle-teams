@@ -5450,31 +5450,84 @@ Four gates; commit. The controller re-shoots the card with the dialog open.
 
 **bd:** `wordle-teams-zic8.2.13`.
 
+`/challenge/<token>`: where a challenge link opens. Unlike a join link it cannot be
+spent automatically on `/app`, because the holder must CHOOSE which of their teams
+accepts — so the claim happens on this page, and a signed-out holder is brought back
+to it after signing in.
+
 **Files:**
-- Create: `src/routes/challenge.$token.tsx` (mirrors `join.$token.tsx`)
-- Modify: `public/robots.txt` — `Disallow: /challenge` AND a rationale paragraph in its
-  header block beside `/join`'s: the path segment IS the capability.
-- Modify: `src/crawler-metadata.test.ts` — the sorted exact Disallow list (~line 170)
-  and the test title that names them
-- Modify: `src/lib/maintenance.ts` — add the subtree to `GATED_SUBTREES` (~line 124)
+- Create: `src/routes/challenge.$token.tsx` — thin: params, auth context, wiring
+- Create: `src/components/challenges/challenge-claim.tsx` — the page body, plain props
+- Create: `src/components/challenges/challenge-claim.hook.test.ts` (`.ts` +
+  `createElement`, jsdom, no jest-dom)
+- Create: `src/lib/pending-challenge.ts` (+ `.test.ts`) — sessionStorage stash,
+  mirroring `src/lib/pending-invite.ts` exactly (same try/catch tolerance, its own key
+  `wt.pendingChallengeToken`)
+- Modify: `src/routes/app.tsx` — the resume (below)
+- Modify: `public/robots.txt` — `Disallow: /challenge` AND a rationale paragraph in the
+  header block beside `/join`'s: the path segment IS the capability
+- Modify: `src/crawler-metadata.test.ts` — its sorted exact Disallow list (~170) and
+  that test's title
+- Modify: `src/lib/maintenance.ts` — `/challenge` in `GATED_SUBTREES` (~124), beside
+  `/join`
 - Modify: `src/lib/maintenance.test.ts` — its three exact `toEqual` path lists
-  (~lines 159, 193, 204)
 - Commit: the regenerated `src/routeTree.gen.ts`
 
-**The sitemap grep in the old text is deleted:** `src/routes/sitemap[.]xml.ts` holds no
-entries, so it could never fail. The real check is `crawler-metadata.test.ts`'s
-"every route in the app is listed, disallowed, or deliberately neither" (~line 591),
-which goes RED the moment the route exists without a Disallow — run it before adding
-the robots line and record that it failed.
+**The old sitemap grep is gone:** `src/routes/sitemap[.]xml.ts` holds no entries, so it
+could never fail. The real check is `crawler-metadata.test.ts`'s "every route in the app
+is listed, disallowed, or deliberately neither" (~591): **run it once with the route
+added and BEFORE the robots line, and record that it went red.**
 
-- [ ] The page: the sign-in bounce and post-auth resume as `join.$token.tsx`; a team
-  picker when the viewer is on several teams, auto-selected on one; `claimChallengeLink`
-  with the viewer's local `today`; ONE message for an invalid, expired or claimed token
-  (`CHALLENGE_LINK_INVALID`); and `CHALLENGES_DISABLED` renders the same "not available
-  yet" copy rather than an error page.
-- [ ] Tests: whatever `join.$token`'s route has, mirrored; plus the two exact-list
-  suites above going red then green.
-- [ ] Four gates — `build` regenerates `routeTree.gen.ts`; commit it.
+### Behaviour (the specification)
+
+`ChallengeClaim` props: `state` (`'signed-out' | 'loading' | 'ready'`), `teams` (the
+viewer's teams from `getMyTeams`), `onClaim(teamId)` returning a promise, `outcome`
+(none, or a terminal refusal code). The route supplies them.
+
+1. **Signed out:** the route stashes the token (`rememberPendingChallenge`) and
+   replace-navigates to `/login`. The page shows "Opening a challenge" / "One moment…"
+   and names nothing — like the join route, it never looks the token up, so an
+   anonymous holder learns nothing about whether it is real.
+2. **Signed in:** the route ALSO stashes (the join route's reason: `/app`'s guard
+   drops search params on its way to `/complete-profile`, and the stash survives).
+   The page shows "You've been challenged", one line explaining that a team accepts
+   on behalf of its members and the window starts tomorrow, and the viewer's teams.
+3. **One team:** it is pre-selected and the button reads "Accept for <team>". **Several:**
+   radio choices, nothing pre-selected, and the button disabled until one is chosen.
+4. **No team at all:** "You need a team to accept a challenge", a link to `/app`, and
+   no button.
+5. **Accept** calls `claimChallengeLink({ token, opponentTeamId, today:
+   toPuzzleDay(new Date()) })` — the viewer's LOCAL day. While in flight the button is
+   disabled. On success: clear the stash, toast "Challenge accepted", replace-navigate
+   to `/team?team=<chosen>`.
+6. **Terminal refusals replace the page body with one message and no buttons:**
+   `CHALLENGE_LINK_INVALID` → its `typedCodeMessage` ("That challenge link is no
+   longer valid."), and `CHALLENGES_DISABLED` → its message. One message for unknown,
+   expired, claimed and withdrawn alike — the server already makes them
+   indistinguishable, and the page must not undo that. Clear the stash.
+7. **Recoverable refusals toast and leave the picker** so another team can be tried:
+   `CHALLENGE_LIMIT_REACHED`, `CHALLENGE_EXISTS`, `CHALLENGES_REFUSED`,
+   `INVALID_TEAM` (the challenger's own team), `INVALID_DATE`. Each with its
+   `typedCodeMessage`, through `mutationErrorMessage`.
+
+**The resume on `/app`:** when the dashboard renders for a player and a challenge token
+is stashed, take it (read AND clear in one step, so a refresh cannot loop) and
+replace-navigate to `/challenge/<token>`. **Only when there is no `?join=` and no
+pending invite**, so the two one-shot flows never race; a pending invite wins and the
+challenge waits for the next dashboard render. Follow `src/lib/use-pending-invite.ts`
+for where and how this runs; read its comments on timing first.
+
+Tests: 1-7 for the component; `pending-challenge.ts` mirroring
+`pending-invite.test.ts`; the resume as a hook test if `use-pending-invite` has one to
+mirror, otherwise report how you pinned it.
+
+**Mutants to prove:** pre-select with several teams (3); the button enabled with none
+chosen (3); a UTC `today` (5 — if your test can see it; if not, say so); a terminal
+refusal leaving the buttons (6); a recoverable refusal replacing the page (7); the
+resume not clearing the stash (loop); the resume running while an invite is pending.
+
+Four gates; commit. The controller screenshots the page signed in with one team, with
+several, and the dead-link message.
 
 ---
 
