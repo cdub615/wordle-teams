@@ -486,7 +486,7 @@ that aggregate rather than building a second one.
   locally and fails in CI.
 - **`result` present ⟺ `status === 'closed'`** is load-bearing in two places and
   expressible in neither the schema nor a schema test: the close path uses
-  `result !== undefined` as its idempotency guard, and `recordAgainstFor` uses
+  `result !== undefined` as its idempotency guard, and `headToHeadFor` uses
   `result === undefined` to skip rows it has already filtered to `'closed'`. So a
   `'closed'` row with no `result` is silently dropped from the head-to-head record.
   Pin the pairing behaviourally in the close tests.

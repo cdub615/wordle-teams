@@ -2992,6 +2992,13 @@ What changed, so a reader holding the old text knows which parts not to trust:
 - Spec §13's `ChallengeOutcome` type-equality assertion existed nowhere. It is a test
   here.
 
+**AFTER EXECUTION, the code diverges from the blocks below in two places**, both from
+the Task 9 review: `statsDaysFor` walks EVERY month from start to end with `addMonths`
+(it read only the two ends, while its comment claimed full enumeration), and
+`ChallengeScoreboard` carries the narrowed `startDay`/`endDay`, which the page rows
+now take from the board rather than from the `string | undefined` doc fields. Two tests
+pin them. `convex/challenges.ts` is authoritative.
+
 **THE TEST EXPECTATIONS ARE THE SPECIFICATION.** If a test below disagrees with the
 implementation below, REPORT the mismatch — do not edit the test to agree.
 

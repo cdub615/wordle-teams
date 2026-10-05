@@ -1435,6 +1435,48 @@ describe('challengeScoreboardFor', () => {
     })
   })
 
+  test('reads EVERY month a window spans, not just its two ends', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      // NO WINDOW SPANS THREE MONTHS TODAY — windowFor's short-window rule
+      // reaches one month further at most. This pins the enumeration so a rule
+      // that ever grows does not silently drop the middle month from both the
+      // live board and the frozen snapshot.
+      for (const [month, puzzleDay] of [[10, '2026-10-28'], [11, '2026-11-15'], [12, '2026-12-02']] as const) {
+        await seedStats(ctx, challengerTeamId, { year: 2026, month }, [
+          { puzzleDay, entries: [{ playerId, attempts: 3 }] },
+        ])
+      }
+
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId, {
+          startDay: '2026-10-28',
+          endDay: '2026-12-31',
+        }),
+      )
+      expect(board.challenger.boards).toBe(3)
+    })
+  })
+
+  test('the scoreboard carries its window, already narrowed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
+      // TYPED string, not string | undefined: the page renders "since <startDay>"
+      // and should not need a non-null assertion to do it.
+      const window: { startDay: string; endDay: string } = board
+      expect(window).toMatchObject({ startDay: '2026-10-05', endDay: '2026-10-31' })
+    })
+  })
+
   test('a missing monthly document is zero boards, not a throw', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {

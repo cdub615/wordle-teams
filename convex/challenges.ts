@@ -12,7 +12,7 @@ import {
   type StatsDay,
 } from './lib/challenge.ts'
 import { meanAttemptsOf } from './lib/teamStats.ts'
-import { monthOf } from './lib/puzzleDay.ts'
+import { addMonths, monthOf } from './lib/puzzleDay.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter, GenericDatabaseReader } from 'convex/server'
 
@@ -478,6 +478,9 @@ export type ChallengeSide = {
 }
 
 export type ChallengeScoreboard = {
+  /** The window, narrowed: an active row always has both. */
+  startDay: string
+  endDay: string
   challenger: ChallengeSide
   opponent: ChallengeSide
   outcome: ChallengeOutcome
@@ -503,7 +506,11 @@ async function statsDaysFor(
   startDay: string,
   endDay: string,
 ): Promise<Array<StatsDay<Id<'players'>>>> {
-  const months = new Set([monthOf(startDay), monthOf(endDay)])
+  // EVERY MONTH FROM START TO END, not just the two ends. Today that is one or
+  // two; walking the range is what makes the comment above true if a window
+  // ever grows. 'YYYY-MM' compares lexicographically in calendar order.
+  const months: Array<string> = []
+  for (let m = monthOf(startDay); m <= monthOf(endDay); m = addMonths(m, 1)) months.push(m)
   const days: Array<StatsDay<Id<'players'>>> = []
   for (const month of months) {
     const [year, monthNum] = month.split('-').map(Number)
@@ -616,6 +623,8 @@ export async function challengeScoreboardFor(
   )
 
   return {
+    startDay,
+    endDay,
     challenger: sideFrom(challengerTeam._id, challengerTeam.name, challengerTotals),
     opponent: sideFrom(opponentTeam._id, opponentTeam.name, opponentTotals),
     // ARGUMENT ORDER MATTERS AND THE COMPILER CANNOT SEE IT: outcomeOf's two
@@ -769,8 +778,8 @@ export async function challengesForTeamFor(
     const board = await challengeScoreboardFor(ctx, challenge)
     active.push({
       challengeId: challenge._id,
-      startDay: challenge.startDay,
-      endDay: challenge.endDay,
+      startDay: board.startDay,
+      endDay: board.endDay,
       viewerIsChallenger: challenge.challengerTeamId === teamId,
       challenger: pro ? board.challenger : { ...board.challenger, members: [] },
       opponent: pro ? board.opponent : { ...board.opponent, members: [] },
