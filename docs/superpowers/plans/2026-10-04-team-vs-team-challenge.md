@@ -110,10 +110,15 @@ caught it producing `2026-11-31` and `2028-02-31`. Use `daysOfMonth(month).at(-1
 when you need the actual last day. Reach for `monthRange` only as `withIndex`
 bounds.
 
-**Commit after every task.** End each commit message with:
+**Commit after every task.** **Sign it with YOUR OWN attribution trailer** — the
+`Co-Authored-By` line your own system reminder gives you, naming the model that
+actually wrote the code. Do NOT copy a trailer out of this plan: every implementer so
+far has had to notice the pasted one was wrong for them and override it, which is three
+round trips spent on a line this plan should never have prescribed. Keep the
+`Claude-Session:` line as written.
 
 ```
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 ```
 
@@ -327,7 +332,7 @@ SHORT_WINDOW_DAYS remain - without which a late-month challenge is born
 guaranteed-void. Both sides of that boundary are tested, since a threshold
 tested in one direction is vacuous.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -548,7 +553,7 @@ totals, and a challenge window is almost never a whole month, so using it would
 silently count boards played before acceptance. Takes days rather than a
 document so the short-window case can concatenate two months.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -754,7 +759,7 @@ quotients is how a scoreboard comes to read 4.0 to 4.0 with a winner named.
 Board floor checked first so a tiny sample cannot win. Both win directions are
 tested because this is the easiest thing here to implement backwards.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -1252,7 +1257,7 @@ existing teams need no backfill. The result snapshot is forced rather than
 chosen: backfill is a free feature in this app, so a re-derived record would
 restate itself whenever an old board was edited.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -1726,7 +1731,7 @@ Pro gates INITIATING and deliberately not accepting - gating acceptance would
 make reach the square of Pro penetration and hide the feature from the free
 teams that are its best conversion moment.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -1909,7 +1914,7 @@ export const proposeByLink = mutation({
 TZ=UTC pnpm test:once convex/challenges.test.ts > /tmp/t6.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t6.txt
 ```
 
-Expected: `exit=0`, 14 tests passing.
+Expected: `exit=0`, **19** tests in `convex/challenges.test.ts` and **4122** in the full suite. (Recomputed: the plan's original chain assumed 10 after Task 5, and the real baseline was 15.)
 
 - [ ] **Step 5: Commit**
 
@@ -1926,7 +1931,7 @@ Only the checks that need no opponent run here; the pair checks run at claim
 time (design 8.1). Token is crypto.getRandomValues, and the collision test
 proves the call runs in this runtime without proving unguessability.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -2467,7 +2472,7 @@ pnpm typecheck > /tmp/t7-tsc.txt 2>&1; echo "tsc=$?"
 Both must be 0. `ce` guards `convexErrorCode`'s hand-written chain; `tsc` guards
 `typedCodeMessage`.
 
-Expected: `exit=0`, 24 tests passing.
+Expected: `exit=0`, **29** tests in `convex/challenges.test.ts` and **4134** in the full suite — the full-suite figure includes **+2** generated tests in `src/lib/convex-error.test.ts`, one per new AccessCode.
 
 - [ ] **Step 7: Commit**
 
@@ -2486,7 +2491,7 @@ rather than a control.
 Both mutations bound the accepter's `today` through requirePlausibleToday and
 are added to that function's enumeration of clock-bounded surfaces.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -2808,7 +2813,7 @@ export const setAcceptsChallenges = mutation({
 TZ=UTC pnpm test:once convex/challenges.test.ts > /tmp/t8.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t8.txt
 ```
 
-Expected: `exit=0`, 31 tests passing.
+Expected: `exit=0`, **36** tests in `convex/challenges.test.ts` and **4141** in the full suite.
 
 - [ ] **Step 5: Commit**
 
@@ -2823,7 +2828,7 @@ agreed to and leaves no result, while a cancelled challenge was live and freezes
 what its window held. Collapsing them would let one side end a running contest
 as though it had never happened.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -3334,7 +3339,7 @@ In `convex/access.ts`, extend the challenge block:
 TZ=UTC pnpm test:once convex/challenges.test.ts > /tmp/t9.txt 2>&1; echo "exit=$?"; tail -30 /tmp/t9.txt
 ```
 
-Expected: `exit=0`, 38 tests passing.
+Expected: `exit=0`, **43** tests in `convex/challenges.test.ts` and **4149** in the full suite — including **+1** generated test in `src/lib/convex-error.test.ts` for `CHALLENGE_NOT_ACTIVE`.
 
 - [ ] **Step 6: Run all four gates**
 
@@ -3365,7 +3370,7 @@ and hide them with CSS, which is not a gate.
 
 A void result counts as neither a win nor a loss.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -3492,7 +3497,7 @@ export function challengeNotificationBody(
 TZ=UTC pnpm test:once convex/lib/challenge.test.ts > /tmp/t10a.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t10a.txt
 ```
 
-Expected: `exit=0`, 27 tests passing.
+Expected: `exit=0`, **30** tests in `convex/lib/challenge.test.ts` (the real baseline there is 26, not 23).
 
 - [ ] **Step 5: Correct the now-false comment in `chatNotify.ts`**
 
@@ -3921,7 +3926,7 @@ because a team may hold several challenges at once.
 chatNotify's claim to be the app's only user-typed push body is now false and is
 corrected in place.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -4073,7 +4078,7 @@ instead, having never been agreed to.
 
 Called before the team row is removed, because closing reads both team names.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -4239,7 +4244,7 @@ A void result says "not enough boards yet" rather than naming a winner. Free
 viewers get both averages, both board counts and the outcome; the per-member
 rows are withheld by the server, not hidden in the component.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -4295,7 +4300,7 @@ tokenised path. An invalid, expired or already-claimed token shows ONE message,
 so holding a dead token does not reveal whether it was ever real. Not added to
 the sitemap - see wordle-teams-ef9 for what listing a non-landing route costs.
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
@@ -4333,7 +4338,7 @@ git add e2e/challenge.spec.ts
 git commit -F - <<'EOF'
 test(zic8.2): e2e happy path for proposing, accepting and scoring a challenge
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+<YOUR OWN attribution trailer — see below>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
