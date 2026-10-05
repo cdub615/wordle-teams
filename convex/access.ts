@@ -135,6 +135,8 @@ export type AccessCode =
   | 'CHALLENGE_LIMIT_REACHED'
   | 'CHALLENGE_EXISTS'
   | 'PRO_REQUIRED'
+  | 'CHALLENGE_NOT_PENDING'
+  | 'CHALLENGE_LINK_INVALID'
 
 /**
  * Throws a ConvexError carrying `{ code }`.
@@ -281,6 +283,12 @@ export async function requireTeamOwnerFor(
  * clock-bounded surface", and this is where a reader goes to enumerate them.
  * See wordle-teams-04r: that Convex's clock is UTC is currently an inference,
  * and confirming it is a pre-cutover task.
+ *
+ * - challenges.ts's acceptChallenge and claimChallengeLink, which resolve the
+ *   challenge WINDOW from the accepter's own day (wordle-teams-zic8.2). These do
+ *   not feed winner recomputation, so the "six" above is unchanged as the answer
+ *   to that narrower question; they are listed because the broader question is
+ *   "every clock-bounded surface".
  *
  * A SEVENTH CLOCK-BOUNDED SURFACE SITS DIRECTLY BELOW and is NOT one of the six:
  * requirePlausiblePuzzleDay bounds the day a board is FOR, which is a different

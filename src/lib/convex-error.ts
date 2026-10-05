@@ -59,7 +59,9 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'CHALLENGES_REFUSED' ||
     code === 'CHALLENGE_LIMIT_REACHED' ||
     code === 'CHALLENGE_EXISTS' ||
-    code === 'PRO_REQUIRED'
+    code === 'PRO_REQUIRED' ||
+    code === 'CHALLENGE_NOT_PENDING' ||
+    code === 'CHALLENGE_LINK_INVALID'
   ) {
     return code
   }
@@ -271,6 +273,10 @@ export function typedCodeMessage(code: AccessCode): string {
       // Gates INITIATING only. Accepting a challenge never reaches this, so the
       // copy is about starting one.
       return 'Starting a challenge is part of Pro.'
+    case 'CHALLENGE_NOT_PENDING':
+      return 'That challenge is no longer waiting for an answer.'
+    case 'CHALLENGE_LINK_INVALID':
+      return 'That challenge link is no longer valid.'
     default: {
       const _exhaustive: never = code
       return _exhaustive

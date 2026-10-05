@@ -1,7 +1,7 @@
 import { v } from 'convex/values'
 import { mutation } from './_generated/server'
-import { accessError, isProFor, requirePlayer, requireTeamMemberFor } from './access.ts'
-import { MAX_ACTIVE_CHALLENGES, PROPOSAL_TTL_DAYS } from './lib/challenge.ts'
+import { accessError, isProFor, requirePlausibleToday, requirePlayer, requireTeamMemberFor } from './access.ts'
+import { MAX_ACTIVE_CHALLENGES, PROPOSAL_TTL_DAYS, windowFor } from './lib/challenge.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter, GenericDatabaseReader } from 'convex/server'
 
@@ -91,6 +91,7 @@ export async function requireChallengeablePair(
   ctx: ReaderCtx,
   challengerTeamId: Id<'teams'>,
   opponentTeamId: Id<'teams'>,
+  exceptId?: Id<'teamChallenges'>,
 ): Promise<void> {
   if (challengerTeamId === opponentTeamId) throw accessError('INVALID_TEAM')
 
@@ -99,10 +100,18 @@ export async function requireChallengeablePair(
   // ABSENT MEANS YES. Only an explicit false refuses.
   if (opponent.acceptsChallenges === false) throw accessError('CHALLENGES_REFUSED')
 
-  if ((await liveChallengeCountFor(ctx, challengerTeamId)) >= MAX_ACTIVE_CHALLENGES) {
+  // `exceptId` IS THE ROW BEING ACCEPTED. At acceptance that row is itself
+  // pending with its opponent set, so without excluding it the pair check finds
+  // it and throws CHALLENGE_EXISTS on every accept, and both cap counts include
+  // it, so a proposal made in a team's last slot could never be activated.
+  // Propose-time callers pass nothing: no row exists yet.
+  const others = async (teamId: Id<'teams'>) =>
+    (await liveChallengesFor(ctx, teamId)).filter((c) => c._id !== exceptId)
+
+  if ((await others(challengerTeamId)).length >= MAX_ACTIVE_CHALLENGES) {
     throw accessError('CHALLENGE_LIMIT_REACHED')
   }
-  if ((await liveChallengeCountFor(ctx, opponentTeamId)) >= MAX_ACTIVE_CHALLENGES) {
+  if ((await others(opponentTeamId)).length >= MAX_ACTIVE_CHALLENGES) {
     throw accessError('CHALLENGE_LIMIT_REACHED')
   }
 
@@ -112,7 +121,7 @@ export async function requireChallengeablePair(
   // is in that list only because its opponent is the challenger. The guarantee is
   // where the array comes from. The clause is kept so the predicate stays correct
   // if anyone ever passes it a differently-sourced array.
-  const existing = (await liveChallengesFor(ctx, challengerTeamId)).find(
+  const existing = (await others(challengerTeamId)).find(
     (c) =>
       c.opponentTeamId === opponentTeamId ||
       (c.challengerTeamId === opponentTeamId && c.opponentTeamId === challengerTeamId),
@@ -229,5 +238,128 @@ export const proposeByLink = mutation({
   handler: async (ctx, { challengerTeamId }) => {
     const player = await requirePlayer(ctx)
     return await proposeByLinkFor(ctx, player._id, challengerTeamId)
+  },
+})
+
+/**
+ * Bring a pending challenge to life.
+ *
+ * `today` IS THE ACCEPTER'S OWN LOCAL DAY, bounded server-side by
+ * requirePlausibleToday — the same treatment every other mutation that feeds a
+ * client `today` into a dated computation gets. See the enumeration in
+ * access.ts: this is a new member of that family and belongs in that list.
+ *
+ * WHY IT MUST BE THE CLIENT'S DAY RATHER THAN THE SERVER'S: the window the
+ * player is agreeing to starts tomorrow in THEIR calendar, and a board belongs
+ * to a puzzle day rather than to an instant.
+ */
+async function activate(
+  ctx: WriterCtx,
+  challengeId: Id<'teamChallenges'>,
+  accepterId: Id<'players'>,
+  today: string,
+  extra: Partial<Doc<'teamChallenges'>> = {},
+): Promise<void> {
+  const { startDay, endDay } = windowFor(requirePlausibleToday(today))
+  // THE ID, NOT THE DOC. The claim path patches opponentTeamId first, so a
+  // doc-taking signature would be handed a stale copy — correct today only
+  // because this function reads nothing but the id, and silently wrong the
+  // moment it grows to read another field (a push body naming the opponent is
+  // the obvious candidate). `extra` lets the claim path fold its own patch in
+  // here, so there is one write rather than two.
+  await ctx.db.patch(challengeId, {
+    status: 'active',
+    acceptedBy: accepterId,
+    startDay,
+    endDay,
+    ...extra,
+  })
+}
+
+export async function acceptChallengeFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  challengeId: Id<'teamChallenges'>,
+  today: string,
+): Promise<void> {
+  const challenge = await ctx.db.get(challengeId)
+  if (challenge === null) throw accessError('INVALID_TEAM')
+  if (challenge.status !== 'pending') throw accessError('CHALLENGE_NOT_PENDING')
+  if (challenge.expiresAt <= Date.now()) throw accessError('CHALLENGE_NOT_PENDING')
+  if (challenge.opponentTeamId === undefined) throw accessError('INVALID_TEAM')
+
+  // ANY MEMBER MAY ACCEPT, AND PRO IS NOT CHECKED HERE. See proposeToTeamFor.
+  await requireTeamMemberFor(ctx, playerId, challenge.opponentTeamId)
+
+  // RE-CHECKED AT ACCEPTANCE, not trusted from propose time: the pair may have
+  // filled its slots or turned challenges off while this sat pending.
+  await requireChallengeablePair(
+    ctx,
+    challenge.challengerTeamId,
+    challenge.opponentTeamId,
+    challenge._id,
+  )
+
+  await activate(ctx, challenge._id, playerId, today)
+}
+
+/**
+ * Claim a challenge link on behalf of one of your own teams.
+ *
+ * EVERY PAIR CHECK RUNS HERE, and this is the function design §8.1 was written
+ * about. A link proposal has no opponent at creation, so acceptsChallenges, the
+ * cap and the one-per-pair rule could not have been checked earlier. Checking
+ * them only at propose time would make a link a bypass for all three.
+ *
+ * acceptsChallenges: false BLOCKS A CLAIM TOO, even though the claimant is
+ * consenting for their own team. It is the owner's setting; a member routing
+ * around it through a link would make it advisory rather than a control.
+ */
+export async function claimChallengeLinkFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  token: string,
+  opponentTeamId: Id<'teams'>,
+  today: string,
+): Promise<Id<'teamChallenges'>> {
+  // GUARD BEFORE THE LOOKUP, and schema.ts's banner on teamChallenges.token says
+  // why: the field is OPTIONAL, so eq('token', undefined) matches every DIRECT
+  // proposal at once and .unique() throws "not unique" — a failure a long way
+  // from its cause. An empty token is also not a token. Task 13 adds a ROUTE
+  // PARAM feeding this, which is exactly how an empty string gets here.
+  if (!token) throw accessError('CHALLENGE_LINK_INVALID')
+
+  const challenge = await ctx.db
+    .query('teamChallenges')
+    .withIndex('by_token', (q) => q.eq('token', token))
+    .unique()
+
+  // AN UNKNOWN TOKEN AND AN EXPIRED ONE ANSWER THE SAME WAY, so holding a dead
+  // token tells you nothing about whether it was ever real.
+  if (challenge === null) throw accessError('CHALLENGE_LINK_INVALID')
+  if (challenge.status !== 'pending') throw accessError('CHALLENGE_LINK_INVALID')
+  if (challenge.expiresAt <= Date.now()) throw accessError('CHALLENGE_LINK_INVALID')
+
+  await requireTeamMemberFor(ctx, playerId, opponentTeamId)
+  await requireChallengeablePair(ctx, challenge.challengerTeamId, opponentTeamId, challenge._id)
+
+  // ONE PATCH, via activate's `extra` — see its comment on why it takes an id.
+  await activate(ctx, challenge._id, playerId, today, { opponentTeamId })
+  return challenge._id
+}
+
+export const acceptChallenge = mutation({
+  args: { challengeId: v.id('teamChallenges'), today: v.string() },
+  handler: async (ctx, { challengeId, today }) => {
+    const player = await requirePlayer(ctx)
+    await acceptChallengeFor(ctx, player._id, challengeId, today)
+  },
+})
+
+export const claimChallengeLink = mutation({
+  args: { token: v.string(), opponentTeamId: v.id('teams'), today: v.string() },
+  handler: async (ctx, { token, opponentTeamId, today }) => {
+    const player = await requirePlayer(ctx)
+    return await claimChallengeLinkFor(ctx, player._id, token, opponentTeamId, today)
   },
 })

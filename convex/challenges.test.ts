@@ -1,8 +1,10 @@
 import { convexTest } from 'convex-test'
-import { describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
 import {
+  acceptChallengeFor,
+  claimChallengeLinkFor,
   liveChallengeCountFor,
   liveChallengesFor,
   proposeByLinkFor,
@@ -19,6 +21,18 @@ import type { GenericDatabaseWriter } from 'convex/server'
  * player id.
  */
 const modules = import.meta.glob('./**/*.ts')
+const TTL = PROPOSAL_TTL_DAYS * 24 * 60 * 60 * 1000
+
+/**
+ * FROZEN CLOCK for the dated describes. `today` is the accepter's local day and
+ * requirePlausibleToday bounds it to +-1 day of the server's, so a hardcoded date
+ * would start failing by itself with INVALID_DATE. The expected window stays
+ * literal rather than derived from windowFor, which would be tautological.
+ * The hooks live INSIDE each dated describe, not at file scope.
+ */
+const NOW = new Date('2026-10-04T12:00:00Z')
+const today = '2026-10-04'
+
 type Ctx = { db: GenericDatabaseWriter<DataModel> }
 
 /** A player on two teams, Pro by default. */
@@ -444,6 +458,330 @@ describe('proposeByLinkFor', () => {
       }
       await expect(proposeByLinkFor(ctx, playerId, challengerTeamId)).rejects.toMatchObject({
         data: { code: 'CHALLENGE_LIMIT_REACHED' },
+      })
+    })
+  })
+})
+
+/**
+ * A second player on a third team, to accept as somebody else.
+ *
+ * ⚠️ THE EMAIL OVERRIDE IS LOAD-BEARING, NOT COSMETIC. aPlayer()'s default email
+ * is 'member@example.com', and access.ts's playerForEmail resolves by_email with
+ * `.first()` — so two players rows sharing that address make requirePlayer
+ * silently resolve to whichever Convex returns first. Every extra player seeded
+ * in this file MUST override `email`.
+ */
+async function seedAccepter(ctx: Ctx) {
+  const accepterId = await ctx.db.insert('players', aPlayer({ email: 'accepter@example.com' }))
+  const theirTeamId = await ctx.db.insert(
+    'teams',
+    aTeam({ legacyId: 600, name: 'Theirs', playerIds: [accepterId], owner: accepterId }),
+  )
+  return { accepterId, theirTeamId }
+}
+
+describe('acceptChallengeFor', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  test('any member of the opponent team may accept, with no Pro', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+
+      await acceptChallengeFor(ctx, accepterId, id, today)
+
+      const doc = await ctx.db.get(id)
+      expect(doc?.status).toBe('active')
+      expect(doc?.acceptedBy).toBe(accepterId)
+      expect(doc?.startDay).toBe('2026-10-05')
+      expect(doc?.endDay).toBe('2026-10-31')
+    })
+  })
+
+  test('a non-member of the opponent team may not accept', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(acceptChallengeFor(ctx, playerId, id, today)).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
+      })
+    })
+  })
+
+  test('an expired proposal may not be accepted', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() - 1,
+        createdAt: Date.now(),
+      })
+      await expect(acceptChallengeFor(ctx, accepterId, id, today)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_NOT_PENDING' },
+      })
+    })
+  })
+
+  // THE OFF-BY-ONE THAT NO PRESCRIBED TEST COULD SEE. The pending row being
+  // accepted is itself counted by liveChallengeCountFor, so without `exceptId`
+  // a proposal made in a team's FIFTH and last slot could never be activated —
+  // it would be permanently pending. MAX - 1 others plus this one is exactly MAX.
+  test('the proposal being accepted does not count ITSELF against either cap', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      for (let i = 0; i < MAX_ACTIVE_CHALLENGES - 1; i++) {
+        const otherId = await ctx.db.insert(
+          'teams',
+          aTeam({ legacyId: 900 + i, name: `c${i}` }),
+        )
+        await ctx.db.insert('teamChallenges', {
+          challengerTeamId,
+          opponentTeamId: otherId,
+          proposedBy: playerId,
+          status: 'active',
+          expiresAt: Date.now() + TTL,
+          startDay: '2026-10-05',
+          endDay: '2026-10-31',
+          createdAt: Date.now(),
+        })
+      }
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await acceptChallengeFor(ctx, accepterId, id, today)
+      expect((await ctx.db.get(id))?.status).toBe('active')
+    })
+  })
+
+  // THE opponentTeamId GUARD. Without it requireTeamMemberFor is handed
+  // undefined and ctx.db.get(undefined) is what the caller sees instead.
+  test('a link proposal cannot be accepted through the direct path', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId } = await seedAccepter(ctx)
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      const doc = await ctx.db
+        .query('teamChallenges')
+        .withIndex('by_token', (q) => q.eq('token', token))
+        .unique()
+      await expect(
+        acceptChallengeFor(ctx, accepterId, doc!._id, today),
+      ).rejects.toMatchObject({ data: { code: 'INVALID_TEAM' } })
+    })
+  })
+
+  test('an already-active challenge may not be accepted again', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const id = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'active',
+        startDay: '2026-10-05',
+        endDay: '2026-10-31',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(acceptChallengeFor(ctx, accepterId, id, today)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_NOT_PENDING' },
+      })
+    })
+  })
+})
+
+describe('claimChallengeLinkFor', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  test('binds the opponent and activates', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+
+      const id = await claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, today)
+
+      const doc = await ctx.db.get(id)
+      expect(doc?.status).toBe('active')
+      expect(doc?.opponentTeamId).toBe(theirTeamId)
+      expect(doc?.startDay).toBe('2026-10-05')
+    })
+  })
+
+  test('an unknown token is refused', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await expect(
+        claimChallengeLinkFor(ctx, accepterId, 'nope', theirTeamId, today),
+      ).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_LINK_INVALID' },
+      })
+    })
+  })
+
+  // DESIGN §8.1 — THE BYPASS THAT MUST NOT EXIST.
+  test('a link CANNOT bypass the claiming team refusing challenges', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await ctx.db.patch(theirTeamId, { acceptsChallenges: false })
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      await expect(
+        claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, today),
+      ).rejects.toMatchObject({
+        data: { code: 'CHALLENGES_REFUSED' },
+      })
+    })
+  })
+
+  test('a link CANNOT bypass the claiming team being at its cap', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      for (let i = 0; i < MAX_ACTIVE_CHALLENGES; i++) {
+        const otherId = await ctx.db.insert('teams', aTeam({ legacyId: 700 + i, name: `o${i}` }))
+        await ctx.db.insert('teamChallenges', {
+          challengerTeamId: otherId,
+          opponentTeamId: theirTeamId,
+          proposedBy: accepterId,
+          status: 'active',
+          expiresAt: Date.now() + TTL,
+          startDay: '2026-10-05',
+          endDay: '2026-10-31',
+          createdAt: Date.now(),
+        })
+      }
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      await expect(
+        claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, today),
+      ).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_LIMIT_REACHED' },
+      })
+    })
+  })
+
+  test('a link CANNOT bypass the one-live-challenge-per-pair rule', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'active',
+        expiresAt: Date.now() + TTL,
+        startDay: '2026-10-05',
+        endDay: '2026-10-31',
+        createdAt: Date.now(),
+      })
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      await expect(
+        claimChallengeLinkFor(ctx, accepterId, token, theirTeamId, today),
+      ).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_EXISTS' },
+      })
+    })
+  })
+
+  // THE EMPTY TOKEN, which reaches by_token as a real probe. Two DIRECT
+  // proposals both key on an absent token, so without the guard .unique() sees
+  // both and throws "not unique" rather than refusing.
+  test('an empty token is refused before the index is probed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+      await expect(
+        claimChallengeLinkFor(ctx, accepterId, '', theirTeamId, today),
+      ).rejects.toMatchObject({ data: { code: 'CHALLENGE_LINK_INVALID' } })
+    })
+  })
+
+  // THE SELF-CLAIM, and Task 5's duplicate-unreachability argument rests on it:
+  // liveChallengesFor returns a row twice if a team is on both sides, which
+  // would inflate every cap count thereafter. The claim path is the SECOND way
+  // to reach that state and the only one nothing asserted.
+  test("you cannot claim your own team's link", async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      await expect(
+        claimChallengeLinkFor(ctx, playerId, token, challengerTeamId, today),
+      ).rejects.toMatchObject({ data: { code: 'INVALID_TEAM' } })
+    })
+  })
+
+  test('you cannot claim on behalf of a team you are not on', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId } = await seedAccepter(ctx)
+      const strangersTeam = await ctx.db.insert('teams', aTeam({ legacyId: 800, name: 'Strangers' }))
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      await expect(
+        claimChallengeLinkFor(ctx, accepterId, token, strangersTeam, today),
+      ).rejects.toMatchObject({
+        data: { code: 'NOT_A_MEMBER' },
       })
     })
   })
