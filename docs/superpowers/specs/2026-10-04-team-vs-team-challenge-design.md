@@ -442,10 +442,17 @@ worse, and this feature must not grow a workaround for them.
 
 A team with *k* active challenges:
 
-- *k* `teamChallenges` documents (two point queries on the status indexes)
-- 1 `teamMonthStats` document for its own current month
+- its live `teamChallenges` documents (four index queries: two statuses × two sides)
+- *k* reads of its **own** month's `teamMonthStats` document — once per active
+  challenge, not once in total. Each scoreboard is projected independently and the
+  query does not memoise across them. (This line previously said 1; corrected
+  2026-10-05 by the zic8.2.16 review. At `MAX_ACTIVE_CHALLENGES = 5` the redundancy
+  is at most four reads and was judged not worth a cache.)
 - *k* `teamMonthStats` documents, one per opponent
 - 2 per team instead of 1 only for a challenge under the §7.4 short-window rule
+- one `teams` document per pending proposal with a known other team, for its name
+- every **closed** `teamChallenges` row the team has ever had, for the head-to-head
+  record — unbounded over the team's lifetime, though slow-growing
 
 Closed challenges read **zero** `teamMonthStats` documents — the snapshot is the record.
 Nothing is ever re-derived from `dailyScores`, and no new aggregate is introduced. With

@@ -2956,96 +2956,202 @@ EOF
 
 ---
 
-## Task 9: The live scoreboard query, with the Pro gate
+## Task 9: The live scoreboard query, the head-to-head record, and the Pro gate
 
-**bd:** child of `zic8.2`, title "challengesForTeam query and scoreboard projection".
+**bd:** `wordle-teams-zic8.2.9`, "challengesForTeam query and scoreboard projection".
 
 **Files:**
 - Modify: `convex/challenges.ts`
 - Modify: `convex/challenges.test.ts`
+- Modify: `convex/access.ts` — one new `AccessCode`
+- Modify: `src/lib/convex-error.ts` — **BOTH halves** for that code; see the Ground Rule. The `typedCodeMessage` half is compiler-enforced, the `convexErrorCode` half is not.
 
-- [ ] **Step 1: Write the failing test**
+**THIS TASK WAS REWRITTEN BEFORE EXECUTION (2026-10-05) from the zic8.2.16 review.**
+What changed, so a reader holding the old text knows which parts not to trust:
 
-Append to `convex/challenges.test.ts`:
+- `statsDaysFor` returned `Array<StatsDay>`, which defaults `PlayerId` to `string` and
+  ERASES the `Id<'players'>` branding — typecheck fails in `sideFrom`, while the
+  comment three lines below said no cast was needed. It now carries
+  `StatsDay<Id<'players'>>` and `ChallengeTotals<Id<'players'>>` explicitly.
+- `CHALLENGE_NOT_ACTIVE` was added to `access.ts` with no `convex-error.ts` step.
+- The head-to-head record was written, tested and UNREACHABLE: `challengesForTeam`
+  never returned it, while Task 12 and spec §11 both consume it. `recordAgainstFor`
+  (one opponent, re-scanning every closed row per call) is replaced by
+  `headToHeadFor`, which collects the closed set ONCE and tallies per opponent.
+- The Pro gate lived inside the `query({...})` wrapper, where nothing can execute it
+  (wordle-teams-obw), and the task had zero tests for it. It now lives in
+  `challengesForTeamFor`, which is tested; the wrapper is two lines.
+- `pending` was returned as raw `Doc`s — shipping the link `token` to every member of
+  the challenging team and carrying no team names for Task 12 to label rows with. It
+  is now an explicit projection with no token and no numbers (AC3).
+- Tests hardcoded the board floor (`12`, `3`). They now derive from
+  `MIN_CHALLENGE_BOARDS` and test BOTH sides of it at the query level.
+- A comment called the `outcomeOf` argument order "the one defect no test in this
+  feature can catch". The first scoreboard test catches it; the comment was false.
+  There are now tests in both directions and the comment names them.
+- Spec §13's `ChallengeOutcome` type-equality assertion existed nowhere. It is a test
+  here.
+
+**THE TEST EXPECTATIONS ARE THE SPECIFICATION.** If a test below disagrees with the
+implementation below, REPORT the mismatch — do not edit the test to agree.
+
+- [ ] **Step 0: Record the baseline**
+
+```bash
+TZ=UTC pnpm test:once > /tmp/t9-base.txt 2>&1; echo "exit=$?"; rg 'Tests +[0-9]+' /tmp/t9-base.txt
+```
+
+Write down the total. Step 5 is checked as a DELTA against it, never against an
+absolute number: absolute predictions in this plan have drifted every task, and three
+suites generate one test per git-tracked file.
+
+- [ ] **Step 1: Write the failing tests**
+
+Extend the imports AT THE TOP of `convex/challenges.test.ts` — do not add `import`
+lines mid-file:
 
 ```ts
-import { challengeScoreboardFor, recordAgainstFor } from './challenges.ts'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from 'vitest'
+// add to the existing ./challenges.ts import:
+//   challengeScoreboardFor, challengesForTeamFor, headToHeadFor
+import { MAX_ACTIVE_CHALLENGES, MIN_CHALLENGE_BOARDS, PROPOSAL_TTL_DAYS } from './lib/challenge.ts'
+import type { ChallengeOutcome } from './lib/challenge.ts'
+import type { DataModel, Doc, Id } from './_generated/dataModel'
+```
 
-/** A teamMonthStats document with `n` boards of `attempts` each on sequential days. */
+Then append:
+
+```ts
+type SeedDay = { puzzleDay: string; entries: Array<{ playerId: Id<'players'>; attempts: number }> }
+
+/** One teamMonthStats document. `members` is left empty: the projection reads days[] only. */
 async function seedStats(
   ctx: Ctx,
   teamId: Id<'teams'>,
-  playerId: Id<'players'>,
   month: { year: number; month: number },
-  days: Array<{ puzzleDay: string; attempts: number }>,
+  days: Array<SeedDay>,
 ) {
   await ctx.db.insert('teamMonthStats', {
     teamId,
     year: month.year,
     month: month.month,
     members: [],
-    days: days.map((d) => ({
-      puzzleDay: d.puzzleDay,
-      entries: [{ playerId, attempts: d.attempts }],
-    })),
+    days,
     computedAt: Date.now(),
   })
 }
 
-const octoberDays = (attempts: number, count: number) =>
-  Array.from({ length: count }, (_, i) => ({
+const OCTOBER = { year: 2026, month: 10 }
+
+/**
+ * `count` boards of `attempts` each for one player, on consecutive October days
+ * from the 5th. The window under test starts on the 5th, so every one is inside it.
+ */
+function octoberDays(playerId: Id<'players'>, attempts: number, count: number): Array<SeedDay> {
+  // 5 + count - 1 must stay a real October day. MIN_CHALLENGE_BOARDS is 10 today;
+  // if it ever passes 25 this helper needs a second month, and should say so loudly.
+  if (count > 27) throw new Error('octoberDays: count runs past October 31')
+  return Array.from({ length: count }, (_, i) => ({
     puzzleDay: `2026-10-${String(i + 5).padStart(2, '0')}`,
-    attempts,
+    entries: [{ playerId, attempts }],
   }))
+}
+
+/** Comfortably above the floor, derived rather than written as 12. */
+const ENOUGH = MIN_CHALLENGE_BOARDS + 2
+
+async function seedActive(
+  ctx: Ctx,
+  challengerTeamId: Id<'teams'>,
+  opponentTeamId: Id<'teams'>,
+  proposedBy: Id<'players'>,
+  window = { startDay: '2026-10-05', endDay: '2026-10-31' },
+) {
+  const id = await ctx.db.insert('teamChallenges', {
+    challengerTeamId,
+    opponentTeamId,
+    proposedBy,
+    status: 'active',
+    ...window,
+    expiresAt: Date.now() + TTL,
+    createdAt: Date.now(),
+  })
+  return (await ctx.db.get(id))!
+}
 
 describe('challengeScoreboardFor', () => {
-  test('projects both sides from their monthly documents', async () => {
+  // BOTH DIRECTIONS, AND THAT IS WHAT PINS THE ARGUMENT ORDER. outcomeOf's two
+  // parameters are structurally identical, so a transposed call compiles. These
+  // two tests are the only thing that sees it at the query level.
+  test('the lower average wins: challenger 3 against opponent 4', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
       const { accepterId, theirTeamId } = await seedAccepter(ctx)
-      await seedStats(ctx, challengerTeamId, playerId, { year: 2026, month: 10 }, octoberDays(3, 12))
-      await seedStats(ctx, theirTeamId, accepterId, { year: 2026, month: 10 }, octoberDays(4, 12))
+      await seedStats(ctx, challengerTeamId, OCTOBER, octoberDays(playerId, 3, ENOUGH))
+      await seedStats(ctx, theirTeamId, OCTOBER, octoberDays(accepterId, 4, ENOUGH))
 
-      const id = await ctx.db.insert('teamChallenges', {
-        challengerTeamId,
-        opponentTeamId: theirTeamId,
-        proposedBy: playerId,
-        status: 'active',
-        startDay: '2026-10-05',
-        endDay: '2026-10-31',
-        expiresAt: Date.now() + TTL,
-        createdAt: Date.now(),
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
+      expect(board.challenger).toMatchObject({
+        teamId: challengerTeamId,
+        teamName: 'Challengers',
+        boards: ENOUGH,
+        attempts: 3 * ENOUGH,
+        average: 3,
       })
-
-      const board = await challengeScoreboardFor(ctx, (await ctx.db.get(id))!)
-      expect(board.challenger.boards).toBe(12)
-      expect(board.challenger.average).toBe(3)
-      expect(board.opponent.average).toBe(4)
+      expect(board.opponent).toMatchObject({ teamId: theirTeamId, teamName: 'Theirs', average: 4 })
       expect(board.outcome).toBe('challenger')
     })
   })
 
-  test('a side below the board floor makes the result void', async () => {
+  test('the lower average wins: challenger 4 against opponent 3', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
       const { accepterId, theirTeamId } = await seedAccepter(ctx)
-      await seedStats(ctx, challengerTeamId, playerId, { year: 2026, month: 10 }, octoberDays(3, 12))
-      await seedStats(ctx, theirTeamId, accepterId, { year: 2026, month: 10 }, octoberDays(4, 3))
+      await seedStats(ctx, challengerTeamId, OCTOBER, octoberDays(playerId, 4, ENOUGH))
+      await seedStats(ctx, theirTeamId, OCTOBER, octoberDays(accepterId, 3, ENOUGH))
 
-      const id = await ctx.db.insert('teamChallenges', {
-        challengerTeamId,
-        opponentTeamId: theirTeamId,
-        proposedBy: playerId,
-        status: 'active',
-        startDay: '2026-10-05',
-        endDay: '2026-10-31',
-        expiresAt: Date.now() + TTL,
-        createdAt: Date.now(),
-      })
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
+      expect(board.outcome).toBe('opponent')
+    })
+  })
 
-      const board = await challengeScoreboardFor(ctx, (await ctx.db.get(id))!)
+  test('a side exactly AT the board floor is judged', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await seedStats(ctx, challengerTeamId, OCTOBER, octoberDays(playerId, 3, ENOUGH))
+      await seedStats(ctx, theirTeamId, OCTOBER, octoberDays(accepterId, 4, MIN_CHALLENGE_BOARDS))
+
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
+      expect(board.opponent.boards).toBe(MIN_CHALLENGE_BOARDS)
+      expect(board.outcome).toBe('challenger')
+    })
+  })
+
+  test('a side one board BELOW the floor makes the result void', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await seedStats(ctx, challengerTeamId, OCTOBER, octoberDays(playerId, 3, ENOUGH))
+      await seedStats(ctx, theirTeamId, OCTOBER, octoberDays(accepterId, 4, MIN_CHALLENGE_BOARDS - 1))
+
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
       expect(board.outcome).toBe('void')
     })
   })
@@ -3055,59 +3161,50 @@ describe('challengeScoreboardFor', () => {
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
       const { accepterId, theirTeamId } = await seedAccepter(ctx)
-      // Twelve boards on the 1st-4th plus twelve inside the window.
-      await seedStats(ctx, challengerTeamId, playerId, { year: 2026, month: 10 }, [
-        { puzzleDay: '2026-10-01', attempts: 1 },
-        { puzzleDay: '2026-10-02', attempts: 1 },
-        ...octoberDays(3, 12),
+      await seedStats(ctx, challengerTeamId, OCTOBER, [
+        { puzzleDay: '2026-10-01', entries: [{ playerId, attempts: 1 }] },
+        { puzzleDay: '2026-10-04', entries: [{ playerId, attempts: 1 }] },
+        ...octoberDays(playerId, 3, ENOUGH),
       ])
-      await seedStats(ctx, theirTeamId, accepterId, { year: 2026, month: 10 }, octoberDays(4, 12))
+      await seedStats(ctx, theirTeamId, OCTOBER, octoberDays(accepterId, 4, ENOUGH))
 
-      const id = await ctx.db.insert('teamChallenges', {
-        challengerTeamId,
-        opponentTeamId: theirTeamId,
-        proposedBy: playerId,
-        status: 'active',
-        startDay: '2026-10-05',
-        endDay: '2026-10-31',
-        expiresAt: Date.now() + TTL,
-        createdAt: Date.now(),
-      })
-
-      const board = await challengeScoreboardFor(ctx, (await ctx.db.get(id))!)
-      expect(board.challenger.boards).toBe(12)
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
+      expect(board.challenger.boards).toBe(ENOUGH)
       expect(board.challenger.average).toBe(3) // not pulled down by the 1-attempt days
     })
   })
 
-  test('reads TWO monthly documents per side when the window crosses a month', async () => {
+  test('reads BOTH monthly documents when the window crosses a month', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
       const { accepterId, theirTeamId } = await seedAccepter(ctx)
-      await seedStats(ctx, challengerTeamId, playerId, { year: 2026, month: 10 }, [
-        { puzzleDay: '2026-10-28', attempts: 3 },
+      await seedStats(ctx, challengerTeamId, OCTOBER, [
+        { puzzleDay: '2026-10-28', entries: [{ playerId, attempts: 3 }] },
       ])
-      await seedStats(ctx, challengerTeamId, playerId, { year: 2026, month: 11 }, [
-        { puzzleDay: '2026-11-01', attempts: 3 },
+      await seedStats(ctx, challengerTeamId, { year: 2026, month: 11 }, [
+        { puzzleDay: '2026-11-01', entries: [{ playerId, attempts: 5 }] },
       ])
-      await seedStats(ctx, theirTeamId, accepterId, { year: 2026, month: 11 }, [
-        { puzzleDay: '2026-11-01', attempts: 5 },
+      await seedStats(ctx, theirTeamId, { year: 2026, month: 11 }, [
+        { puzzleDay: '2026-11-01', entries: [{ playerId: accepterId, attempts: 5 }] },
       ])
 
-      const id = await ctx.db.insert('teamChallenges', {
-        challengerTeamId,
-        opponentTeamId: theirTeamId,
-        proposedBy: playerId,
-        status: 'active',
-        startDay: '2026-10-28',
-        endDay: '2026-11-30',
-        expiresAt: Date.now() + TTL,
-        createdAt: Date.now(),
-      })
-
-      const board = await challengeScoreboardFor(ctx, (await ctx.db.get(id))!)
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId, {
+          startDay: '2026-10-28',
+          endDay: '2026-11-30',
+        }),
+      )
+      // 3 + 5 over two boards: one from EACH document. Reading only the start
+      // month gives 1 board / 3 attempts; only the end month, 1 board / 5.
       expect(board.challenger.boards).toBe(2)
+      expect(board.challenger.attempts).toBe(8)
+      // The opponent has no October document at all — absent, not an error.
+      expect(board.opponent.boards).toBe(1)
     })
   })
 
@@ -3116,53 +3213,107 @@ describe('challengeScoreboardFor', () => {
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
       const { theirTeamId } = await seedAccepter(ctx)
-      const id = await ctx.db.insert('teamChallenges', {
-        challengerTeamId,
-        opponentTeamId: theirTeamId,
-        proposedBy: playerId,
-        status: 'active',
-        startDay: '2026-10-05',
-        endDay: '2026-10-31',
-        expiresAt: Date.now() + TTL,
-        createdAt: Date.now(),
-      })
-      const board = await challengeScoreboardFor(ctx, (await ctx.db.get(id))!)
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
       expect(board.challenger.boards).toBe(0)
       expect(board.challenger.average).toBeNull()
+      expect(board.challenger.members).toEqual([])
       expect(board.outcome).toBe('void')
+    })
+  })
+
+  test('member rows lead with the lowest average, and more boards break a tie', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const second = await ctx.db.insert('players', aPlayer({ email: 'second@example.com' }))
+      const third = await ctx.db.insert('players', aPlayer({ email: 'third@example.com' }))
+      // FIRST-SEEN ORDER IS playerId, second, third — the order teamTotalsOver
+      // emits. Expected is third, second, playerId: a missing sort gives the
+      // first-seen order, and a reversed tiebreak gives third, playerId, second,
+      // so neither can pass.
+      //   playerId: 4,4      -> 4.0 over 2
+      //   second:   4,4,4    -> 4.0 over 3   (ties playerId, more boards)
+      //   third:    3        -> 3.0 over 1   (lowest average)
+      await seedStats(ctx, challengerTeamId, OCTOBER, [
+        { puzzleDay: '2026-10-05', entries: [{ playerId, attempts: 4 }, { playerId: second, attempts: 4 }] },
+        { puzzleDay: '2026-10-06', entries: [{ playerId, attempts: 4 }, { playerId: second, attempts: 4 }] },
+        { puzzleDay: '2026-10-07', entries: [{ playerId: second, attempts: 4 }, { playerId: third, attempts: 3 }] },
+      ])
+
+      const board = await challengeScoreboardFor(
+        ctx,
+        await seedActive(ctx, challengerTeamId, theirTeamId, playerId),
+      )
+      expect(board.challenger.members.map((m) => m.playerId)).toEqual([third, second, playerId])
+      expect(board.challenger.members[0]).toEqual({ playerId: third, boards: 1, attempts: 3, average: 3 })
+    })
+  })
+
+  test('a challenge that is not active is refused with CHALLENGE_NOT_ACTIVE', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      // A CLOSED ROW STILL HAS ITS WINDOW AND ITS OPPONENT. So this is refused
+      // by the status check and nothing else — a pending row with no startDay
+      // would be refused by the narrowing below it too, and could not tell the
+      // two apart. (Cancel is not a status: a cancelled challenge is 'closed'.)
+      const active = await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
+      await ctx.db.patch(active._id, { status: 'closed' })
+      await expect(
+        challengeScoreboardFor(ctx, (await ctx.db.get(active._id))!),
+      ).rejects.toMatchObject({ data: { code: 'CHALLENGE_NOT_ACTIVE' } })
     })
   })
 })
 
-describe('recordAgainstFor', () => {
+/** A closed row with a result, from challengerTeamId's point of view as the challenger. */
+function closedRow(
+  challengerTeamId: Id<'teams'>,
+  opponentTeamId: Id<'teams'>,
+  proposedBy: Id<'players'>,
+  outcome: ChallengeOutcome,
+  { challengerName = 'Challengers', opponentName = 'Theirs', closedAt = Date.now() } = {},
+) {
+  return {
+    challengerTeamId,
+    opponentTeamId,
+    proposedBy,
+    status: 'closed' as const,
+    startDay: '2026-10-05',
+    endDay: '2026-10-31',
+    expiresAt: Date.now(),
+    createdAt: Date.now(),
+    result: {
+      challenger: { teamId: challengerTeamId, name: challengerName, boards: ENOUGH, attempts: 3 * ENOUGH, average: 3, members: [] },
+      opponent: { teamId: opponentTeamId, name: opponentName, boards: ENOUGH, attempts: 4 * ENOUGH, average: 4, members: [] },
+      outcome,
+      closedAt,
+    },
+  }
+}
+
+describe('headToHeadFor', () => {
   test('void counts as neither a win nor a loss', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
       const { theirTeamId } = await seedAccepter(ctx)
-      const closed = (outcome: 'challenger' | 'opponent' | 'tie' | 'void') => ({
-        challengerTeamId,
-        opponentTeamId: theirTeamId,
-        proposedBy: playerId,
-        status: 'closed' as const,
-        startDay: '2026-10-05',
-        endDay: '2026-10-31',
-        expiresAt: Date.now(),
-        createdAt: Date.now(),
-        result: {
-          challenger: { teamId: challengerTeamId, name: 'Challengers', boards: 12, attempts: 36, average: 3, members: [] },
-          opponent: { teamId: theirTeamId, name: 'Theirs', boards: 12, attempts: 48, average: 4, members: [] },
-          outcome,
-          closedAt: Date.now(),
-        },
-      })
-      await ctx.db.insert('teamChallenges', closed('challenger'))
-      await ctx.db.insert('teamChallenges', closed('opponent'))
-      await ctx.db.insert('teamChallenges', closed('tie'))
-      await ctx.db.insert('teamChallenges', closed('void'))
+      for (const outcome of ['challenger', 'opponent', 'tie', 'void'] as const) {
+        await ctx.db.insert('teamChallenges', closedRow(challengerTeamId, theirTeamId, playerId, outcome))
+      }
 
-      const record = await recordAgainstFor(ctx, challengerTeamId, theirTeamId)
-      expect(record).toEqual({ won: 1, lost: 1, tied: 1, noResult: 1 })
+      expect(await headToHeadFor(ctx, challengerTeamId)).toEqual([
+        {
+          opponentTeamId: theirTeamId,
+          opponentName: 'Theirs',
+          record: { won: 1, lost: 1, tied: 1, noResult: 1 },
+        },
+      ])
     })
   })
 
@@ -3171,6 +3322,69 @@ describe('recordAgainstFor', () => {
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
       const { theirTeamId } = await seedAccepter(ctx)
+      await ctx.db.insert('teamChallenges', closedRow(challengerTeamId, theirTeamId, playerId, 'challenger'))
+
+      expect(await headToHeadFor(ctx, challengerTeamId)).toEqual([
+        { opponentTeamId: theirTeamId, opponentName: 'Theirs', record: { won: 1, lost: 0, tied: 0, noResult: 0 } },
+      ])
+      // From the other side the same row is a loss, labelled with the OTHER name.
+      expect(await headToHeadFor(ctx, theirTeamId)).toEqual([
+        { opponentTeamId: challengerTeamId, opponentName: 'Challengers', record: { won: 0, lost: 1, tied: 0, noResult: 0 } },
+      ])
+    })
+  })
+
+  test('each opponent gets its own tally', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      await ctx.db.insert(
+        'teamChallenges',
+        closedRow(challengerTeamId, theirTeamId, playerId, 'challenger', { closedAt: 2000 }),
+      )
+      await ctx.db.insert(
+        'teamChallenges',
+        closedRow(challengerTeamId, opponentTeamId, playerId, 'opponent', { opponentName: 'Opponents', closedAt: 1000 }),
+      )
+
+      // MOST RECENTLY PLAYED FIRST.
+      expect(await headToHeadFor(ctx, challengerTeamId)).toEqual([
+        { opponentTeamId: theirTeamId, opponentName: 'Theirs', record: { won: 1, lost: 0, tied: 0, noResult: 0 } },
+        { opponentTeamId, opponentName: 'Opponents', record: { won: 0, lost: 1, tied: 0, noResult: 0 } },
+      ])
+    })
+  })
+
+  test('the label is the name from the most recent close, not the first one found', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      // NEWER INSERTED FIRST, so "first found" and "most recent" disagree.
+      await ctx.db.insert(
+        'teamChallenges',
+        closedRow(challengerTeamId, theirTeamId, playerId, 'tie', { opponentName: 'Renamed', closedAt: 2000 }),
+      )
+      await ctx.db.insert(
+        'teamChallenges',
+        closedRow(challengerTeamId, theirTeamId, playerId, 'tie', { opponentName: 'Original', closedAt: 1000 }),
+      )
+
+      const [entry] = await headToHeadFor(ctx, challengerTeamId)
+      expect(entry.opponentName).toBe('Renamed')
+      expect(entry.record.tied).toBe(2)
+    })
+  })
+
+  test('a closed row with no result is skipped, and live rows are never counted', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      // SPEC §13: result-present <=> status-closed is load-bearing and not
+      // expressible in the schema. A row breaking it must vanish from the record,
+      // not appear as an opponent with an all-zero tally.
       await ctx.db.insert('teamChallenges', {
         challengerTeamId,
         opponentTeamId: theirTeamId,
@@ -3180,17 +3394,135 @@ describe('recordAgainstFor', () => {
         endDay: '2026-10-31',
         expiresAt: Date.now(),
         createdAt: Date.now(),
-        result: {
-          challenger: { teamId: challengerTeamId, name: 'Challengers', boards: 12, attempts: 36, average: 3, members: [] },
-          opponent: { teamId: theirTeamId, name: 'Theirs', boards: 12, attempts: 48, average: 4, members: [] },
-          outcome: 'challenger',
-          closedAt: Date.now(),
-        },
       })
-      expect(await recordAgainstFor(ctx, challengerTeamId, theirTeamId)).toMatchObject({ won: 1 })
-      expect(await recordAgainstFor(ctx, theirTeamId, challengerTeamId)).toMatchObject({ lost: 1 })
+      await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
+
+      expect(await headToHeadFor(ctx, challengerTeamId)).toEqual([])
     })
   })
+})
+
+describe('challengesForTeamFor', () => {
+  test('a free member gets both averages, both board counts and the outcome — and no member rows', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx, { pro: false })
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await seedStats(ctx, challengerTeamId, OCTOBER, octoberDays(playerId, 3, ENOUGH))
+      await seedStats(ctx, theirTeamId, OCTOBER, octoberDays(accepterId, 4, ENOUGH))
+      await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
+
+      const view = await challengesForTeamFor(ctx, playerId, challengerTeamId)
+      expect(view.pro).toBe(false)
+      expect(view.active).toHaveLength(1)
+      const [row] = view.active
+      expect(row.challenger).toMatchObject({ boards: ENOUGH, average: 3, members: [] })
+      expect(row.opponent).toMatchObject({ boards: ENOUGH, average: 4, members: [] })
+      expect(row.outcome).toBe('challenger')
+    })
+  })
+
+  test('a Pro member gets the member rows on both sides', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      await seedStats(ctx, challengerTeamId, OCTOBER, octoberDays(playerId, 3, ENOUGH))
+      await seedStats(ctx, theirTeamId, OCTOBER, octoberDays(accepterId, 4, ENOUGH))
+      await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
+
+      const view = await challengesForTeamFor(ctx, playerId, challengerTeamId)
+      expect(view.pro).toBe(true)
+      expect(view.active[0].challenger.members.map((m) => m.playerId)).toEqual([playerId])
+      expect(view.active[0].opponent.members.map((m) => m.playerId)).toEqual([accepterId])
+    })
+  })
+
+  test('a non-member is refused with NOT_A_MEMBER', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId } = await seedAccepter(ctx)
+      await expect(
+        challengesForTeamFor(ctx, accepterId, challengerTeamId),
+      ).rejects.toMatchObject({ data: { code: 'NOT_A_MEMBER' } })
+    })
+  })
+
+  test('an incoming proposal is labelled, carries no numbers, and no token', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const expiresAt = Date.now() + TTL
+      const challengeId = await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        opponentTeamId: theirTeamId,
+        proposedBy: playerId,
+        status: 'pending',
+        expiresAt,
+        createdAt: Date.now(),
+      })
+
+      const view = await challengesForTeamFor(ctx, accepterId, theirTeamId)
+      // toEqual, NOT toMatchObject: an EXACT shape, so a field added later — a
+      // token, a board count — fails here rather than shipping. AC3: nothing
+      // numeric about either team renders before acceptance.
+      expect(view.pending).toEqual([
+        {
+          challengeId,
+          direction: 'incoming',
+          otherTeamName: 'Challengers',
+          isLink: false,
+          expiresAt,
+          proposedByViewer: false,
+        },
+      ])
+      expect(view.active).toEqual([])
+    })
+  })
+
+  test('an outgoing link proposal has no opponent name and does not re-ship its token', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+
+      const view = await challengesForTeamFor(ctx, playerId, challengerTeamId)
+      expect(view.pending).toHaveLength(1)
+      expect(view.pending[0]).toMatchObject({
+        direction: 'outgoing',
+        otherTeamName: null,
+        isLink: true,
+        proposedByViewer: true,
+      })
+      expect(JSON.stringify(view)).not.toContain(token)
+    })
+  })
+
+  test('the head-to-head record is part of the answer', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      await ctx.db.insert('teamChallenges', closedRow(challengerTeamId, theirTeamId, playerId, 'void'))
+
+      const view = await challengesForTeamFor(ctx, playerId, challengerTeamId)
+      expect(view.records).toEqual([
+        { opponentTeamId: theirTeamId, opponentName: 'Theirs', record: { won: 0, lost: 0, tied: 0, noResult: 1 } },
+      ])
+    })
+  })
+})
+
+// SPEC §13. ChallengeOutcome is declared twice — a TS union in lib/challenge.ts
+// and four v.literals in schema.ts — and lib/challenge.ts must stay import-free,
+// so the duplication is unavoidable. This makes the drift a TYPECHECK failure.
+// It is a no-op at runtime: `pnpm typecheck` is what kills its mutant, not vitest.
+test('ChallengeOutcome is exactly the schema result.outcome union', () => {
+  expectTypeOf<ChallengeOutcome>().toEqualTypeOf<
+    NonNullable<Doc<'teamChallenges'>['result']>['outcome']
+  >()
 })
 ```
 
@@ -3200,20 +3532,53 @@ describe('recordAgainstFor', () => {
 TZ=UTC pnpm test:once convex/challenges.test.ts > /tmp/t9.txt 2>&1; echo "exit=$?"; tail -20 /tmp/t9.txt
 ```
 
-Expected: non-zero exit, `challengeScoreboardFor is not a function`.
+Expected: non-zero exit; `challengeScoreboardFor is not a function` (or the file
+failing to import the three missing exports).
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 3: Add the access code — BOTH files**
 
-Append to `convex/challenges.ts`. Extend the `lib/challenge.ts` import with `outcomeOf`, `teamTotalsOver`, and the types; add `query` to the `_generated/server` import; add `meanAttemptsOf` from `./lib/teamStats.ts` and `monthOf` from `./lib/puzzleDay.ts`.
+`convex/access.ts`, at the end of the zic8.2 block, and extend that block's comment
+with one sentence: "CHALLENGE_NOT_ACTIVE is a scoreboard asked of a challenge that is
+not running."
 
 ```ts
+  | 'CHALLENGE_NOT_ACTIVE'
+```
+
+`src/lib/convex-error.ts` — BOTH halves:
+
+1. `convexErrorCode`: append `|| code === 'CHALLENGE_NOT_ACTIVE'` after
+   `CHALLENGE_LINK_INVALID`. **No compiler checks this half.** Miss it and the copy
+   below is unreachable.
+2. `typedCodeMessage`: a case before `default`:
+
+```ts
+    case 'CHALLENGE_NOT_ACTIVE':
+      return "That challenge isn't running."
+```
+
+- [ ] **Step 4: Write the implementation**
+
+In `convex/challenges.ts`: add `query` to the `./_generated/server` import; extend
+the `./lib/challenge.ts` import with `outcomeOf`, `teamTotalsOver` and
+`type ChallengeOutcome, type ChallengeTotals, type StatsDay`; add `meanAttemptsOf`
+from `./lib/teamStats.ts` and `monthOf` from `./lib/puzzleDay.ts`. Then append:
+
+```ts
+export type ChallengeMemberRow = {
+  playerId: Id<'players'>
+  boards: number
+  attempts: number
+  average: number | null
+}
+
 export type ChallengeSide = {
   teamId: Id<'teams'>
   teamName: string
   boards: number
   attempts: number
   average: number | null
-  members: Array<{ playerId: Id<'players'>; boards: number; attempts: number; average: number | null }>
+  members: Array<ChallengeMemberRow>
 }
 
 export type ChallengeScoreboard = {
@@ -3223,21 +3588,27 @@ export type ChallengeScoreboard = {
 }
 
 /**
- * Every monthly document a window touches, for one team.
+ * Every monthly document a window touches, for one team, flattened to days[].
  *
  * ONE DOCUMENT IN THE ORDINARY CASE AND TWO UNDER THE SHORT-WINDOW RULE, which
  * is the only way a window crosses a month boundary. Months are enumerated from
  * the window rather than guessed, so a window that grows later cannot silently
  * read a month short.
+ *
+ * THE RETURN TYPE NAMES Id<'players'> AND MUST. StatsDay's PlayerId defaults to
+ * `string`, so a bare Array<StatsDay> compiles here and then erases the branding
+ * for everything downstream — teamTotalsOver infers PlayerId from this array,
+ * and sideFrom's playerId stops being an Id. The doc's own days[] type is
+ * already branded; this annotation is what keeps it so.
  */
 async function statsDaysFor(
   ctx: ReaderCtx,
   teamId: Id<'teams'>,
   startDay: string,
   endDay: string,
-): Promise<Array<StatsDay>> {
+): Promise<Array<StatsDay<Id<'players'>>>> {
   const months = new Set([monthOf(startDay), monthOf(endDay)])
-  const days: Array<StatsDay> = []
+  const days: Array<StatsDay<Id<'players'>>> = []
   for (const month of months) {
     const [year, monthNum] = month.split('-').map(Number)
     const doc = await ctx.db
@@ -3250,6 +3621,10 @@ async function statsDaysFor(
     // derived data — the rollup skips writing an unchanged month and a team that
     // has never played has no row at all. Treating absence as an error would
     // make a brand-new team's scoreboard crash rather than read 0.
+    //
+    // THE SAME PROPERTY IS A HAZARD FOR TEAM DELETION (Task 11): a cascade that
+    // removes teamMonthStats before closing the team's challenges gets a
+    // silently ZEROED, 'void' snapshot from here, never an error.
     if (doc !== null) days.push(...doc.days)
   }
   return days
@@ -3261,14 +3636,18 @@ async function statsDaysFor(
  * Its `members` come out of a Map in first-seen order across days[] —
  * deterministic, but meaningless to a reader: whoever happened to play earliest
  * in the window lands first. Sort ascending by average so the best performer
- * leads, with a null average (no boards in the window) last, and break ties on
- * boards played to match the outcome rule. A null average must never sort as 0
- * or a member who did not play would appear to have won.
+ * leads, and break ties on boards played to match the outcome rule.
+ *
+ * THE NULL BRANCHES ARE UNREACHABLE TODAY: teamTotalsOver creates a member only
+ * from an entry, so every member has boards >= 1 and a non-null average. They
+ * are kept because meanAttemptsOf's type says null, and a null must never sort
+ * as 0 — a member who did not play would appear to have won. Their mutants
+ * SURVIVE the suite, as outcomeOf's identical null guard does; that is expected.
  */
 function sideFrom(
   teamId: Id<'teams'>,
   teamName: string,
-  totals: ChallengeTotals,
+  totals: ChallengeTotals<Id<'players'>>,
 ): ChallengeSide {
   return {
     teamId,
@@ -3276,11 +3655,10 @@ function sideFrom(
     boards: totals.boards,
     attempts: totals.attempts,
     average: meanAttemptsOf(totals),
-    // NO `as Id<'players'>` CAST. teamTotalsOver is generic over the player id,
-    // so passing it days from a teamMonthStats document makes PlayerId infer as
-    // Id<'players'> and it flows through. If you find yourself adding a cast
-    // here, the generic argument has been lost somewhere upstream — fix that
-    // instead, because a cast is where an Id for the wrong table slips through.
+    // NO `as Id<'players'>` CAST, and none is needed: `totals` is
+    // ChallengeTotals<Id<'players'>> because statsDaysFor's return type says so.
+    // If you find yourself adding a cast here, that annotation has been lost —
+    // fix it there, because a cast is where an Id for the wrong table slips in.
     members: totals.members
       .map((m) => ({
         playerId: m.playerId,
@@ -3288,7 +3666,6 @@ function sideFrom(
         attempts: m.attempts,
         average: meanAttemptsOf(m),
       }))
-      // Nulls last, then lower average first, then more boards first.
       .sort((a, b) => {
         if (a.average === null) return b.average === null ? 0 : 1
         if (b.average === null) return -1
@@ -3305,15 +3682,26 @@ function sideFrom(
  * dailyScores. That is the whole cost model: the aggregate this projects is
  * already maintained incrementally on board write by winners.ts, which is the
  * shape the parent epic's hygiene note asks for.
+ *
+ * ACTIVE ONLY. A closed challenge's numbers are its frozen `result`; recomputing
+ * one live would let a backfilled board restate a finished contest. Task 10's
+ * close calls this on a row that is still 'active', immediately before freezing.
  */
 export async function challengeScoreboardFor(
   ctx: ReaderCtx,
   challenge: Doc<'teamChallenges'>,
 ): Promise<ChallengeScoreboard> {
-  if (challenge.startDay === undefined || challenge.endDay === undefined) {
+  if (challenge.status !== 'active') throw accessError('CHALLENGE_NOT_ACTIVE')
+  // NARROWING, NOT A GUARD: an active row always has all three (activate sets
+  // them in one patch). Unreachable past the status check, and its mutant
+  // survives for that reason.
+  if (
+    challenge.startDay === undefined ||
+    challenge.endDay === undefined ||
+    challenge.opponentTeamId === undefined
+  ) {
     throw accessError('CHALLENGE_NOT_ACTIVE')
   }
-  if (challenge.opponentTeamId === undefined) throw accessError('CHALLENGE_NOT_ACTIVE')
 
   const { startDay, endDay } = challenge
   const challengerTeam = await ctx.db.get(challenge.challengerTeamId)
@@ -3334,36 +3722,50 @@ export async function challengeScoreboardFor(
   return {
     challenger: sideFrom(challengerTeam._id, challengerTeam.name, challengerTotals),
     opponent: sideFrom(opponentTeam._id, opponentTeam.name, opponentTotals),
-    // ⚠️ ARGUMENT ORDER — THE ONE DEFECT NO TEST IN THIS FEATURE CAN CATCH.
-    // outcomeOf's two parameters are structurally identical, so
-    // outcomeOf(opponentTotals, challengerTotals) compiles and silently returns
-    // the opposite winner. The unit tests exercise outcomeOf, not this query, so
-    // a transposed call here produces a plausible-looking scoreboard naming the
-    // wrong team. Task 9's REVIEWER must read this line against the two
-    // sideFrom(...) lines above it and confirm the order by eye. An object
-    // parameter would make the class of bug impossible and was considered and
-    // declined: one call site, both locals named, and the return type names the
-    // roles.
+    // ARGUMENT ORDER MATTERS AND THE COMPILER CANNOT SEE IT: outcomeOf's two
+    // parameters are structurally identical, so a transposed call compiles and
+    // names the wrong winner. The two "the lower average wins" tests run both
+    // directions through THIS line and are what pin it.
     outcome: outcomeOf(challengerTotals, opponentTotals),
   }
 }
 
 export type HeadToHeadRecord = { won: number; lost: number; tied: number; noResult: number }
 
+export type HeadToHead = {
+  opponentTeamId: Id<'teams'>
+  opponentName: string
+  record: HeadToHeadRecord
+}
+
 /**
- * One team's record against another, from the VIEWING team's side.
+ * One team's record against every team it has finished a challenge with, from
+ * the VIEWING team's side, most recently played first.
+ *
+ * READS THE CLOSED SET ONCE — two index queries — and tallies per opponent in
+ * memory. Never one scan per opponent. Reads ZERO teamMonthStats documents: the
+ * snapshot is the record.
  *
  * 'void' IS NEITHER A WIN NOR A LOSS. It is counted as noResult and shown as
  * "no result", because a void means the boards were never there to judge —
  * folding it into either column would invent an outcome nobody played for.
+ *
+ * THE LABEL IS THE OPPONENT'S NAME AT ITS MOST RECENT CLOSE, read from the
+ * snapshot rather than the live team row. That keeps a deleted opponent
+ * labelled, and costs no extra read.
+ *
+ * A 'closed' ROW WITH NO `result` IS SKIPPED. result-present <=> closed is an
+ * invariant the schema cannot express (spec §13); a row breaking it must not
+ * appear as an opponent with an all-zero tally.
+ *
+ * UNBOUNDED OVER A TEAM'S LIFETIME: closed rows are never deleted. At one
+ * challenge per pair at a time and five at once, that is a few dozen a year per
+ * team. If that ever stops being true, this is the read to bound.
  */
-export async function recordAgainstFor(
+export async function headToHeadFor(
   ctx: ReaderCtx,
   teamId: Id<'teams'>,
-  opponentId: Id<'teams'>,
-): Promise<HeadToHeadRecord> {
-  const record: HeadToHeadRecord = { won: 0, lost: 0, tied: 0, noResult: 0 }
-
+): Promise<Array<HeadToHead>> {
   const closed = [
     ...(await ctx.db
       .query('teamChallenges')
@@ -3379,30 +3781,68 @@ export async function recordAgainstFor(
       .collect()),
   ]
 
+  const byOpponent = new Map<Id<'teams'>, HeadToHead & { lastClosedAt: number }>()
   for (const challenge of closed) {
-    if (challenge.result === undefined) continue
-    const other =
-      challenge.challengerTeamId === teamId ? challenge.opponentTeamId : challenge.challengerTeamId
-    if (other !== opponentId) continue
+    const result = challenge.result
+    if (result === undefined) continue
 
     const viewerIsChallenger = challenge.challengerTeamId === teamId
-    switch (challenge.result.outcome) {
+    const other = viewerIsChallenger ? result.opponent : result.challenger
+    const entry = byOpponent.get(other.teamId) ?? {
+      opponentTeamId: other.teamId,
+      opponentName: other.name,
+      record: { won: 0, lost: 0, tied: 0, noResult: 0 },
+      lastClosedAt: -Infinity,
+    }
+    if (result.closedAt > entry.lastClosedAt) {
+      entry.lastClosedAt = result.closedAt
+      entry.opponentName = other.name
+    }
+
+    switch (result.outcome) {
       case 'void':
-        record.noResult += 1
+        entry.record.noResult += 1
         break
       case 'tie':
-        record.tied += 1
+        entry.record.tied += 1
         break
       case 'challenger':
-        viewerIsChallenger ? (record.won += 1) : (record.lost += 1)
+        if (viewerIsChallenger) entry.record.won += 1
+        else entry.record.lost += 1
         break
       case 'opponent':
-        viewerIsChallenger ? (record.lost += 1) : (record.won += 1)
+        if (viewerIsChallenger) entry.record.lost += 1
+        else entry.record.won += 1
         break
     }
+    byOpponent.set(other.teamId, entry)
   }
 
-  return record
+  return [...byOpponent.values()]
+    .sort((a, b) => b.lastClosedAt - a.lastClosedAt)
+    .map(({ opponentTeamId, opponentName, record }) => ({ opponentTeamId, opponentName, record }))
+}
+
+/**
+ * A pending proposal as the team page may see it.
+ *
+ * AN EXPLICIT PROJECTION, NEVER THE DOC. The doc carries the link `token` —
+ * a capability that would otherwise reach every member of the challenging
+ * team, Pro or not — and carries no team names. proposeByLink returns the token
+ * once, to the person who made it. AND NOTHING NUMERIC: AC3 says nothing about
+ * either team's scores renders before acceptance.
+ */
+export type PendingChallengeView = {
+  challengeId: Id<'teamChallenges'>
+  /** 'incoming': this team was challenged and may accept or decline. */
+  direction: 'incoming' | 'outgoing'
+  /** null for a link proposal nobody has claimed yet. */
+  otherTeamName: string | null
+  isLink: boolean
+  /** The client renders "expired" against its own clock; see AC5. */
+  expiresAt: number
+  /** The proposer may withdraw; so may the challenging team's owner. */
+  proposedByViewer: boolean
 }
 
 /**
@@ -3414,44 +3854,59 @@ export async function recordAgainstFor(
  * insights already draws: teamRank sends the free tier a position while
  * memberAverages is the paid panel. Withholding the rows in the client would
  * ship them to the browser and hide them with CSS, which is not a gate.
+ *
+ * IN A *For HELPER rather than the query wrapper, because a rule inside
+ * `query({...})` is a rule no test here can execute (wordle-teams-obw).
  */
+export async function challengesForTeamFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+) {
+  await requireTeamMemberFor(ctx, playerId, teamId)
+  const pro = await isProFor(ctx, playerId)
+
+  const live = await liveChallengesFor(ctx, teamId)
+
+  const active = []
+  for (const challenge of live.filter((c) => c.status === 'active')) {
+    const board = await challengeScoreboardFor(ctx, challenge)
+    active.push({
+      challengeId: challenge._id,
+      startDay: challenge.startDay,
+      endDay: challenge.endDay,
+      viewerIsChallenger: challenge.challengerTeamId === teamId,
+      challenger: pro ? board.challenger : { ...board.challenger, members: [] },
+      opponent: pro ? board.opponent : { ...board.opponent, members: [] },
+      outcome: board.outcome,
+    })
+  }
+
+  const pending: Array<PendingChallengeView> = []
+  for (const challenge of live.filter((c) => c.status === 'pending')) {
+    const incoming = challenge.opponentTeamId === teamId
+    const otherTeamId = incoming ? challenge.challengerTeamId : challenge.opponentTeamId
+    const otherTeam = otherTeamId === undefined ? null : await ctx.db.get(otherTeamId)
+    pending.push({
+      challengeId: challenge._id,
+      direction: incoming ? 'incoming' : 'outgoing',
+      otherTeamName: otherTeam?.name ?? null,
+      isLink: challenge.token !== undefined,
+      expiresAt: challenge.expiresAt,
+      proposedByViewer: challenge.proposedBy === playerId,
+    })
+  }
+
+  return { pro, active, pending, records: await headToHeadFor(ctx, teamId) }
+}
+
 export const challengesForTeam = query({
   args: { teamId: v.id('teams') },
   handler: async (ctx, { teamId }) => {
     const player = await requirePlayer(ctx)
-    await requireTeamMemberFor(ctx, player._id, teamId)
-    const pro = await isProFor(ctx, player._id)
-
-    const live = await liveChallengesFor(ctx, teamId)
-    const active = []
-    for (const challenge of live.filter((c) => c.status === 'active')) {
-      const board = await challengeScoreboardFor(ctx, challenge)
-      active.push({
-        challengeId: challenge._id,
-        startDay: challenge.startDay,
-        endDay: challenge.endDay,
-        viewerIsChallenger: challenge.challengerTeamId === teamId,
-        challenger: pro ? board.challenger : { ...board.challenger, members: [] },
-        opponent: pro ? board.opponent : { ...board.opponent, members: [] },
-        outcome: board.outcome,
-      })
-    }
-
-    return {
-      pro,
-      active,
-      pending: live.filter((c) => c.status === 'pending'),
-    }
+    return await challengesForTeamFor(ctx, player._id, teamId)
   },
 })
-```
-
-- [ ] **Step 4: Add the last access code**
-
-In `convex/access.ts`, extend the challenge block:
-
-```ts
-  | 'CHALLENGE_NOT_ACTIVE'
 ```
 
 - [ ] **Step 5: Run it and confirm it passes**
@@ -3460,9 +3915,43 @@ In `convex/access.ts`, extend the challenge block:
 TZ=UTC pnpm test:once convex/challenges.test.ts > /tmp/t9.txt 2>&1; echo "exit=$?"; tail -30 /tmp/t9.txt
 ```
 
-Expected: `exit=0`, **43** tests in `convex/challenges.test.ts` and **4149** in the full suite — including **+1** generated test in `src/lib/convex-error.test.ts` for `CHALLENGE_NOT_ACTIVE`.
+Expected: `exit=0`. Then the full suite, as a DELTA against Step 0: **+21** in
+`convex/challenges.test.ts` (9 scoreboard, 5 head-to-head, 6 page, 1 type equality)
+and **+1** generated in `src/lib/convex-error.test.ts` for `CHALLENGE_NOT_ACTIVE` —
+**+22** overall. A different delta is a finding to report, not a number to adjust.
 
-- [ ] **Step 6: Run all four gates**
+- [ ] **Step 6: Prove the new tests bite**
+
+For each mutant, apply it, run the named check, confirm it goes RED, revert. Report
+each one with the test that killed it. A mutant that survives is a finding — report
+it, do not weaken the mutant.
+
+| # | Mutant | Must be killed by |
+| --- | --- | --- |
+| 1 | `outcomeOf(opponentTotals, challengerTotals)` | both "the lower average wins" tests |
+| 2 | `statsDaysFor` reads only `monthOf(startDay)` | "reads BOTH monthly documents" |
+| 3 | `statsDaysFor` reads only `monthOf(endDay)` | "reads BOTH monthly documents" |
+| 4 | delete the member `.sort(...)` | "member rows lead with the lowest average" |
+| 5 | swap the tiebreak to `a.boards - b.boards` | "member rows lead with the lowest average" |
+| 6 | delete the `status !== 'active'` line | "not active is refused" |
+| 7 | in `headToHeadFor`, `case 'void'` falls through to `'tie'` | "void counts as neither" |
+| 8 | `viewerIsChallenger` hardcoded `true` | "VIEWING team's side" |
+| 9 | key the map on a constant instead of `other.teamId` | "each opponent gets its own tally" |
+| 10 | delete the `.sort` on the returned records | "each opponent gets its own tally" |
+| 11 | drop the `closedAt >` comparison (first name wins) | "the label is the name from the most recent close" |
+| 12 | delete `if (result === undefined) continue` | "a closed row with no result is skipped" (it throws on `result.opponent`) |
+| 13 | `pro ? … : …` → always the Pro branch | "a free member gets … no member rows" |
+| 14 | `pending` returns the raw docs | both pending tests |
+| 15 | `records` omitted from the return | "the head-to-head record is part of the answer" |
+| 16 | `direction` computed from `challengerTeamId === teamId` inverted | "an incoming proposal is labelled" |
+| 17 | in `schema.ts`, remove `v.literal('void')` from `result.outcome` | `pnpm typecheck` (the `expectTypeOf` test) — **not** vitest |
+| 18 | remove `CHALLENGE_NOT_ACTIVE` from `convexErrorCode`'s chain | `src/lib/convex-error.test.ts` |
+
+Mutants that are EXPECTED to survive, and why: the null branches of the member sort
+and the `startDay/endDay/opponentTeamId === undefined` narrowing (both unreachable,
+see their comments). Report any OTHER survivor you notice.
+
+- [ ] **Step 7: Run all four gates**
 
 ```bash
 TZ=UTC pnpm test:once > /tmp/g-test.txt 2>&1; echo "test=$?"
@@ -3473,25 +3962,26 @@ pnpm build > /tmp/g-build.txt 2>&1; echo "build=$?"
 
 Expected: all four `=0`.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add convex/challenges.ts convex/challenges.test.ts convex/access.ts
+git add convex/challenges.ts convex/challenges.test.ts convex/access.ts src/lib/convex-error.ts
 git commit -F - <<'EOF'
-feat(zic8.2): live scoreboard projection and the head-to-head record
+feat(zic8.2): live scoreboard, head-to-head record, and the page query
 
 At most two teamMonthStats documents per side and never a dailyScores read. A
 missing monthly document is zero boards rather than a throw, because the rollup
 skips unchanged months and a team that has never played has no row.
 
-The Pro gate is applied server-side: free members get both averages, both board
-counts and the outcome, and not the per-member rows - the same line insights
-already draws. Withholding rows in the component would ship them to the browser
-and hide them with CSS, which is not a gate.
+The Pro gate is applied server-side in challengesForTeamFor, where a test can
+reach it: free members get both averages, both board counts and the outcome, and
+not the per-member rows. Pending proposals are an explicit projection that
+carries the other team's name and never the link token or any number.
 
-A void result counts as neither a win nor a loss.
+The head-to-head record reads the closed set once and tallies per opponent. A
+void result counts as neither a win nor a loss.
 
-<YOUR OWN attribution trailer — see below>
+<YOUR OWN attribution trailer>
 Claude-Session: https://claude.ai/code/session_01J5oECn6C61LEH6aeUMiSA8
 EOF
 ```
