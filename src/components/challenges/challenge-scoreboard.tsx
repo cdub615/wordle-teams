@@ -163,23 +163,31 @@ function SideSummary({ side }: { side: ChallengeSideView }) {
   )
 }
 
+/**
+ * COMPACT ROWS, DELIBERATELY DENSER THAN THE SCORING TABLE ON THE SAME PAGE
+ * (owner's call, 2026-10-05). The primitive's p-4 cells and h-12 headers made
+ * two Pro scoreboards a very long card on a phone, where these tables stack.
+ */
+const HEAD = 'h-8 px-2'
+const CELL = 'px-2 py-1.5'
+
 function MemberTable({ side }: { side: ChallengeSideView }) {
   return (
     <div className="min-w-0">
       <Table aria-label={`${side.teamName} players`}>
         <TableHeader>
           <TableRow>
-            <TableHead>{side.teamName}</TableHead>
-            <TableHead className="text-right">Avg</TableHead>
-            <TableHead className="text-right">Boards</TableHead>
+            <TableHead className={HEAD}>{side.teamName}</TableHead>
+            <TableHead className={`${HEAD} text-right`}>Avg</TableHead>
+            <TableHead className={`${HEAD} text-right`}>Boards</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {side.members.map((member) => (
             <TableRow key={member.playerId}>
-              <TableCell>{member.name}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatAverage(member.average)}</TableCell>
-              <TableCell className="text-right tabular-nums">{member.boards}</TableCell>
+              <TableCell className={CELL}>{member.name}</TableCell>
+              <TableCell className={`${CELL} text-right tabular-nums`}>{formatAverage(member.average)}</TableCell>
+              <TableCell className={`${CELL} text-right tabular-nums`}>{member.boards}</TableCell>
             </TableRow>
           ))}
         </TableBody>
