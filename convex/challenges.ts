@@ -14,7 +14,11 @@ import {
 } from './lib/challenge.ts'
 import { meanAttemptsOf } from './lib/teamStats.ts'
 import { displayNamesFor } from './lib/displayNames.ts'
-import { addMonths, monthOf } from './lib/puzzleDay.ts'
+import { addDays, addMonths, monthOf } from './lib/puzzleDay.ts'
+import { METHODS } from './lib/reminders.ts'
+import { clampTeamNameForPush } from './lib/pushText.ts'
+import { internal } from './_generated/api'
+import type { SchedulingCtx } from './winners.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter, GenericDatabaseReader } from 'convex/server'
 
@@ -256,6 +260,68 @@ export const proposeByLink = mutation({
   },
 })
 
+const [, PUSH_METHOD] = METHODS
+
+/**
+ * The push body for a challenge event, naming the OTHER team.
+ *
+ * THE NAME IS CLAMPED BY THE SAME RULE AS CHAT'S (lib/pushText.ts), so a long
+ * team name is cut at the same code-point budget in every notification.
+ */
+export function challengeNotificationBody(event: 'accepted' | 'closed', opponentName: string): string {
+  const name = clampTeamNameForPush(opponentName)
+  return event === 'accepted' ? `Challenge accepted: ${name}` : `Challenge finished: ${name}`
+}
+
+/**
+ * Push to every consenting member of both teams — or of one, when the other has
+ * been deleted (Task 11, owner decision D4: a deleted team's members would be
+ * sent a link to a page that no longer exists).
+ *
+ * DELIVERY IS SCHEDULED, NEVER AWAITED. deliverTo is a 'use node' action that
+ * talks to a push service; awaiting it would let one dead endpoint fail the
+ * accept or the close. It carries its own 404/410 cleanup and retry.
+ *
+ * ONE PUSH SWITCH, NO PER-FEATURE SETTING. Gated on the player's own
+ * `reminderDeliveryMethods`, as the board-entry reminder and chat are. PUSH_METHOD
+ * is derived from METHODS, never the literal: the field is v.array(v.string()),
+ * so a drifted spelling would be silent non-delivery.
+ *
+ * EACH SIDE IS TOLD THE OTHER TEAM'S NAME, and the deep link is the member's own
+ * team page, where the challenge is shown.
+ */
+async function notifyRosters(
+  ctx: SchedulingCtx,
+  challenge: Doc<'teamChallenges'>,
+  event: 'accepted' | 'closed',
+  { skipTeamId }: { skipTeamId?: Id<'teams'> } = {},
+): Promise<void> {
+  if (challenge.opponentTeamId === undefined) return
+  const challenger = await ctx.db.get(challenge.challengerTeamId)
+  const opponent = await ctx.db.get(challenge.opponentTeamId)
+  if (challenger === null || opponent === null) return
+
+  for (const { team, otherName } of [
+    { team: challenger, otherName: opponent.name },
+    { team: opponent, otherName: challenger.name },
+  ]) {
+    if (team._id === skipTeamId) continue
+    for (const playerId of team.playerIds) {
+      const player = await ctx.db.get(playerId)
+      if (player === null || !player.reminderDeliveryMethods.includes(PUSH_METHOD)) continue
+      await ctx.scheduler.runAfter(0, internal.pushSend.deliverTo, {
+        playerId,
+        attempt: 0,
+        notification: {
+          title: 'Wordle Teams',
+          body: challengeNotificationBody(event, otherName),
+          url: `/team?team=${team._id}`,
+        },
+      })
+    }
+  }
+}
+
 /**
  * Bring a pending challenge to life.
  *
@@ -269,7 +335,7 @@ export const proposeByLink = mutation({
  * to a puzzle day rather than to an instant.
  */
 async function activate(
-  ctx: WriterCtx,
+  ctx: SchedulingCtx,
   challengeId: Id<'teamChallenges'>,
   accepterId: Id<'players'>,
   today: string,
@@ -291,10 +357,15 @@ async function activate(
     endDay,
     ...extra,
   })
+
+  // RE-READ, NOT REBUILT: the claim path's opponentTeamId arrived through
+  // `extra`, and the notification needs the row as it now stands.
+  const activated = await ctx.db.get(challengeId)
+  if (activated !== null) await notifyRosters(ctx, activated, 'accepted')
 }
 
 export async function acceptChallengeFor(
-  ctx: WriterCtx,
+  ctx: SchedulingCtx,
   playerId: Id<'players'>,
   challengeId: Id<'teamChallenges'>,
   today: string,
@@ -336,7 +407,7 @@ export async function acceptChallengeFor(
  * around it through a link would make it advisory rather than a control.
  */
 export async function claimChallengeLinkFor(
-  ctx: WriterCtx,
+  ctx: SchedulingCtx,
   playerId: Id<'players'>,
   token: string,
   opponentTeamId: Id<'teams'>,
@@ -668,6 +739,142 @@ export async function challengeScoreboardFor(
     outcome: outcomeOf(challengerTotals, opponentTotals),
   }
 }
+
+/**
+ * Freeze an ACTIVE challenge's numbers, then notify.
+ *
+ * THE SNAPSHOT IS BUILT FIELD BY FIELD because ChallengeSide spells the team's
+ * name `teamName` and the validator wants `name`; a spread fails validation.
+ *
+ * WRITES BEFORE IT NOTIFIES. notifyRosters cannot throw today — it only reads
+ * and schedules — but if a future change lets it throw after the patch, the
+ * sweep's catch would count a row that DID close as failed. Keep notification
+ * non-throwing, or move it out of the try.
+ *
+ * `notify.skipTeamId` IS FOR TASK 11's TEAM-DELETION CLOSE (owner decision D4):
+ * the deleted team's members are not pushed. Every other caller passes nothing.
+ */
+async function closeOne(
+  ctx: SchedulingCtx,
+  challenge: Doc<'teamChallenges'>,
+  notify: { skipTeamId?: Id<'teams'> } = {},
+): Promise<void> {
+  const board = await challengeScoreboardFor(ctx, challenge)
+  const frozen = (side: ChallengeSide) => ({
+    teamId: side.teamId,
+    name: side.teamName,
+    boards: side.boards,
+    attempts: side.attempts,
+    average: side.average,
+    members: side.members,
+  })
+  await ctx.db.patch(challenge._id, {
+    status: 'closed',
+    result: {
+      challenger: frozen(board.challenger),
+      opponent: frozen(board.opponent),
+      outcome: board.outcome,
+      closedAt: Date.now(),
+    },
+  })
+  await notifyRosters(ctx, challenge, 'closed', notify)
+}
+
+/**
+ * Close every active challenge whose window has ended, and expire stale proposals.
+ *
+ * CLOSES ON endDay + 2, NOT endDay + 1. `today` is the server's UTC day and this
+ * runs at 00:45 UTC; on endDay + 1 a player at UTC-12 has until 12:00 UTC to play
+ * endDay's puzzle, and a close then would freeze the result without it, for good.
+ *
+ * THE STATUS CHECK IS THE IDEMPOTENCE GUARD. A closed row is not 'active', so a
+ * re-run skips it. There is deliberately no separate `result !== undefined` check:
+ * after the status check it could never fire.
+ *
+ * ONE BAD ROW DOES NOT STOP THE REST. challengeScoreboardFor throws on a missing
+ * team row before anything is written, so catching it leaves no partial state;
+ * the row stays 'active', is counted in `failed`, and is logged.
+ *
+ * NOT GATED ON CHALLENGES_ENABLED, and must never be. That switch only stops
+ * challenges being started or shown; a challenge already running when it is
+ * turned off must still close. Only SWEEPS_ENABLED, in the calling sweep, stops
+ * this.
+ *
+ * WALKS THE WHOLE TABLE. Correct at this volume — at most MAX_ACTIVE_CHALLENGES live
+ * rows per team, closed rows accumulating slowly. crons.ts records that this
+ * deployment's sweeps cost grows with the DATA; this scan is part of that, and is
+ * the read to index by status if the table passes a few thousand rows.
+ */
+export async function closeDueChallengesFor(
+  ctx: SchedulingCtx,
+  today: string,
+): Promise<{ closed: number; expired: number; failed: number }> {
+  let closed = 0
+  let expired = 0
+  let failed = 0
+  const now = Date.now()
+
+  for (const challenge of await ctx.db.query('teamChallenges').collect()) {
+    if (challenge.status === 'pending' && challenge.expiresAt <= now) {
+      await ctx.db.patch(challenge._id, { status: 'expired' })
+      expired += 1
+      continue
+    }
+    if (challenge.status !== 'active' || challenge.endDay === undefined) continue
+    if (today < addDays(challenge.endDay, 2)) continue
+
+    try {
+      await closeOne(ctx, challenge)
+      closed += 1
+    } catch (error) {
+      console.error(`closeDueChallengesFor: could not close ${challenge._id}`, error)
+      failed += 1
+    }
+  }
+  return { closed, expired, failed }
+}
+
+/**
+ * Either owner ends a running challenge early.
+ *
+ * FREEZES WHAT THE WINDOW HELD rather than discarding it, which is the whole
+ * difference from withdraw: this contest was agreed to and played, so it has a
+ * result even when it is cut short.
+ *
+ * EITHER OWNER, CHECKED ON ONE SIDE. The side is chosen by reading the
+ * challenger team's owner, and the full requireTeamOwnerFor then runs on that
+ * side only, so its refusal is the one that propagates: a non-owner gets the
+ * opponent team's answer (NOT_TEAM_OWNER for its members, NOT_A_MEMBER for
+ * anyone else). No exception is used as control flow, so no refusal from the
+ * first side can be swallowed by a catch that matched too much.
+ */
+export async function cancelChallengeFor(
+  ctx: SchedulingCtx,
+  playerId: Id<'players'>,
+  challengeId: Id<'teamChallenges'>,
+): Promise<void> {
+  const challenge = await ctx.db.get(challengeId)
+  if (challenge === null) throw accessError('INVALID_TEAM')
+  if (challenge.status !== 'active') throw accessError('CHALLENGE_NOT_ACTIVE')
+  // NARROWING: an active row always has an opponent (activate sets it).
+  if (challenge.opponentTeamId === undefined) throw accessError('CHALLENGE_NOT_ACTIVE')
+
+  const challengerTeam = await ctx.db.get(challenge.challengerTeamId)
+  const side =
+    challengerTeam?.owner === playerId ? challenge.challengerTeamId : challenge.opponentTeamId
+  await requireTeamOwnerFor(ctx, playerId, side)
+
+  await closeOne(ctx, challenge)
+}
+
+// NOT GATED ON CHALLENGES_ENABLED: ending a running challenge must always work.
+export const cancelChallenge = mutation({
+  args: { challengeId: v.id('teamChallenges') },
+  handler: async (ctx, { challengeId }) => {
+    const player = await requirePlayer(ctx)
+    await cancelChallengeFor(ctx, player._id, challengeId)
+  },
+})
 
 export type HeadToHeadRecord = { won: number; lost: number; tied: number; noResult: number }
 

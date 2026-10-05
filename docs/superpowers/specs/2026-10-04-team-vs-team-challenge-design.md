@@ -381,14 +381,28 @@ window combined with concurrency, and it is correct rather than a defect.
 
 `crons.daily('team month aggregates', { hourUTC: 0, minuteUTC: 45 }, internal.teamStats.sweep, {})`
 already runs just after midnight UTC. Closing due challenges joins that sweep. **No new
-cron lane** — `crons.ts` records at length why lanes are kept apart and why run count
-rather than data volume is what grew the bill, so adding a lane for this would be the
-wrong trade when an existing daily pass is already in the right place at the right time.
+cron lane** — `crons.ts` records at length why lanes are kept apart and that the bill
+grew with the DATA each run read rather than with traffic, so adding a lane for this would
+be the wrong trade when an existing daily pass is already in the right place at the right
+time.
 
 Closing a challenge computes both sides from `teamMonthStats`, writes `result`, sets
 `status: 'closed'`, and schedules push to both rosters. The close must be **idempotent**:
-a challenge already holding a `result` is skipped, so a re-run cannot restate a frozen
-record or double-notify.
+a challenge no longer `active` is skipped, so a re-run cannot restate a frozen record or
+double-notify. The status check IS the guard; a separate `result !== undefined` check
+after it could never fire.
+
+**A challenge closes on `endDay + 2` (server day), not `endDay + 1`.** The sweep runs at
+00:45 UTC. On `endDay + 1` a player at UTC-7 is still in the evening of `endDay`, and one
+at UTC-12 has until 12:00 UTC to play `endDay`'s puzzle; closing then would freeze the
+result without their last-day boards, permanently. Two days covers every timezone, and
+the cost is that results arrive one day later.
+
+The close is NOT ordered after the sweep's rollups in any useful sense: those are
+scheduled, run later, and cover only the current month. A just-ended window's month is
+kept current by the incremental write path in `winners.ts`, which is what the close
+relies on. It is gated by `SWEEPS_ENABLED` only, never by `CHALLENGES_ENABLED` — switching
+the feature off must not strand a running challenge.
 
 The sweep must honour `sweepsEnabled(process.env.SWEEPS_ENABLED)` as its **first
 statement**, the rule `chatNotify.ts` and `lib/sweeps.ts` already carry, and for the same
@@ -493,8 +507,9 @@ that aggregate rather than building a second one.
   `lib/puzzleDay.ts`, and a date test that passes only on the host timezone passes
   locally and fails in CI.
 - **`result` present ⟺ `status === 'closed'`** is load-bearing in two places and
-  expressible in neither the schema nor a schema test: the close path uses
-  `result !== undefined` as its idempotency guard, and `headToHeadFor` uses
+  expressible in neither the schema nor a schema test: the close path's idempotency
+  guard is the `status !== 'active'` check (a closed row is skipped; there is no separate
+  `result` check, which could never fire after it), and `headToHeadFor` uses
   `result === undefined` to skip rows it has already filtered to `'closed'`. So a
   `'closed'` row with no `result` is silently dropped from the head-to-head record.
   Pin the pairing behaviourally in the close tests.

@@ -4,6 +4,7 @@ import { internalMutation } from './_generated/server'
 import { aggregateTeamMonth, sameStats } from './lib/teamStats.ts'
 import { monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { sweepsEnabled } from './lib/sweeps.ts'
+import { closeDueChallengesFor } from './challenges.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 import type { PuzzleMonth } from './lib/puzzleDay.ts'
@@ -200,7 +201,17 @@ export const sweep = internalMutation({
         month,
       })
     }
-    return { teams: teams.length, month }
+
+    // CHALLENGES CLOSE ON THIS SWEEP, NOT A CRON OF THEIR OWN (wordle-teams-zic8.2):
+    // a daily pass at 00:45 UTC is already the right cadence, and crons.ts keeps
+    // lanes apart deliberately. NOT ORDERED AFTER THE ROLLUPS ABOVE IN ANY USEFUL
+    // SENSE: those are scheduled, run later, and cover only the current month. A
+    // closed window's month is kept current by the incremental write path.
+    //
+    // GATED ON SWEEPS_ENABLED ONLY (the switch above), NEVER ON CHALLENGES_ENABLED:
+    // turning the feature off must not strand a challenge that is already running.
+    const challenges = await closeDueChallengesFor(ctx, toPuzzleDay(new Date()))
+    return { teams: teams.length, month, challenges }
   },
 })
 
