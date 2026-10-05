@@ -154,3 +154,66 @@ export const proposeToTeam = mutation({
     return await proposeToTeamFor(ctx, player._id, challengerTeamId, opponentTeamId)
   },
 })
+
+/**
+ * An opaque, unguessable challenge token.
+ *
+ * THIS IS A CAPABILITY, NOT AN IDENTIFIER: anyone holding it can put one of
+ * their own teams into a challenge, which is the whole difference between a link
+ * and naming a team you are already on. It is looked up on a path reachable
+ * before we know which team the holder acts for.
+ *
+ * crypto.getRandomValues, NOT Math.random. The "two tokens never collide" test
+ * proves this call runs in this runtime; it does NOT prove unguessability, since
+ * a counter would satisfy it just as well. If this line ever stops being
+ * getRandomValues, no test will tell you — it is a code-review obligation, the
+ * same one inviteLinks' newToken carries.
+ */
+function newToken(): string {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Propose a challenge to whoever holds the link.
+ *
+ * THE OPPONENT IS UNKNOWN HERE, so only the checks that do not need one run:
+ * membership, Pro, and the challenger's own cap. The pair checks run at claim
+ * time instead — see claimChallengeLinkFor and design §8.1.
+ *
+ * WHY A LINK AT ALL: "someone you know on the other team" is a social fact the
+ * app does not hold, and it has no friend graph outside team rosters. A link
+ * leaves that fact where it actually lives — in whatever channel the friendship
+ * already uses — rather than building a directory to approximate it.
+ */
+export async function proposeByLinkFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  challengerTeamId: Id<'teams'>,
+): Promise<string> {
+  await requireTeamMemberFor(ctx, playerId, challengerTeamId)
+  if (!(await isProFor(ctx, playerId))) throw accessError('PRO_REQUIRED')
+  if ((await liveChallengeCountFor(ctx, challengerTeamId)) >= MAX_ACTIVE_CHALLENGES) {
+    throw accessError('CHALLENGE_LIMIT_REACHED')
+  }
+
+  const token = newToken()
+  await ctx.db.insert('teamChallenges', {
+    challengerTeamId,
+    proposedBy: playerId,
+    status: 'pending',
+    token,
+    expiresAt: Date.now() + TTL_MS,
+    createdAt: Date.now(),
+  })
+  return token
+}
+
+export const proposeByLink = mutation({
+  args: { challengerTeamId: v.id('teams') },
+  handler: async (ctx, { challengerTeamId }) => {
+    const player = await requirePlayer(ctx)
+    return await proposeByLinkFor(ctx, player._id, challengerTeamId)
+  },
+})

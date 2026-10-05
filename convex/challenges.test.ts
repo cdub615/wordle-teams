@@ -2,7 +2,12 @@ import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
-import { liveChallengeCountFor, liveChallengesFor, proposeToTeamFor } from './challenges.ts'
+import {
+  liveChallengeCountFor,
+  liveChallengesFor,
+  proposeByLinkFor,
+  proposeToTeamFor,
+} from './challenges.ts'
 import { MAX_ACTIVE_CHALLENGES } from './lib/challenge.ts'
 import type { DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
@@ -283,6 +288,83 @@ describe('proposeToTeamFor', () => {
       await expect(
         proposeToTeamFor(ctx, playerId, challengerTeamId, strangerTeam),
       ).rejects.toMatchObject({ data: { code: 'NOT_A_MEMBER' } })
+    })
+  })
+})
+
+describe('proposeByLinkFor', () => {
+  test('a Pro member gets a token and no opponent', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      const doc = await ctx.db
+        .query('teamChallenges')
+        .withIndex('by_token', (q) => q.eq('token', token))
+        .unique()
+      expect(doc?.status).toBe('pending')
+      expect(doc?.opponentTeamId).toBeUndefined()
+    })
+  })
+
+  test('a non-Pro member is refused', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx, { pro: false })
+      await expect(proposeByLinkFor(ctx, playerId, challengerTeamId)).rejects.toMatchObject({
+        data: { code: 'PRO_REQUIRED' },
+      })
+    })
+  })
+
+  // PROVES THE CALL RUNS IN THIS RUNTIME; it does NOT prove unguessability — a
+  // counter would satisfy this too. The source of the bytes is a code-review
+  // obligation. Same note as inviteLinks' newToken.
+  // EACH ROW IS WITHDRAWN BEFORE THE NEXT DRAW. proposeByLinkFor counts
+  // 'pending' against MAX_ACTIVE_CHALLENGES, which is 5 — so an unguarded
+  // 25-iteration loop throws CHALLENGE_LIMIT_REACHED at i = 5. Measured against
+  // the real function, which is already on disk.
+  //
+  // THE SHAPE ASSERTION IS NOT DECORATION: 32 hex chars is the 16 bytes newToken
+  // draws. Without it the suite cannot tell Uint8Array(16) from Uint8Array(2) —
+  // 25 draws from 65536 collide only about 0.5% of the time, so the set-size
+  // assertion alone survives that mutant.
+  test('two tokens never collide', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const tokens = new Set<string>()
+      for (let i = 0; i < 25; i++) {
+        const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+        tokens.add(token)
+        expect(token).toMatch(/^[0-9a-f]{32}$/)
+        const doc = await ctx.db
+          .query('teamChallenges')
+          .withIndex('by_token', (q) => q.eq('token', token))
+          .unique()
+        if (doc !== null) await ctx.db.patch(doc._id, { status: 'withdrawn' })
+      }
+      expect(tokens.size).toBe(25)
+    })
+  })
+
+  test('the challenger cap still applies to link proposals', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      for (let i = 0; i < MAX_ACTIVE_CHALLENGES; i++) {
+        await ctx.db.insert('teamChallenges', {
+          challengerTeamId,
+          proposedBy: playerId,
+          status: 'pending',
+          token: `token-${i}`,
+          expiresAt: Date.now() + 1000,
+          createdAt: Date.now(),
+        })
+      }
+      await expect(proposeByLinkFor(ctx, playerId, challengerTeamId)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_LIMIT_REACHED' },
+      })
     })
   })
 })
