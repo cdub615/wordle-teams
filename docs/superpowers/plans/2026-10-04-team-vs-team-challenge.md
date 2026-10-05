@@ -5261,67 +5261,126 @@ Then the four gates, and commit.
 
 ---
 
-## Task 12a: Team page — scoreboards, the consent actions, and the switch's UI
+## Task 12a: Team page — the Challenges card, its consent actions, and a dashboard nudge
 
 **bd:** `wordle-teams-zic8.2.12`.
 
-**Owner decision D1 (2026-10-05):** pending rows carry their actions — incoming:
-**Accept / Decline**; outgoing: **Withdraw**, shown to the proposer and to the
-challenging team's owner. Active scoreboards carry **Cancel** for either team's owner.
-The owner's `acceptsChallenges` switch goes on **team settings**. Propose moves to 12b.
+**Owner decisions (2026-10-05):**
+- **D1:** pending rows carry their actions — incoming: **Accept / Decline**; outgoing:
+  **Withdraw**, shown to the proposer and to the challenging team's owner. Active
+  scoreboards carry **Cancel** for either team's owner. Propose is Task 12b.
+- **D8 — placement:** a `ChallengesCard` on `/team`, directly BELOW `CurrentTeamCard`
+  and ABOVE the scoring card. The owner's "accept challenges" switch sits at the
+  bottom of that card, rendered only for the owner.
+- **D9 — discovery:** nothing pushes on a proposal, so the DASHBOARD (`/app`) shows a
+  one-line nudge — "Your team has been challenged" linking to `/team?team=<id>` —
+  when the current team has an incoming, unexpired pending challenge.
+- **D10 — verification:** component tests here; then the CONTROLLER runs the app
+  against the local e2e backend and screenshots mobile and desktop for the owner.
+  The implementer does not run the app.
+- `api.d.ts` already lists `challenges` (zic8.2.15, hand-edited): use
+  `api.challenges.*` freely. **Do not run any Convex CLI command.**
 
-- [ ] **Step 0: SHIP GATE CHECK.** `bd show wordle-teams-rac`. Whatever its state, this
-  task proceeds — the UI renders nothing unless `challengesForTeam` reports
-  `enabled: true`, which needs `CHALLENGES_ENABLED=true` on the deployment. **If rac is
-  not closed, do not set that variable on production**, and say so in the report.
-
-- [ ] **Step 0b: `api.d.ts`.** Blocked on `wordle-teams-zic8.2.15` (regenerate against
-  a LOCAL anonymous backend). The controller does this, not the implementer.
+- [ ] **Step 0: SHIP GATE CHECK.** `bd show wordle-teams-rac`. This task proceeds
+  either way, because everything here renders nothing unless the server reports
+  `enabled: true`. If rac is open, say so in the report.
 
 **Files:**
-- Create: `src/components/challenges/challenge-scoreboard.tsx`
-- Create: `src/components/challenges/challenges-section.tsx`
-- Create: `src/components/challenges/challenges.hook.test.ts` — **`.ts`, with
-  `createElement`, NOT JSX**: `vitest.config.ts` includes `src/**/*.test.ts` only, so a
-  `.tsx` test is SKIPPED SILENTLY and the step reports exit 0 with 0 tests. Follow
-  `src/components/Header.hook.test.ts`. **No `toBeInTheDocument`** —
-  `@testing-library/jest-dom` is not a dependency; use `queryBy…` + `toBeNull()` /
-  `not.toBeNull()`.
-- Modify: `src/routes/team.tsx` — the section, and the owner's switch
+- Modify: `convex/challenges.ts` — one small query for the nudge (below)
+- Modify: `convex/challenges.test.ts` — its tests, and add it to the gate describe's
+  exact-line list
+- Create: `src/components/challenges/challenges-card.tsx` — the card (section)
+- Create: `src/components/challenges/challenge-scoreboard.tsx` — one active challenge
+- Create: `src/components/challenges/pending-challenge-row.tsx` — one pending row
+- Create: `src/components/challenges/challenge-nudge.tsx` — the dashboard line
+- Create: `src/components/challenges/challenges.hook.test.ts`
+- Modify: `src/routes/team.tsx` (the card), `src/routes/app.tsx` (the nudge)
 
-- [ ] **Step 1: Read the precedents**: `src/routes/team.tsx`, `Header.hook.test.ts`,
-  `team-picker.tsx` (upgrade-path pattern), and how `team.tsx` already calls mutations
-  and surfaces `convexErrorMessage`.
+### The nudge query
 
-- [ ] **Step 2: Failing component tests.** Specify, then write, at minimum:
-  1. Scoreboard shows both team names, both averages to 1dp and both board counts.
-  2. It labels the window start ("since 5 Oct").
-  3. A `void` outcome says "not enough boards yet" and names no winner.
-  4. Member rows render when the side carries them, labelled by `name`, and the free
-     view shows the upgrade hint instead. **The component does not gate**: the server
-     already stripped the rows; `pro` only chooses rows vs hint.
-  5. An incoming pending row shows Accept and Decline and no numbers; an outgoing one
-     shows Withdraw only when `proposedByViewer` or the viewer owns the team; a link
-     proposal with no opponent reads as "waiting for a team to claim the link".
-  6. A pending row past `expiresAt` (against an injected `now`) renders "expired" with
-     no actions (AC5).
-  7. Cancel appears on an active scoreboard only for an owner.
-  8. With `enabled: false` the section renders NOTHING — no heading, no empty state.
-  9. The head-to-head list renders `won-lost-tied` with "no result" for void.
+`incomingChallengeFor(ctx, playerId, teamId, now): Promise<boolean>` in
+`convex/challenges.ts`: `requireTeamMemberFor`, then ONE indexed query —
+`by_opponent_and_status` with `eq('opponentTeamId', teamId).eq('status','pending')` —
+returning whether any row has `expiresAt > now`. No scoreboards, no names, nothing
+numeric. Wrapper `incomingChallenge = query({ args: { teamId } })`, whose FIRST
+statement is `if (!challengesEnabled(process.env.CHALLENGES_ENABLED)) return false`,
+then `requirePlayer`, then the helper with `Date.now()`. Add that exact line to the
+gate describe as a third pinned form (a query that answers `false` when dark).
 
-Each action test asserts the mutation is called with the right `challengeId` (mock the
-mutation hook the way the precedent file mocks Convex).
+Tests: true for an incoming unexpired pending row; false for an OUTGOING one (this team
+is the challenger); false once `expiresAt <= now`; false for an active or declined row;
+`NOT_A_MEMBER` for a non-member.
 
-- [ ] **Step 3-6:** red, build, wire into `team.tsx` with the route's
-  `useSuspenseQuery` pattern against `api.challenges.challengesForTeam`, green. Accept
-  passes the viewer's local `today` (`toPuzzleDay(new Date())`, as other mutations on
-  this route do). The owner's switch calls `setAcceptsChallenges`, beside the team's
-  other owner-only settings.
+**Why `now` is a parameter:** Convex caches a query's result and does not re-run it
+as time passes, so an expiry decided inside a query is stale until something else
+invalidates it. That is acceptable for a nudge, and the parameter keeps the helper
+testable on a frozen clock. Say so in a comment.
 
-- [ ] **Step 7: Mutants** — at least: drop the `enabled` check (8), show Withdraw to
-  everyone (5), render a winner on void (3), drop the expiry check (6).
+### Components and their tests (the specification)
 
-- [ ] **Step 8: Four gates; commit.**
+Tests live in `src/components/challenges/challenges.hook.test.ts`: **a `.ts` file using
+`createElement`, NOT JSX** (`vitest.config.ts` includes `src/**/*.test.ts` only, so a
+`.tsx` test is SKIPPED SILENTLY), under `// @vitest-environment jsdom`, following
+`src/components/Header.hook.test.ts`. **No `toBeInTheDocument`**: jest-dom is not a
+dependency; use `queryBy…` with `toBeNull()` / `not.toBeNull()`. Mock Convex the way
+the precedent does. Every component takes plain props, so most tests need no Convex.
+
+`ChallengeScoreboard` (props: one entry of `challengesForTeam`'s `active`, plus `pro`,
+`viewerIsOwner`, `onCancel`):
+1. Both team names, both averages to ONE decimal, both board counts.
+2. The window start, as "since 5 Oct", from `startDay`.
+3. Who is ahead, named from the VIEWER's side ("You're ahead" / "<Other> is ahead" /
+   "Level"), using `viewerIsChallenger` and `outcome`; for `void`, "Not enough boards
+   yet" and NO winner wording anywhere.
+4. With `pro` and rows present: a member table labelled by `name`, under each team.
+   Without `pro`: no member table, and a one-line upgrade hint instead (follow
+   `team-picker.tsx`'s upgrade pattern). **The component does not gate**: the server
+   already stripped the rows; `pro` only chooses table vs hint.
+5. Cancel renders only when `viewerIsOwner`, and calls `onCancel(challengeId)`.
+
+`PendingChallengeRow` (props: one `pending` entry, `viewerIsOwner`, `now`, callbacks):
+6. Incoming: the other team's name, Accept and Decline, and NO numbers of any kind (AC3).
+7. Outgoing: Withdraw only when `proposedByViewer || viewerIsOwner`.
+8. A link proposal (`otherTeamName === null`): "Waiting for a team to claim your link".
+9. `expiresAt <= now`: "Expired", and NO actions (AC5).
+
+`ChallengesCard` (props: the query result, `isOwner`, `acceptsChallenges`, `now`,
+mutation callbacks):
+10. `enabled: false` renders NOTHING — no heading, no empty state.
+11. Enabled with nothing live: a one-line empty state (12b adds the propose button).
+12. The head-to-head list: "<name> — won W, lost L, tied T" plus "N no result" only when
+    non-zero.
+13. The owner's switch renders only for an owner, reflects `acceptsChallenges` (absent
+    means on), and calls `setAcceptsChallenges` with the flipped value.
+
+`ChallengeNudge` (props: `teamId`, `incoming: boolean`):
+14. Renders the line and a link to `/team?team=<teamId>` only when `incoming`.
+
+### Wiring
+
+- **`/team`:** `useSuspenseQuery(convexQuery(api.challenges.challengesForTeam, {
+  teamId }))` **inside its own `<Suspense>`** with a small skeleton, the way the
+  scoring card is wrapped, so a slow scoreboard never blocks the page. Accept passes
+  the viewer's local `today` (`toPuzzleDay(new Date())`, as other mutations on these
+  routes do). Errors surface through `convexErrorMessage`, as the page's other
+  mutations do. `acceptsChallenges` is NOT in `getMyTeams` today (checked). Add it to
+  that query's per-team projection in `convex/teams.ts`, beside `playWeekends` and
+  `showLetters`, as a BOOLEAN — `team.acceptsChallenges !== false`, since absent means
+  yes — and update any exact-shape `getMyTeams` test that breaks. Add `convex/teams.ts`
+  and `convex/teams.test.ts` to this task's files. No new query.
+- **`/app`:** `useQuery` (NOT suspense, like the chat-unread signal there) on
+  `api.challenges.incomingChallenge` for the current team, rendering `ChallengeNudge`.
+  It must never block or delay the dashboard.
+
+### Mutants to prove (each RED, then reverted)
+Drop the `enabled` check (10); show Withdraw to everyone (7); name a winner on void
+(3); drop the expiry check (9); render the member table regardless of rows (4); flip
+the ahead/behind wording for the opponent viewer (3); invert the nudge's
+`expiresAt > now` (query test); the nudge query's dark line inverted (gate test).
+
+### Then
+Four gates; commit. **The controller then runs the screenshot pass (D10) before the
+task is closed** — the implementer reports and stops.
 
 ---
 
