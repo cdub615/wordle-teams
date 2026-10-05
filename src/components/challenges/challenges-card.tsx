@@ -53,7 +53,11 @@ export function ChallengesCard({
   onWithdraw: (challengeId: ChallengeId) => void
   onCancel: (challengeId: ChallengeId) => void
   onSetAcceptsChallenges: (accepts: boolean) => void
-  onUpgrade?: () => void
+  /**
+   * REQUIRED: the free viewer's "Challenge a team" control calls it, and an
+   * optional prop would let a caller leave it out and ship a dead control (AC2).
+   */
+  onUpgrade: () => void
   /** Opens the propose dialog. Only a Pro viewer's control calls it. */
   onChallenge: () => void
   className?: string

@@ -390,6 +390,7 @@ function card(
       onSetAcceptsChallenges,
       onChallenge: vi.fn(),
       acceptsPending,
+      onUpgrade: vi.fn(),
     }),
   )
 }

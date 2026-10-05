@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Loader2, Share2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '#/components/ui/button.tsx'
@@ -44,6 +44,10 @@ type TeamId = Id<'teams'>
  * Challenges card already offers. There is deliberately no query that returns
  * tokens.
  */
+/** A challenge made, but its one-time link never reached anyone. */
+export const LINK_NOT_SHARED =
+  "Your challenge was made, but this browser couldn't share the link. Withdraw it under Proposals and make a new one."
+
 export function ProposeChallengeDialog({
   open,
   onOpenChange,
@@ -63,6 +67,7 @@ export function ProposeChallengeDialog({
   proposeToTeam: (args: { challengerTeamId: TeamId; opponentTeamId: TeamId }) => Promise<unknown>
   proposeByLink: (args: { challengerTeamId: TeamId }) => Promise<string>
 }) {
+  const listLabelId = useId()
   const { height, offsetTop } = useVisualViewport()
   // Which control is in flight: an opponent's id, 'link', or nothing. One value
   // rather than a flag per control, so "anything in flight" is one test.
@@ -95,26 +100,42 @@ export function ProposeChallengeDialog({
     }
   }
 
+  /**
+   * TWO STEPS, TWO FAILURE MESSAGES. Once proposeByLink resolves, the proposal
+   * EXISTS — it occupies one of the team's MAX_ACTIVE_CHALLENGES slots — and its
+   * token is gone for good if the hand-off fails. Saying "could not create" then
+   * would be false, and a user who retries leaves another unclaimable row each
+   * time until the team hits CHALLENGE_LIMIT_REACHED. So a failure AFTER the
+   * mint says the challenge was made and how to clear it.
+   */
   const shareChallengeLink = async () => {
     setPending('link')
     try {
-      const token = await proposeByLink({ challengerTeamId: teamId })
+      let token: string
+      try {
+        token = await proposeByLink({ challengerTeamId: teamId })
+      } catch (error) {
+        toast.error(mutationErrorMessage(error, 'Could not create a challenge link'))
+        return
+      }
       // Task 13's route. lib/share-link.ts owns the order (share sheet first,
       // clipboard as the fallback) and what a dismissed sheet means.
-      const outcome = await shareLink({
-        title: `${teamName} challenges your team on Wordle Teams`,
-        url: `${window.location.origin}/challenge/${token}`,
-      })
+      let outcome: Awaited<ReturnType<typeof shareLink>>
+      try {
+        outcome = await shareLink({
+          title: `${teamName} challenges your team on Wordle Teams`,
+          url: `${window.location.origin}/challenge/${token}`,
+        })
+      } catch {
+        toast.error(LINK_NOT_SHARED)
+        return
+      }
       if (outcome === 'unavailable') {
-        // The proposal exists and waits in the card; only the hand-off failed.
-        // There is no email field to point at here, unlike the invite dialog.
-        toast.error('This browser cannot share or copy the link.')
+        toast.error(LINK_NOT_SHARED)
       } else if (outcome === 'copied') {
         setCopied(true)
         toast.success('Challenge link copied')
       }
-    } catch (error) {
-      toast.error(mutationErrorMessage(error, 'Could not create a challenge link'))
     } finally {
       setPending(null)
     }
@@ -126,6 +147,14 @@ export function ProposeChallengeDialog({
           create-team-dialog.tsx for why it is load-bearing on a phone. */}
       <DialogContent
         style={height ? { top: offsetTop + height / 2, maxHeight: height } : undefined}
+        // FOCUS THE DIALOG, NOT ITS FIRST BUTTON. Radix would focus the first
+        // team button, so a keyboard user who opened this with Enter and held
+        // the key could send a challenge by key repeat. The invite dialog lands
+        // on an input, where that is harmless; here it is a proposal.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          ;(event.currentTarget as HTMLElement | null)?.focus()
+        }}
       >
         <DialogHeader>
           <DialogTitle>Challenge a team</DialogTitle>
@@ -133,13 +162,15 @@ export function ProposeChallengeDialog({
         </DialogHeader>
 
         <div className="w-full space-y-2">
-          <p className="text-sm font-medium">Your other teams</p>
+          <p id={listLabelId} className="text-sm font-medium">
+            Your other teams
+          </p>
           {otherTeams.length === 0 ? (
             <p className="text-muted-foreground text-sm">
               You're not on any other team. Share a link below to challenge one.
             </p>
           ) : (
-            <ul className="flex flex-col gap-2">
+            <ul aria-labelledby={listLabelId} className="flex flex-col gap-2">
               {otherTeams.map((team) => (
                 <li key={team.id}>
                   {/* WRAPS, NEVER TRUNCATES. `whitespace-normal` undoes

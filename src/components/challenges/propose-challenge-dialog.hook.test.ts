@@ -18,7 +18,7 @@ import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from 'vitest'
 import { typedCodeMessage } from '#/lib/convex-error.ts'
 import { ChallengesCard } from './challenges-card.tsx'
-import { ProposeChallengeDialog } from './propose-challenge-dialog.tsx'
+import { LINK_NOT_SHARED, ProposeChallengeDialog } from './propose-challenge-dialog.tsx'
 import type { ChallengesView } from './types.ts'
 import type { AccessCode } from '../../../convex/access'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -266,7 +266,22 @@ describe('5. a challenge link', () => {
     await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1))
     expect(proposeByLink).toHaveBeenCalledTimes(1)
     expect(toastError.mock.calls[0][0]).not.toBe('Could not create a challenge link')
-    expect(toastError.mock.calls[0][0]).toMatch(/browser/i)
+    expect(toastError.mock.calls[0][0]).toBe(LINK_NOT_SHARED)
+  })
+
+  // AFTER THE MINT THE PROPOSAL EXISTS. A share that fails for any reason but a
+  // dismissal must not say "could not create": the user would retry, and each
+  // retry leaves another unclaimable row holding one of the team's slots.
+  test('a share that fails after the mint says the challenge was made, and how to clear it', async () => {
+    const denied = Object.assign(new Error('Not allowed'), { name: 'NotAllowedError' })
+    browser({ share: vi.fn().mockRejectedValue(denied), clipboard: true })
+    const { proposeByLink } = dialog()
+    fireEvent.click(linkButton())
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1))
+    expect(proposeByLink).toHaveBeenCalledTimes(1)
+    expect(toastError).toHaveBeenCalledWith(LINK_NOT_SHARED)
+    expect(LINK_NOT_SHARED).toMatch(/withdraw/i)
   })
 })
 
