@@ -780,6 +780,28 @@ async function closeOne(
 }
 
 /**
+ * Resolve a deleted team's challenges. Called as the FIRST statement of
+ * cascadeDeleteTeam, before the derived teamMonthStats rows are removed — see
+ * the call site.
+ *
+ * CLOSED, NOT DELETED: a challenge is a played result, not derived data.
+ * A PENDING PROPOSAL IS WITHDRAWN, having never been agreed to.
+ * ONLY THE SURVIVOR IS NOTIFIED (owner decision D4).
+ */
+export async function closeChallengesForDeletedTeam(
+  ctx: SchedulingCtx,
+  teamId: Id<'teams'>,
+): Promise<void> {
+  for (const challenge of await liveChallengesFor(ctx, teamId)) {
+    if (challenge.status === 'pending') {
+      await ctx.db.patch(challenge._id, { status: 'withdrawn' })
+      continue
+    }
+    await closeOne(ctx, challenge, { skipTeamId: teamId })
+  }
+}
+
+/**
  * Close every active challenge whose window has ended, and expire stale proposals.
  *
  * CLOSES ON endDay + 2, NOT endDay + 1. `today` is the server's UTC day and this

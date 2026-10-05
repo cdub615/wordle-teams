@@ -17,6 +17,8 @@ import {
 import { teamInviteEmail } from './inviteEmails.ts'
 import { upgradeTeamInvitesFor } from './billing.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
+import { MIN_CHALLENGE_BOARDS } from './lib/challenge.ts'
+import { callSitesOf, orderedIn } from '../src/test-support/source-ast.ts'
 import type { GenericMutationCtx } from 'convex/server'
 import type { DataModel, Id } from './_generated/dataModel'
 
@@ -1848,5 +1850,103 @@ describe('teamInviteEmail', () => {
     expect(subject).toContain('Ada & Bob & the "Best" "Team"')
     expect(text).toContain('Ada & Bob & the "Best" "Team"')
     expect(text).toContain("O'Hara-O'Neill")
+  })
+})
+
+describe('deleting a team resolves its challenges', () => {
+  async function seedPair(ctx: TestCtx) {
+    const owner = await ctx.db.insert('players', aPlayer({ reminderDeliveryMethods: ['email', 'push'] }))
+    const rival = await ctx.db.insert('players', aPlayer({ email: 'rival@example.com', reminderDeliveryMethods: ['email', 'push'] }))
+    const doomedId = await ctx.db.insert('teams', aTeam({ name: 'Doomed', playerIds: [owner], owner }))
+    const survivorId = await ctx.db.insert('teams', aTeam({ legacyId: 900, name: 'Survivor', playerIds: [rival], owner: rival }))
+    const days = (playerId: Id<'players'>, attempts: number) =>
+      Array.from({ length: MIN_CHALLENGE_BOARDS }, (_, i) => ({
+        puzzleDay: `2026-10-${String(i + 5).padStart(2, '0')}`,
+        entries: [{ playerId, attempts }],
+      }))
+    for (const [teamId, playerId, attempts] of [[doomedId, owner, 3], [survivorId, rival, 4]] as const) {
+      await ctx.db.insert('teamMonthStats', {
+        teamId, year: 2026, month: 10, members: [], days: days(playerId, attempts), computedAt: Date.now(),
+      })
+    }
+    return { owner, rival, doomedId, survivorId }
+  }
+
+  test('an active challenge is CLOSED with the real numbers, not zeroed, and the survivor keeps it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, doomedId, survivorId } = await seedPair(ctx)
+      const challengeId = await ctx.db.insert('teamChallenges', {
+        challengerTeamId: doomedId, opponentTeamId: survivorId, proposedBy: owner,
+        status: 'active', startDay: '2026-10-05', endDay: '2026-10-31',
+        expiresAt: Date.now(), createdAt: Date.now(),
+      })
+
+      await deleteTeamFor(ctx, owner, doomedId)
+
+      const doc = (await ctx.db.get(challengeId))!
+      expect(doc.status).toBe('closed')
+      // NOT 'void': the doomed team's aggregate was read before the cascade deleted it.
+      expect(doc.result).toMatchObject({
+        outcome: 'challenger',
+        challenger: { name: 'Doomed', boards: MIN_CHALLENGE_BOARDS, average: 3 },
+        opponent: { name: 'Survivor', average: 4 },
+      })
+    })
+  })
+
+  test('only the surviving team is pushed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, rival, doomedId, survivorId } = await seedPair(ctx)
+      await ctx.db.insert('teamChallenges', {
+        challengerTeamId: doomedId, opponentTeamId: survivorId, proposedBy: owner,
+        status: 'active', startDay: '2026-10-05', endDay: '2026-10-31',
+        expiresAt: Date.now(), createdAt: Date.now(),
+      })
+      await deleteTeamFor(ctx, owner, doomedId)
+      const jobs = (await ctx.db.system.query('_scheduled_functions').collect())
+        .filter((row) => row.name === 'pushSend:deliverTo')
+      expect(jobs.map((job) => (job.args[0] as { playerId: string }).playerId)).toEqual([rival])
+    })
+  })
+
+  test('a pending proposal is WITHDRAWN', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, doomedId, survivorId } = await seedPair(ctx)
+      const challengeId = await ctx.db.insert('teamChallenges', {
+        challengerTeamId: doomedId, opponentTeamId: survivorId, proposedBy: owner,
+        status: 'pending', expiresAt: Date.now() + 1000, createdAt: Date.now(),
+      })
+      await deleteTeamFor(ctx, owner, doomedId)
+      expect((await ctx.db.get(challengeId))!.status).toBe('withdrawn')
+    })
+  })
+
+  test('the close is the FIRST statement of cascadeDeleteTeam', async () => {
+    // Source position, the way convex/lib/sweeps.test.ts pins its gate: four
+    // callers reach the cascade, and a close moved below the teamMonthStats
+    // deletes would freeze 'void' while every behavioural test above still
+    // passes for deleteTeamFor if someone also moves the aggregate delete.
+    //
+    // THROUGH THE COMPILER, NOT A TEXT SLICE (src/test-support/source-ast.ts).
+    // `within` is the cascade's own body, so a call parked in some other
+    // function in teams.ts cannot satisfy it, and comments are trivia rather
+    // than calls. Every anchor is checked for presence first: renaming the
+    // close, or the table, is a named failure here, never a vacuous pass.
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync(new URL('./teams.ts', import.meta.url), 'utf8')
+    const sites = callSitesOf('convex/teams.ts', source, 'closeChallengesForDeletedTeam')
+    expect(sites).toHaveLength(1)
+    const [site] = sites
+    expect(site.args).toEqual(['ctx', 'team._id'])
+
+    const statsRead = site.within.find((callee) => callee.includes("query('teamMonthStats')"))
+    expect(statsRead, 'the close is not in the body that reads teamMonthStats (moved out of cascadeDeleteTeam, or the table renamed)').toBeDefined()
+    expect(orderedIn(site.within, 'closeChallengesForDeletedTeam', statsRead!)).toBe(true)
+    // And the FIRST call the cascade makes, which is the stronger claim the
+    // comment at the call site makes.
+    expect(site.within[0]).toBe('closeChallengesForDeletedTeam')
   })
 })
