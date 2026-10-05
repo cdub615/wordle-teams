@@ -5138,6 +5138,129 @@ be a module-evaluation-order bug in Convex.
 
 ---
 
+## Task 10b: Fan the close out, one push per person, and a cancel that says so
+
+**bd:** `wordle-teams-zic8.2.20`.
+
+**Owner decisions (2026-10-05), from the Task 10 review:**
+
+- **D5 — one job per challenge.** Every window ends on a month's last day, so every
+  challenge comes due on the same day, and Task 10 closes them all inside
+  `teamStats.sweep`'s own transaction — beside the team rollups, against one
+  execution's read and scheduling limits. Past that limit the whole sweep rolls back,
+  rollups included, and does so again every day. Instead the sweep SCHEDULES one
+  small close per due challenge, the idiom it already uses for `rollupOne`, and reads
+  only live rows through new status indexes.
+- **D6 — one push per person.** A direct challenge always has a member on both teams
+  (the proposer), who today gets two pushes per event, each calling one of their own
+  teams "the opponent". De-duplicate by player: someone on both rosters gets ONE push
+  whose body names both teams, `Challengers vs Theirs`, linking to the CHALLENGING
+  team's page.
+- **D7 — cancel says cancelled.** `cancelChallengeFor` pushes `Challenge cancelled: X`,
+  not `Challenge finished: X`.
+
+**Files:** `convex/schema.ts` (+ `schema.test.ts`), `convex/challenges.ts`,
+`convex/teamStats.ts`, `convex/challenges.test.ts`, spec §9, §10, §12.
+
+**WHY THE JOB LIVES IN teamStats.ts:** an internal mutation in `challenges.ts` would be
+`internal.challenges.*`, and `api.d.ts` does not list `challenges` until
+zic8.2.15 regenerates it, so typecheck would fail. `teamStats.ts` is already listed,
+already imports from `challenges.ts`, and already holds `rollupOne`, the job this copies.
+
+### The design
+
+1. **Indexes** on `teamChallenges`: `by_status_and_endDay` `['status', 'endDay']` and
+   `by_status_and_expiresAt` `['status', 'expiresAt']`. Per the Ground Rules, each
+   gets a schema test that queries through it.
+2. **`closeDueChallengesFor(ctx, today)`** no longer closes anything. It:
+   - expires pending rows through `by_status_and_expiresAt`
+     (`eq('status','pending').lte('expiresAt', Date.now())`). Expiry stays inline: it
+     is one small patch per row and never pushes;
+   - schedules `internal.teamStats.closeChallenge` with `{ challengeId }` for every
+     row from `by_status_and_endDay` with `eq('status','active').lte('endDay',
+     addDays(today, -2))`. That is the same "closes on endDay + 2" rule:
+     `today >= endDay + 2  <=>  endDay <= today - 2`;
+   - returns `{ scheduled, expired }`. **There is no try/catch and no `failed`**: a
+     close that throws fails its own job and nothing else.
+3. **`closeDueChallengeFor(ctx, challengeId)`** (exported from `challenges.ts`): reads
+   the row; returns without doing anything if it is gone or not `'active'` (this is
+   the idempotence guard: a retried, duplicated or already-cancelled job is a no-op);
+   otherwise `closeOne`. **It does not re-check the date**: the sweep decided that, and
+   re-deciding it would put the rule in two places.
+4. **`teamStats.closeChallenge`** = `internalMutation({ args: { challengeId:
+   v.id('teamChallenges') }, handler: (ctx, { challengeId }) => closeDueChallengeFor(ctx,
+   challengeId) })`. **Not gated** on `SWEEPS_ENABLED` or `CHALLENGES_ENABLED`: the
+   sweep that schedules it is already gated, and a job already scheduled must finish.
+5. **`notifyRosters`** builds ONE recipient map over the non-skipped rosters:
+   `playerId -> { teamIds }`. A player on one team is pushed as today (the other team's
+   name, a link to their own team). A player on BOTH is pushed once, with
+   `challengeNotificationBody(event, bothNames)` where `bothNames` is
+   `` `${clamp(challenger.name)} vs ${clamp(opponent.name)}` ``, and
+   `url: /team?team=<challengerTeamId>`. **The clamp applies to each name, not to the
+   joined string**, so neither name can be cut away entirely.
+   `challengeNotificationBody` gains a variant for this, or takes the already-composed
+   label; your choice, report it. "Shared" is decided only over the rosters being
+   notified: with `skipTeamId`, nobody is shared.
+6. **The event type** becomes `'accepted' | 'closed' | 'cancelled'`, with body
+   `Challenge cancelled: X`. `closeOne` takes the event; `cancelChallengeFor` passes
+   `'cancelled'`; the sweep and the deletion close pass `'closed'`.
+7. **Comments:** delete every claim that notification "cannot throw" and every
+   mention of the per-row catch. `notifyRosters`'s banner stops saying it handles a
+   deleted team (its null branch returns without pushing, and is unreachable via
+   `closeOne`, which throws first); it says the deleted-team case is `skipTeamId`.
+
+### Tests (the specification)
+
+Rework `describe('closeDueChallengesFor')` and the sweep describe in
+`convex/challenges.test.ts`:
+
+- **Scheduling:** on `2026-11-02` a due challenge produces exactly one
+  `teamStats:closeChallenge` job whose args are `{ challengeId }`, and the row is
+  STILL `'active'` (nothing closes inline). On `2026-10-31` and `2026-11-01`, zero jobs.
+- **Expiry:** keep the three expiry tests (stale vs live, the `<=` boundary on a frozen
+  clock, and an active row with a past `expiresAt` NOT expired), now through the index.
+- **A closed or cancelled row is never scheduled**: a row patched to `'closed'` with an
+  old `endDay` produces zero jobs. This is the index's `eq('status','active')` doing its
+  job, and its mutant is dropping that `eq`.
+- **`closeDueChallengeFor`:** move the freeze assertions here (`closes … and freezes a
+  result`, members with names, the push bodies and urls, consent, "a later rewrite of
+  the month does NOT restate"). **Twice in a row: the second call writes nothing and
+  schedules no push.** A row whose team is gone: it REJECTS with `INVALID_TEAM` and the
+  row stays `'active'`. Isolation is now structural, so there is no "does not stop the
+  others" test to keep; say so in a comment where it used to be.
+- **The wiring, end to end:** drive `internal.teamStats.sweep` on a frozen
+  `2026-11-02T00:45Z`, then RUN each queued `teamStats:closeChallenge` job yourself
+  with `t.mutation(internal.teamStats.closeChallenge, job.args[0])`, read off
+  `_scheduled_functions`. **Do NOT use `finishAllScheduledFunctions`**: it would also
+  run `pushSend:deliverTo`, a Node action that talks to a push service. Assert the
+  challenge is closed.
+- **That describe stubs the env**: `vi.stubEnv('CHALLENGES_ENABLED', '')` in
+  `beforeEach`, `vi.unstubAllEnvs()` in `afterEach`. The claim that the close is not
+  gated rests on that variable being unset; a host shell with it exported would
+  otherwise hide a gated close (Task 10 review, finding 6).
+- **D6:** a member on BOTH rosters gets exactly ONE push on accept and on close, body
+  `Challenge accepted: Challengers vs Theirs` / `Challenge finished: …`, url the
+  challenger team's. Build it with `seedTwoTeams` (whose player IS on both teams) and
+  a direct challenge between its two teams; single-team members of each side still get
+  the single-name body. And with a 41-code-point name on each side, the shared body
+  contains a clamped form of BOTH names.
+- **D7:** cancel pushes `Challenge cancelled: <other team>`; the natural close still
+  says `finished`.
+- **The link-claim accept push** (Task 10 review, finding 5): `claimChallengeLinkFor`
+  pushes both rosters, naming the other team. This is the path where `opponentTeamId`
+  arrives in the same patch, which is why `activate` re-reads the row.
+
+Mutants to prove (each RED, then reverted): drop `eq('status','active')` from the
+scheduling query; `addDays(today, -2)` -> `-1`; the status guard removed from
+`closeDueChallengeFor`; recipients not de-duplicated; the clamp applied to the joined
+string; `'cancelled'` -> `'closed'` in cancel; the close gated on CHALLENGES_ENABLED
+while the host shell exports `CHALLENGES_ENABLED=true` (it must still be RED: that is
+what proves the `vi.stubEnv` shields the test from the host); the claim path's re-read replaced by the pre-patch doc.
+
+Then the four gates, and commit.
+
+---
+
 ## Task 12a: Team page — scoreboards, the consent actions, and the switch's UI
 
 **bd:** `wordle-teams-zic8.2.12`.
