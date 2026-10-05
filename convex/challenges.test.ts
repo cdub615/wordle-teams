@@ -1496,6 +1496,22 @@ describe('challengeScoreboardFor', () => {
       ).rejects.toMatchObject({ data: { code: 'CHALLENGE_NOT_ACTIVE' } })
     })
   })
+
+  test('an active challenge whose team row is gone is refused with INVALID_TEAM', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const active = await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
+      // UNREACHABLE ONCE TASK 11 CLOSES A TEAM'S CHALLENGES BEFORE DELETING IT.
+      // Pinned so the guard is a known refusal rather than a crash on a null
+      // team's `.name` if that ordering is ever lost.
+      await ctx.db.delete(theirTeamId)
+      await expect(challengeScoreboardFor(ctx, active)).rejects.toMatchObject({
+        data: { code: 'INVALID_TEAM' },
+      })
+    })
+  })
 })
 
 /** A closed row with a result, from challengerTeamId's point of view as the challenger. */
@@ -1566,13 +1582,16 @@ describe('headToHeadFor', () => {
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
       const { theirTeamId } = await seedAccepter(ctx)
-      await ctx.db.insert(
-        'teamChallenges',
-        closedRow(challengerTeamId, theirTeamId, playerId, 'challenger', { closedAt: 2000 }),
-      )
+      // OLDER INSERTED FIRST. The index returns rows in creation order, so
+      // inserting newest-first would make the Map's insertion order already
+      // match the expected order and a deleted sort would pass unnoticed.
       await ctx.db.insert(
         'teamChallenges',
         closedRow(challengerTeamId, opponentTeamId, playerId, 'opponent', { opponentName: 'Opponents', closedAt: 1000 }),
+      )
+      await ctx.db.insert(
+        'teamChallenges',
+        closedRow(challengerTeamId, theirTeamId, playerId, 'challenger', { closedAt: 2000 }),
       )
 
       // MOST RECENTLY PLAYED FIRST.
@@ -1588,19 +1607,34 @@ describe('headToHeadFor', () => {
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
       const { theirTeamId } = await seedAccepter(ctx)
-      // NEWER INSERTED FIRST, so "first found" and "most recent" disagree.
-      await ctx.db.insert(
-        'teamChallenges',
-        closedRow(challengerTeamId, theirTeamId, playerId, 'tie', { opponentName: 'Renamed', closedAt: 2000 }),
-      )
-      await ctx.db.insert(
-        'teamChallenges',
-        closedRow(challengerTeamId, theirTeamId, playerId, 'tie', { opponentName: 'Original', closedAt: 1000 }),
-      )
+      // THREE ROWS, NEWEST IN THE MIDDLE. Rows come back in creation order, so
+      // first-found is 'Original', last-found is 'Interim' and most recent is
+      // 'Renamed' — all three disagree. With two rows, one insertion order lets
+      // first-found-wins pass and the other lets last-found-wins pass; each
+      // mutant survived one version of this test.
+      for (const [opponentName, closedAt] of [['Original', 1000], ['Renamed', 3000], ['Interim', 2000]] as const) {
+        await ctx.db.insert(
+          'teamChallenges',
+          closedRow(challengerTeamId, theirTeamId, playerId, 'tie', { opponentName, closedAt }),
+        )
+      }
 
       const [entry] = await headToHeadFor(ctx, challengerTeamId)
       expect(entry.opponentName).toBe('Renamed')
-      expect(entry.record.tied).toBe(2)
+      expect(entry.record.tied).toBe(3)
+    })
+  })
+
+  test("an 'opponent' outcome is a win for the team that was challenged", async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      await ctx.db.insert('teamChallenges', closedRow(challengerTeamId, theirTeamId, playerId, 'opponent'))
+
+      expect(await headToHeadFor(ctx, theirTeamId)).toEqual([
+        { opponentTeamId: challengerTeamId, opponentName: 'Challengers', record: { won: 1, lost: 0, tied: 0, noResult: 0 } },
+      ])
     })
   })
 
@@ -1637,12 +1671,18 @@ describe('challengesForTeamFor', () => {
       const { accepterId, theirTeamId } = await seedAccepter(ctx)
       await seedStats(ctx, challengerTeamId, OCTOBER, octoberDays(playerId, 3, ENOUGH))
       await seedStats(ctx, theirTeamId, OCTOBER, octoberDays(accepterId, 4, ENOUGH))
-      await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
+      const challenge = await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
 
       const view = await challengesForTeamFor(ctx, playerId, challengerTeamId)
       expect(view.pro).toBe(false)
       expect(view.active).toHaveLength(1)
       const [row] = view.active
+      expect(row).toMatchObject({
+        challengeId: challenge._id,
+        startDay: '2026-10-05',
+        endDay: '2026-10-31',
+        viewerIsChallenger: true,
+      })
       expect(row.challenger).toMatchObject({ boards: ENOUGH, average: 3, members: [] })
       expect(row.opponent).toMatchObject({ boards: ENOUGH, average: 4, members: [] })
       expect(row.outcome).toBe('challenger')
@@ -1662,6 +1702,19 @@ describe('challengesForTeamFor', () => {
       expect(view.pro).toBe(true)
       expect(view.active[0].challenger.members.map((m) => m.playerId)).toEqual([playerId])
       expect(view.active[0].opponent.members.map((m) => m.playerId)).toEqual([accepterId])
+    })
+  })
+
+  test('viewed from the challenged team, the viewer is not the challenger', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const challenge = await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
+
+      const view = await challengesForTeamFor(ctx, accepterId, theirTeamId)
+      expect(view.active).toHaveLength(1)
+      expect(view.active[0]).toMatchObject({ challengeId: challenge._id, viewerIsChallenger: false })
     })
   })
 

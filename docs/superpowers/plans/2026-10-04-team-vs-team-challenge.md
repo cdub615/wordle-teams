@@ -3269,6 +3269,22 @@ describe('challengeScoreboardFor', () => {
       ).rejects.toMatchObject({ data: { code: 'CHALLENGE_NOT_ACTIVE' } })
     })
   })
+
+  test('an active challenge whose team row is gone is refused with INVALID_TEAM', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      const active = await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
+      // UNREACHABLE ONCE TASK 11 CLOSES A TEAM'S CHALLENGES BEFORE DELETING IT.
+      // Pinned so the guard is a known refusal rather than a crash on a null
+      // team's `.name` if that ordering is ever lost.
+      await ctx.db.delete(theirTeamId)
+      await expect(challengeScoreboardFor(ctx, active)).rejects.toMatchObject({
+        data: { code: 'INVALID_TEAM' },
+      })
+    })
+  })
 })
 
 /** A closed row with a result, from challengerTeamId's point of view as the challenger. */
@@ -3339,13 +3355,16 @@ describe('headToHeadFor', () => {
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
       const { theirTeamId } = await seedAccepter(ctx)
-      await ctx.db.insert(
-        'teamChallenges',
-        closedRow(challengerTeamId, theirTeamId, playerId, 'challenger', { closedAt: 2000 }),
-      )
+      // OLDER INSERTED FIRST. The index returns rows in creation order, so
+      // inserting newest-first would make the Map's insertion order already
+      // match the expected order and a deleted sort would pass unnoticed.
       await ctx.db.insert(
         'teamChallenges',
         closedRow(challengerTeamId, opponentTeamId, playerId, 'opponent', { opponentName: 'Opponents', closedAt: 1000 }),
+      )
+      await ctx.db.insert(
+        'teamChallenges',
+        closedRow(challengerTeamId, theirTeamId, playerId, 'challenger', { closedAt: 2000 }),
       )
 
       // MOST RECENTLY PLAYED FIRST.
@@ -3361,19 +3380,34 @@ describe('headToHeadFor', () => {
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
       const { theirTeamId } = await seedAccepter(ctx)
-      // NEWER INSERTED FIRST, so "first found" and "most recent" disagree.
-      await ctx.db.insert(
-        'teamChallenges',
-        closedRow(challengerTeamId, theirTeamId, playerId, 'tie', { opponentName: 'Renamed', closedAt: 2000 }),
-      )
-      await ctx.db.insert(
-        'teamChallenges',
-        closedRow(challengerTeamId, theirTeamId, playerId, 'tie', { opponentName: 'Original', closedAt: 1000 }),
-      )
+      // THREE ROWS, NEWEST IN THE MIDDLE. Rows come back in creation order, so
+      // first-found is 'Original', last-found is 'Interim' and most recent is
+      // 'Renamed' — all three disagree. With two rows, one insertion order lets
+      // first-found-wins pass and the other lets last-found-wins pass; each
+      // mutant survived one version of this test.
+      for (const [opponentName, closedAt] of [['Original', 1000], ['Renamed', 3000], ['Interim', 2000]] as const) {
+        await ctx.db.insert(
+          'teamChallenges',
+          closedRow(challengerTeamId, theirTeamId, playerId, 'tie', { opponentName, closedAt }),
+        )
+      }
 
       const [entry] = await headToHeadFor(ctx, challengerTeamId)
       expect(entry.opponentName).toBe('Renamed')
-      expect(entry.record.tied).toBe(2)
+      expect(entry.record.tied).toBe(3)
+    })
+  })
+
+  test("an 'opponent' outcome is a win for the team that was challenged", async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { theirTeamId } = await seedAccepter(ctx)
+      await ctx.db.insert('teamChallenges', closedRow(challengerTeamId, theirTeamId, playerId, 'opponent'))
+
+      expect(await headToHeadFor(ctx, theirTeamId)).toEqual([
+        { opponentTeamId: challengerTeamId, opponentName: 'Challengers', record: { won: 1, lost: 0, tied: 0, noResult: 0 } },
+      ])
     })
   })
 
@@ -3410,12 +3444,18 @@ describe('challengesForTeamFor', () => {
       const { accepterId, theirTeamId } = await seedAccepter(ctx)
       await seedStats(ctx, challengerTeamId, OCTOBER, octoberDays(playerId, 3, ENOUGH))
       await seedStats(ctx, theirTeamId, OCTOBER, octoberDays(accepterId, 4, ENOUGH))
-      await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
+      const challenge = await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
 
       const view = await challengesForTeamFor(ctx, playerId, challengerTeamId)
       expect(view.pro).toBe(false)
       expect(view.active).toHaveLength(1)
       const [row] = view.active
+      expect(row).toMatchObject({
+        challengeId: challenge._id,
+        startDay: '2026-10-05',
+        endDay: '2026-10-31',
+        viewerIsChallenger: true,
+      })
       expect(row.challenger).toMatchObject({ boards: ENOUGH, average: 3, members: [] })
       expect(row.opponent).toMatchObject({ boards: ENOUGH, average: 4, members: [] })
       expect(row.outcome).toBe('challenger')
@@ -3435,6 +3475,19 @@ describe('challengesForTeamFor', () => {
       expect(view.pro).toBe(true)
       expect(view.active[0].challenger.members.map((m) => m.playerId)).toEqual([playerId])
       expect(view.active[0].opponent.members.map((m) => m.playerId)).toEqual([accepterId])
+    })
+  })
+
+  test('viewed from the challenged team, the viewer is not the challenger', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const challenge = await seedActive(ctx, challengerTeamId, theirTeamId, playerId)
+
+      const view = await challengesForTeamFor(ctx, accepterId, theirTeamId)
+      expect(view.active).toHaveLength(1)
+      expect(view.active[0]).toMatchObject({ challengeId: challenge._id, viewerIsChallenger: false })
     })
   })
 
@@ -3915,10 +3968,10 @@ export const challengesForTeam = query({
 TZ=UTC pnpm test:once convex/challenges.test.ts > /tmp/t9.txt 2>&1; echo "exit=$?"; tail -30 /tmp/t9.txt
 ```
 
-Expected: `exit=0`. Then the full suite, as a DELTA against Step 0: **+21** in
-`convex/challenges.test.ts` (9 scoreboard, 5 head-to-head, 6 page, 1 type equality)
+Expected: `exit=0`. Then the full suite, as a DELTA against Step 0: **+24** in
+`convex/challenges.test.ts` (10 scoreboard, 6 head-to-head, 7 page, 1 type equality)
 and **+1** generated in `src/lib/convex-error.test.ts` for `CHALLENGE_NOT_ACTIVE` —
-**+22** overall. A different delta is a finding to report, not a number to adjust.
+**+25** overall. (Executed: 4162 -> 4187.) A different delta is a finding to report, not a number to adjust.
 
 - [ ] **Step 6: Prove the new tests bite**
 
@@ -3938,7 +3991,8 @@ it, do not weaken the mutant.
 | 8 | `viewerIsChallenger` hardcoded `true` | "VIEWING team's side" |
 | 9 | key the map on a constant instead of `other.teamId` | "each opponent gets its own tally" |
 | 10 | delete the `.sort` on the returned records | "each opponent gets its own tally" |
-| 11 | drop the `closedAt >` comparison (first name wins) | "the label is the name from the most recent close" |
+| 11a | `closedAt >` comparison → `true` (last name found wins) | "the label is the name from the most recent close" |
+| 11b | first name found wins | "the label is the name from the most recent close" |
 | 12 | delete `if (result === undefined) continue` | "a closed row with no result is skipped" (it throws on `result.opponent`) |
 | 13 | `pro ? … : …` → always the Pro branch | "a free member gets … no member rows" |
 | 14 | `pending` returns the raw docs | both pending tests |
@@ -3946,6 +4000,18 @@ it, do not weaken the mutant.
 | 16 | `direction` computed from `challengerTeamId === teamId` inverted | "an incoming proposal is labelled" |
 | 17 | in `schema.ts`, remove `v.literal('void')` from `result.outcome` | `pnpm typecheck` (the `expectTypeOf` test) — **not** vitest |
 | 18 | remove `CHALLENGE_NOT_ACTIVE` from `convexErrorCode`'s chain | `src/lib/convex-error.test.ts` |
+| 19 | active row `viewerIsChallenger: true` | "viewed from the challenged team" |
+| 20 | active row drops `startDay` / `challengeId` | "a free member gets …" |
+| 21 | `'opponent'` outcome from the opponent's side counted as lost | "an 'opponent' outcome is a win for the team that was challenged" |
+| 22 | delete the `INVALID_TEAM` guard | "an active challenge whose team row is gone" |
+
+**AS EXECUTED, rows 10 and 11b SURVIVED the first version of this table's tests,
+and rows 19-22 were survivors nobody had asked about.** Rows come back from an
+index in creation order, and the head-to-head tests inserted newest-first — so the
+Map's insertion order already matched the expected order and a deleted sort, or a
+first-found-wins label, passed. A two-row label test cannot kill both 11a and 11b
+in either insertion order; it needs three rows with the newest in the middle. The
+tests above are the corrected versions.
 
 Mutants that are EXPECTED to survive, and why: the null branches of the member sort
 and the `startDay/endDay/opponentTeamId === undefined` narrowing (both unreachable,
