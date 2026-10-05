@@ -297,10 +297,13 @@ drift apart, and a test written against a literal passes straight through the dr
    late-month challenge is born guaranteed-`void`, which is a bad first experience of the
    feature. This is the only case where a window crosses a month boundary, costing two
    `teamMonthStats` documents per team instead of one.
-5. **One active challenge per unordered team pair** — enforced, not a constant. Two
+5. **One LIVE challenge per unordered team pair** — live meaning `pending` OR `active` — enforced, not a constant. Two
    simultaneous challenges between the same two teams would render two scoreboards over
    near-identical data. Checked by querying `by_challenger_and_status` and
-   `by_opponent_and_status` for `active` and matching the other team in both directions.
+   `by_opponent_and_status` for BOTH live statuses and matching the other team in both
+   directions. **This wording previously said `active` only, and the code is stricter
+   than that — deliberately: a pending proposal must block the pair, or the same two
+   teams could stack proposals. The code is right; this sentence was stale.**
 
 ## 8. Server surface — `convex/challenges.ts`
 

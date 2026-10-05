@@ -1266,6 +1266,13 @@ EOF
 
 ## Task 5: Propose to a team you are also on
 
+> ⚠️ **THIS TASK'S CODE BLOCK NO LONGER MATCHES WHAT TASK 5 SHIPPED.** The
+> `requireChallengeablePair` listing below was retro-edited to carry the `exceptId`
+> parameter, because the adversarial review proved the original would make Task 7's
+> `acceptChallengeFor` throw `CHALLENGE_EXISTS` unconditionally. Task 5 is already
+> committed WITHOUT it and Task 7 adds it. So do not diff this block against the file
+> to audit Task 5 "as built" — you will find a phantom discrepancy.
+
 **bd:** child of `zic8.2`, title "proposeToTeam mutation with limit checks".
 
 **Files:**
@@ -1957,7 +1964,15 @@ Append to `convex/challenges.test.ts`:
 ```ts
 import { acceptChallengeFor, claimChallengeLinkFor } from './challenges.ts'
 
-/** A second player on a third team, to accept as somebody else. */
+/**
+ * A second player on a third team, to accept as somebody else.
+ *
+ * ⚠️ THE EMAIL OVERRIDE IS LOAD-BEARING, NOT COSMETIC. aPlayer()'s default email
+ * is 'member@example.com', and access.ts's playerForEmail resolves by_email with
+ * `.first()` — so two players rows sharing that address make requirePlayer
+ * silently resolve to whichever Convex returns first. Every extra player seeded
+ * in this file MUST override `email`.
+ */
 async function seedAccepter(ctx: Ctx) {
   const accepterId = await ctx.db.insert('players', aPlayer({ email: 'accepter@example.com' }))
   const theirTeamId = await ctx.db.insert(
