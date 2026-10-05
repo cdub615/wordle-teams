@@ -3912,7 +3912,10 @@ export const cancelChallenge = mutation({
 Also add the accept-time push — in `activate`, after the `patch`:
 
 ```ts
-  await notifyBothRosters(ctx, { ...challenge, status: 'active' }, 'accepted')
+  // ⚠️ DO NOT USE THIS FORM — `activate` takes an ID, so `challenge` is not in
+  // scope here and this would not compile. Step 8b below has the correct version,
+  // which re-reads the row. Left visible rather than deleted because the wrong
+  // shape is the one a reader reconstructs from memory of the old signature.
 ```
 
 **Note on `collect()` here.** `closeDueChallengesFor` walks the whole table. That is correct at this volume — the table holds at most `MAX_ACTIVE_CHALLENGES` per team and closed rows accumulate slowly — but `crons.ts` records that run count rather than data volume is what grew the bill, and an unbounded daily scan is the shape to watch. File a bd issue to index by status and range-scan if the table passes a few thousand rows.
