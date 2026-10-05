@@ -233,7 +233,10 @@ function TeamSettingsPage() {
           nothing once the query answers.
         */}
         <Suspense fallback={<ChallengesCardSkeleton />}>
+          {/* KEYED BY TEAM: `now` and `busyId` are per-team state, and without a
+              key a ?team= switch would resume the same instance with both. */}
           <TeamChallenges
+            key={selectedTeam.id}
             teamId={selectedTeam.id}
             isOwner={selectedTeam.isOwner}
             acceptsChallenges={selectedTeam.acceptsChallenges}
@@ -356,7 +359,9 @@ function TeamChallenges({
     } catch (error) {
       toast.error(mutationErrorMessage(error, failure))
     } finally {
-      setBusyId(null)
+      // ONLY IF IT IS STILL OURS: a second row's action may have started while
+      // this one was in flight, and clearing it would re-enable that row early.
+      setBusyId((current) => (current === challengeId ? null : current))
     }
   }
 
@@ -367,6 +372,7 @@ function TeamChallenges({
       acceptsChallenges={acceptsChallenges}
       now={now}
       busyId={busyId}
+      acceptsPending={setAccepts.isPending}
       // The viewer's LOCAL day, as every other dated mutation on these routes
       // sends it: the window starts the day after acceptance, in their zone.
       onAccept={(challengeId) =>

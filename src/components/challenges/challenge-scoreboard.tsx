@@ -3,7 +3,7 @@ import { Sparkles } from 'lucide-react'
 import { Button } from '#/components/ui/button.tsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '#/components/ui/table.tsx'
 import { ConfirmPopover } from '#/components/confirm-popover.tsx'
-import { fromPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
+import { fromPuzzleDay, type PuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import type { ActiveChallenge, ChallengeSideView } from './types.ts'
 
 /**
@@ -61,6 +61,7 @@ export function ChallengeScoreboard({
   onCancel,
   onUpgrade,
   cancelPending = false,
+  today,
 }: {
   challenge: ActiveChallenge
   pro: boolean
@@ -68,6 +69,12 @@ export function ChallengeScoreboard({
   onCancel: (challengeId: ActiveChallenge['challengeId']) => void
   onUpgrade?: () => void
   cancelPending?: boolean
+  /**
+   * The viewer's day. A window starts the day AFTER acceptance, so on
+   * acceptance day "since 6 Oct" would name tomorrow; it reads "starts" until
+   * the window opens. Omitted, the label is "since".
+   */
+  today?: PuzzleDay
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const mine = challenge.viewerIsChallenger ? challenge.challenger : challenge.opponent
@@ -81,9 +88,12 @@ export function ChallengeScoreboard({
     >
       <div className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold md:text-base">{verdictFor(challenge)}</h3>
+          {/* break-words: team names have no length limit at any layer
+              (lib/pushText.ts), and "<Other> is ahead" sits beside Cancel. */}
+          <h3 className="text-sm font-semibold break-words md:text-base">{verdictFor(challenge)}</h3>
           <p className="text-muted-foreground text-xs md:text-sm">
-            since {shortDay.format(fromPuzzleDay(challenge.startDay))}
+            {today !== undefined && challenge.startDay > today ? 'starts' : 'since'}{' '}
+            {shortDay.format(fromPuzzleDay(challenge.startDay))}
           </p>
         </div>
         {/* EITHER TEAM'S OWNER MAY END IT (D1); this card only ever knows about
@@ -142,8 +152,12 @@ function SideSummary({ side }: { side: ChallengeSideView }) {
     <div className="min-w-0">
       <p className="truncate text-sm font-medium">{side.teamName}</p>
       <p className="text-2xl font-semibold tabular-nums">{formatAverage(side.average)}</p>
+      {/* Each half stays whole: at 360px the line breaks at the dot, never
+          inside "13 boards". */}
       <p className="text-muted-foreground text-xs tabular-nums md:text-sm">
-        avg guesses · {boardsLabel(side.boards)}
+        <span className="whitespace-nowrap">avg guesses</span>
+        {' · '}
+        <span className="whitespace-nowrap">{boardsLabel(side.boards)}</span>
       </p>
     </div>
   )

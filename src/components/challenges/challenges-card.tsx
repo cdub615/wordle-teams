@@ -7,6 +7,7 @@ import { Switch } from '#/components/ui/switch.tsx'
 import { ChallengeScoreboard } from './challenge-scoreboard.tsx'
 import { PendingChallengeRow } from './pending-challenge-row.tsx'
 import type { ChallengeId, ChallengesView, HeadToHeadView } from './types.ts'
+import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 
 /**
  * The team page's Challenges section (zic8.2.12, owner decision D8): live
@@ -35,6 +36,7 @@ export function ChallengesCard({
   onSetAcceptsChallenges,
   onUpgrade,
   className,
+  acceptsPending = false,
 }: {
   view: ChallengesView
   isOwner: boolean
@@ -50,6 +52,8 @@ export function ChallengesCard({
   onSetAcceptsChallenges: (accepts: boolean) => void
   onUpgrade?: () => void
   className?: string
+  /** The switch's mutation is in flight: disabled, so a second click is not lost. */
+  acceptsPending?: boolean
 }) {
   if (!view.enabled) return null
 
@@ -82,6 +86,7 @@ export function ChallengesCard({
             onCancel={onCancel}
             onUpgrade={onUpgrade}
             cancelPending={busyId === challenge.challengeId}
+            today={toPuzzleDay(new Date(now))}
           />
         ))}
 
@@ -130,6 +135,7 @@ export function ChallengesCard({
               <Switch
                 id="accepts-challenges"
                 checked={accepting}
+                disabled={acceptsPending}
                 onCheckedChange={() => onSetAcceptsChallenges(!accepting)}
               />
             </div>

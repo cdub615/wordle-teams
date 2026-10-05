@@ -14,6 +14,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import { addDays, toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import { ChallengeScoreboard } from './challenge-scoreboard.tsx'
 import { PendingChallengeRow } from './pending-challenge-row.tsx'
 import { ChallengesCard } from './challenges-card.tsx'
@@ -123,6 +124,25 @@ describe('ChallengeScoreboard', () => {
     cleanup()
     board(anActive({ startDay: '2026-11-01', endDay: '2026-12-31' }))
     expect(screen.queryByText('since 1 Nov')).not.toBeNull()
+  })
+
+  // ON ACCEPTANCE DAY THE WINDOW HAS NOT OPENED: it starts the day after, so
+  // "since <tomorrow>" would name a day that has not happened.
+  test.each([
+    { today: '2026-10-05', startDay: '2026-10-06', label: 'starts 6 Oct' },
+    { today: '2026-10-06', startDay: '2026-10-06', label: 'since 6 Oct' },
+    { today: '2026-10-07', startDay: '2026-10-06', label: 'since 6 Oct' },
+  ])('2. on $today a window starting $startDay reads "$label"', ({ today, startDay, label }) => {
+    render(
+      createElement(ChallengeScoreboard, {
+        challenge: anActive({ startDay }),
+        pro: false,
+        viewerIsOwner: false,
+        onCancel: vi.fn(),
+        today,
+      }),
+    )
+    expect(screen.queryByText(label)).not.toBeNull()
   })
 
   /**
@@ -349,7 +369,13 @@ function card(
     // `undefined` case 13 exists to test into `true` before the card saw it.
     acceptsChallenges,
     onSetAcceptsChallenges = vi.fn(),
-  }: { isOwner?: boolean; acceptsChallenges?: boolean; onSetAcceptsChallenges?: (accepts: boolean) => void } = {},
+    acceptsPending = false,
+  }: {
+    isOwner?: boolean
+    acceptsChallenges?: boolean
+    onSetAcceptsChallenges?: (accepts: boolean) => void
+    acceptsPending?: boolean
+  } = {},
 ) {
   return render(
     createElement(ChallengesCard, {
@@ -362,6 +388,7 @@ function card(
       onWithdraw: vi.fn(),
       onCancel: vi.fn(),
       onSetAcceptsChallenges,
+      acceptsPending,
     }),
   )
 }
@@ -450,6 +477,24 @@ describe('ChallengesCard', () => {
       expect(onSetAcceptsChallenges).toHaveBeenCalledExactlyOnceWith(flipped)
     },
   )
+
+  // WHILE THE SWITCH'S MUTATION IS IN FLIGHT it does not move (it reads
+  // getMyTeams), so a second click would resend the same value and the user's
+  // toggle-back would be silently lost.
+  test('13. the switch is disabled while its change is in flight', () => {
+    const onSetAcceptsChallenges = vi.fn()
+    card(enabled(), { isOwner: true, acceptsPending: true, onSetAcceptsChallenges })
+    const toggle = screen.getByRole('switch', { name: 'Accept challenges' })
+    expect(toggle.hasAttribute('disabled')).toBe(true)
+    fireEvent.click(toggle)
+    expect(onSetAcceptsChallenges).not.toHaveBeenCalled()
+  })
+
+  test('2. the card tells each scoreboard the viewer\'s day, so a window opening tomorrow reads "starts"', () => {
+    const tomorrow = addDays(toPuzzleDay(new Date(NOW)), 1)
+    card(enabled({ active: [anActive({ startDay: tomorrow })] }))
+    expect(screen.queryByText(/^starts /)).not.toBeNull()
+  })
 })
 
 describe('ChallengeNudge', () => {
