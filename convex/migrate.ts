@@ -3,12 +3,13 @@ import { ConvexError, v } from 'convex/values'
 import { SYSTEM_FIELDS } from './lib/scoringSystem.ts'
 import { METHODS } from './lib/reminders.ts'
 import { attemptsFor } from './lib/board.ts'
-import { planCollapse, rowsToDelete, type CollapseGroup } from './lib/duplicateScores.ts'
+import { deletionKey, planCollapse, rowsToDelete, type CollapseGroup } from './lib/duplicateScores.ts'
 import { isMonth } from './lib/monthWindow.ts'
 import { addDays, addMonths, monthRange, toPuzzleDay, type PuzzleMonth } from './lib/puzzleDay.ts'
 import { monthTotal, winnerOf } from './lib/scoring.ts'
 import { aggregateTeamMonth, meanAttemptsOf, sameStats } from './lib/teamStats.ts'
-import { loadTeamMonthSystem, type ReaderCtx } from './winners.ts'
+import { rollupTeamMonth } from './teamStats.ts'
+import { loadTeamMonthSystem, recomputeTeamMonth, type ReaderCtx } from './winners.ts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 
@@ -1378,6 +1379,82 @@ export const duplicateScoresImpact = internalQuery({
       pairs: teams.length,
       held: plan.reduce((n, p) => n + p.groups.filter((g) => g.held.length > 0).length, 0),
       next: remaining.length > page.length ? page[page.length - 1]._creationTime : null,
+    }
+  },
+})
+
+/**
+ * REPAIR ONE PAST MONTH. DRY RUN UNLESS `dryRun: false`, AND AN APPLY MUST NAME
+ * THE PLAN IT EXPECTS.
+ *
+ * Plans the month across every player (monthPlan) — taking no list of players or
+ * rows, so nothing handed to it can widen what it deletes — and computes the
+ * month's deletionKey: exactly the legacy ids it would delete. A dry run returns
+ * it; an apply requires `expect` equal to it and throws BEFORE deleting anything
+ * otherwise (revision 2, I4), so the rows deleted are the rows the owner approved
+ * or none at all.
+ *
+ * Then, unless dryRun, it deletes every collapsible group's drop rows — HELD
+ * groups are never touched — and only after ALL of the month's deletes recomputes
+ * each team whose roster holds a player who lost a row, ONCE (revision 2, I3):
+ * recomputeTeamMonth (winner and stats) where the team already has a winner row
+ * for the month, rollupTeamMonth (stats only) where it does not (I1). Same
+ * transaction, so no reader sees the boards gone and the standings not.
+ *
+ * WHAT A CHANGED WINNER DOES TO THE CELEBRATION: recomputeTeamMonth patches the
+ * row in place, keeping hasSeenCelebration for an unchanged winner and resetting
+ * it to [] for a changed one. The dialog only asks for the viewer's previous local
+ * month, so a reset on an older month is invisible. Pinned in the tests.
+ *
+ * IDEMPOTENT: a second run plans nothing collapsible, deletes nothing and
+ * recomputes nothing. NOT GATED on SWEEPS_ENABLED or CHALLENGES_ENABLED, for
+ * backfillMonth's reason. Bound: monthPlan, the `teams` scan, and per affected
+ * team one month of each member's boards.
+ */
+export const repairDuplicateScores = internalMutation({
+  args: { month: v.string(), dryRun: v.optional(v.boolean()), expect: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? true
+    requirePastMonth('repairDuplicateScores', args.month)
+    if (!dryRun && args.expect === undefined) {
+      throw new ConvexError('repairDuplicateScores: an apply needs `expect`, from a dry run')
+    }
+
+    const plan = await monthPlan(ctx, args.month)
+    const key = deletionKey(args.month, plan.flatMap((p) => p.groups))
+    if (!dryRun && key !== args.expect) {
+      throw new ConvexError(
+        `repairDuplicateScores: the plan changed since the dry run; expected ${args.expect}, found ${key}`,
+      )
+    }
+
+    if (!dryRun) {
+      for (const { groups } of plan) for (const row of rowsToDelete(groups)) await ctx.db.delete(row._id)
+    }
+
+    const teamMonths = []
+    const today = toPuzzleDay(new Date())
+    for (const team of await affectedTeams(ctx, deletingPlayers(plan))) {
+      const winners = (await storedWinnerRow(ctx, team, args.month)) !== null
+      if (!dryRun) {
+        if (winners) await recomputeTeamMonth(ctx, team, args.month, today)
+        else await rollupTeamMonth(ctx, team, args.month)
+      }
+      teamMonths.push({ team: teamRef(team), month: args.month, winners })
+    }
+
+    return {
+      month: args.month,
+      dryRun,
+      deletionKey: key,
+      groups: plan.flatMap(({ player, groups }) =>
+        groups.map((group) => ({
+          player: playerRef(player),
+          ...groupSummary(group),
+          deleted: group.held.length === 0 ? group.drop.map(rowSummary) : [],
+        })),
+      ),
+      teamMonths,
     }
   },
 })
