@@ -3,7 +3,7 @@ import { closeAppMenu, openAppMenu } from './app-menu.ts'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
 import { signIn } from './sign-in'
-// The headlines, imported rather than retyped. It is NOT a tautology: the six
+// The headlines, imported rather than retyped. It is NOT a tautology: the eight
 // entries differ from one another, so asserting `UPGRADE_HEADLINES.header`
 // after the header's click and `.teams` after the team picker's is what proves
 // each affordance passes its OWN origin through — the thing the dialog varies.

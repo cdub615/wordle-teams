@@ -20,7 +20,7 @@
 // keeps the binding referenced evades. An incidental catch is not cover.)
 //
 // WHY THE EXISTING SUITES DO NOT ALREADY DO THIS, since between them they look
-// as though they must. plans.test.ts proves six headlines exist and differ.
+// as though they must. plans.test.ts proves eight headlines exist and differ.
 // upgrade-dialog.hook.test.ts proves the dialog renders each one GIVEN an
 // origin — but it supplies the origin itself, from a hand-written
 // `openUpgrade('trial-ended')` in a test-local `Opener`. That makes the string
@@ -190,7 +190,7 @@ describe('the card the population it is for actually sees', () => {
 describe('the CTA opens the upgrade dialog, on this card’s own headline', () => {
   /**
    * THE ORIGIN LITERAL, WHICH NOTHING ELSE IN THE REPO CAN SEE. Swapping
-   * `openUpgrade('trial-ended')` for any of the other five origins type-checks,
+   * `openUpgrade('trial-ended')` for any of the other seven origins type-checks,
    * lints, builds and — before this assertion — passed all 3708 tests, while
    * headlining a generic Pro pitch at the one player the card exists for.
    *
