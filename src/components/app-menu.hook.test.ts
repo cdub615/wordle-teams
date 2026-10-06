@@ -1063,6 +1063,18 @@ describe("What's new links the changelog, with an unread dot we light at release
     expect(trigger().querySelector(DOT)).not.toBeNull()
   })
 
+  test('signing out re-evaluates too: the dot goes with the session (AC4)', () => {
+    forgetSeen()
+    const { rerender } = render(createElement(AppMenu))
+    expect(trigger().querySelector(DOT)).not.toBeNull()
+
+    isAuthenticated = false
+    rerender(createElement(AppMenu))
+
+    expect(trigger().getAttribute('aria-label')).toBe('Main menu')
+    expect(trigger().querySelector(DOT)).toBeNull()
+  })
+
   test('opening it records the release and clears BOTH dots at once (AC3)', () => {
     // AT ONCE, NOT ON THE NEXT VISIT. Writing storage re-renders nothing, so a
     // handler that only stored the date would leave the trigger dot lit until

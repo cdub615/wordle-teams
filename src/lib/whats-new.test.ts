@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   LATEST_RELEASE,
+  WHATS_NEW_PROBE_KEY,
   WHATS_NEW_SEEN_KEY,
   WHATS_NEW_URL,
   canRememberRelease,
@@ -171,6 +172,21 @@ describe('the seen-state in storage', () => {
     expect(canRememberRelease()).toBe(false)
     vi.stubGlobal('window', undefined)
     expect(canRememberRelease()).toBe(false)
+  })
+
+  // A store that reads but refuses writes (quota exceeded; old Safari private
+  // mode) would otherwise light a dot markReleaseSeen can never clear.
+  test('canRememberRelease is false for a store that reads but cannot write', () => {
+    install('localStorage', fakeStorage(['setItem']))
+    expect(() => canRememberRelease()).not.toThrow()
+    expect(canRememberRelease()).toBe(false)
+  })
+
+  test('canRememberRelease leaves nothing behind and does not touch the seen value', () => {
+    local.setItem(WHATS_NEW_SEEN_KEY, '2026-01-01')
+    expect(canRememberRelease()).toBe(true)
+    expect(local.peek(WHATS_NEW_SEEN_KEY)).toBe('2026-01-01')
+    expect(local.peek(WHATS_NEW_PROBE_KEY)).toBeNull()
   })
 
   test('with no window at all (SSR) reads null and marking is a no-op', () => {
