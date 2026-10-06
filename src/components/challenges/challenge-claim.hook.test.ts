@@ -242,12 +242,21 @@ describe('6. terminal refusals replace the page with one message and no buttons'
 })
 
 describe('7. recoverable refusals toast and leave the picker', () => {
+  test('the own-proposal refusal says, in plain words, who has to accept', () => {
+    expect(typedCodeMessage('CHALLENGE_OWN_PROPOSAL')).toBe(
+      'Someone else on your team has to accept a challenge you sent.',
+    )
+  })
+
   const RECOVERABLE = [
     'CHALLENGE_LIMIT_REACHED',
     'CHALLENGE_EXISTS',
     'CHALLENGES_REFUSED',
     'INVALID_TEAM',
     'INVALID_DATE',
+    // wordle-teams-zic8.2.23: the link's own minter, claiming for another team
+    // they are on. The link is still good for anyone else, so it stays.
+    'CHALLENGE_OWN_PROPOSAL',
   ] as const
 
   for (const code of RECOVERABLE) {

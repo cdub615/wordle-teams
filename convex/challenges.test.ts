@@ -1040,6 +1040,128 @@ describe('claimChallengeLinkFor', () => {
   })
 })
 
+/**
+ * THE PROPOSER IS NOT THE OPPONENT'S CONSENT (wordle-teams-zic8.2.23).
+ *
+ * proposeToTeamFor requires membership of BOTH teams, so every direct proposer
+ * is also a member of the team being challenged — and before this, that was all
+ * acceptChallengeFor asked of an accepter. One person could start a challenge
+ * between two teams with nobody else on the opponent agreeing. A link has the
+ * same hole: its minter can be on another team and claim for it.
+ *
+ * seedTwoTeams's player IS on both teams, which is exactly the shape of the bug.
+ * The teammate below is a second member of the OPPONENT, so the refusal is shown
+ * to be about who is answering rather than about the team.
+ */
+describe('the proposer cannot answer their own challenge', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** seedTwoTeams plus a second member of the opponent team. Email overridden; see seedAccepter. */
+  async function seedWithTeammate(ctx: Ctx) {
+    const seeded = await seedTwoTeams(ctx)
+    const teammateId = await ctx.db.insert('players', aPlayer({ email: 'teammate@example.com' }))
+    await ctx.db.patch(seeded.opponentTeamId, { playerIds: [seeded.playerId, teammateId] })
+    return { ...seeded, teammateId }
+  }
+
+  test('a dual-member proposer is refused CHALLENGE_OWN_PROPOSAL on accept, and nothing changes', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
+      const id = await proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId)
+      await expect(acceptChallengeFor(ctx, playerId, id, today)).rejects.toMatchObject({
+        data: { code: 'CHALLENGE_OWN_PROPOSAL' },
+      })
+      const doc = await ctx.db.get(id)
+      expect(doc?.status).toBe('pending')
+      expect(doc?.acceptedBy).toBeUndefined()
+    })
+  })
+
+  test('another member of the opponent team still accepts, with the proposer on both teams', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId, opponentTeamId, teammateId } = await seedWithTeammate(ctx)
+      const id = await proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId)
+      await acceptChallengeFor(ctx, teammateId, id, today)
+      const doc = await ctx.db.get(id)
+      expect(doc?.status).toBe('active')
+      expect(doc?.acceptedBy).toBe(teammateId)
+    })
+  })
+
+  test('the minter is refused CHALLENGE_OWN_PROPOSAL claiming their own link for another team they are on', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      await expect(
+        claimChallengeLinkFor(ctx, playerId, token, opponentTeamId, today),
+      ).rejects.toMatchObject({ data: { code: 'CHALLENGE_OWN_PROPOSAL' } })
+      const doc = await ctx.db
+        .query('teamChallenges')
+        .withIndex('by_token', (q) => q.eq('token', token))
+        .unique()
+      expect(doc?.status).toBe('pending')
+      expect(doc?.opponentTeamId).toBeUndefined()
+    })
+  })
+
+  test('another member of that team still claims the same link', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId, opponentTeamId, teammateId } = await seedWithTeammate(ctx)
+      const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      const id = await claimChallengeLinkFor(ctx, teammateId, token, opponentTeamId, today)
+      const doc = await ctx.db.get(id)
+      expect(doc?.status).toBe('active')
+      expect(doc?.opponentTeamId).toBe(opponentTeamId)
+      expect(doc?.acceptedBy).toBe(teammateId)
+    })
+  })
+
+  // THE NEW CHECK MUST NOT BECOME A TOKEN ORACLE. Every dead token answers
+  // CHALLENGE_LINK_INVALID to everyone, the minter included: unknown, expired,
+  // already claimed and withdrawn, each a token THIS player minted where it can
+  // be. Were the own-proposal check to run before the status/expiry guards, the
+  // minter's dead tokens would answer CHALLENGE_OWN_PROPOSAL instead.
+  test('a dead token still answers CHALLENGE_LINK_INVALID to its own minter, never the new code', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
+      const { accepterId, theirTeamId } = await seedAccepter(ctx)
+      const base = { challengerTeamId, proposedBy: playerId, createdAt: Date.now() }
+      await ctx.db.insert('teamChallenges', {
+        ...base,
+        status: 'pending',
+        token: 'own-expired',
+        expiresAt: Date.now() - 1,
+      })
+      await ctx.db.insert('teamChallenges', {
+        ...base,
+        status: 'withdrawn',
+        token: 'own-withdrawn',
+        expiresAt: Date.now() + TTL,
+      })
+      const claimed = await proposeByLinkFor(ctx, playerId, challengerTeamId)
+      await claimChallengeLinkFor(ctx, accepterId, claimed, theirTeamId, today)
+
+      for (const token of ['bogus', 'own-expired', 'own-withdrawn', claimed]) {
+        await expect(
+          claimChallengeLinkFor(ctx, playerId, token, opponentTeamId, today),
+          token,
+        ).rejects.toMatchObject({ data: { code: 'CHALLENGE_LINK_INVALID' } })
+      }
+    })
+  })
+})
+
 describe('declineChallengeFor', () => {
   test('a member of the challenged team declines', async () => {
     const t = convexTest(schema, modules)
