@@ -7,6 +7,7 @@ import path from 'node:path'
 import { environmentsFromWranglerConfig } from './copy-target.mjs'
 import {
   checkImpactPages,
+  classifyRefusals,
   decideRacTarget,
   fingerprintOf,
   monthsOf,
@@ -270,5 +271,27 @@ describe('checkImpactPages', () => {
     ).toBe(false)
     // The entries add up to the FIRST page's total; only the moved total is wrong.
     expect(checkImpactPages([page([1, 2], 3), page([3], 4)]).ok).toBe(false)
+  })
+})
+
+describe('classifyRefusals', () => {
+  const notPast = (month) => ({
+    month,
+    reason: `repairDuplicateScores: ${month} is not a past month; the latest allowed is 2026-09`,
+  })
+  test('a month not yet past is DEFERRED; any other refusal is a FAILURE', () => {
+    expect(
+      classifyRefusals([
+        notPast('2026-10'),
+        { month: '2025-12', reason: 'Server Error: Too many reads in a single function execution' },
+        { month: '2025-11', reason: 'fetch failed' },
+      ]),
+    ).toEqual({ deferred: ['2026-10'], failed: ['2025-12', '2025-11'] })
+  })
+  test('nothing refused is nothing either way', () => {
+    expect(classifyRefusals([])).toEqual({ deferred: [], failed: [] })
+  })
+  test('only the server\'s exact wording defers: a reason merely mentioning "past" fails', () => {
+    expect(classifyRefusals([{ month: '2025-12', reason: 'past the read limit' }]).failed).toEqual(['2025-12'])
   })
 })

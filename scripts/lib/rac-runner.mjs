@@ -192,3 +192,23 @@ export function checkImpactPages(pages) {
   if (seen !== pairs) return { ok: false, reason: `saw ${seen} entries for ${pairs} pairs` }
   return { ok: true }
 }
+
+/**
+ * REFUSED MONTHS, SPLIT BY WHETHER THE OPERATOR MAY PROCEED.
+ *
+ * DEFERRED: the server said the month is not past yet (`requirePastMonth` in
+ * migrate.ts, matched on its exact wording). Nothing about it is unknown: it will
+ * be repairable later, and leaving it out of this run is the rule working.
+ *
+ * FAILED: every other refusal — a read limit, a network error, anything. That
+ * month's impact or plan is MISSING, so a report or fingerprint without it must
+ * not be approved or applied.
+ */
+const NOT_PAST = /^\w+: \d{4}-\d{2} is not a past month; /
+
+export function classifyRefusals(refusals) {
+  const deferred = []
+  const failed = []
+  for (const { month, reason } of refusals) (NOT_PAST.test(reason) ? deferred : failed).push(month)
+  return { deferred, failed }
+}
