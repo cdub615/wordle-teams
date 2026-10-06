@@ -60,7 +60,7 @@
  * (`globalComparison`) is `isPro`-gated and server-enforced too, but has no UI
  * consumer anywhere in `src/` yet — deliberately left off this list, since
  * selling a surface nobody can reach is the same defect as selling one that
- * doesn't exist. Wire it up before adding a sixth entry for it.
+ * doesn't exist. Wire it up before adding an entry for it.
  *
  * NO PRICE HERE. The price lives in Polar and reaches the customer on Polar's
  * hosted checkout. A number in this file is a second source of truth that goes
@@ -73,15 +73,15 @@
  * not in the one it tells about what Pro buys.
  */
 export type ProBenefit = {
-  id: 'teams' | 'scoring' | 'import' | 'insights' | 'months'
+  id: 'teams' | 'scoring' | 'import' | 'insights' | 'challenges' | 'months'
   /** A few words, headline case. */
   title: string
   /** One sentence, second person, no price. */
   body: string
   /**
    * Path to this rule's source of truth, resolved against this package's root
-   * (`v2/`, not the outer repo) by the disk test below. For `scoring`, `import`
-   * and `insights` that file is where a free caller is turned away. For `teams`
+   * (the repository root) by the disk test. For `scoring`, `import`,
+   * `insights` and `challenges` that file is where a free caller is turned away. For `teams`
    * and `months` it names the constant or pure function the actual enforcement —
    * in teams.ts, players.ts, inviteLinks.ts, billing.ts, and scores.ts — reads,
    * because the rule itself has no throw site of its own to point at.
@@ -179,6 +179,36 @@ export const PRO_BENEFITS: ReadonlyArray<ProBenefit> = [
     title: 'The numbers behind your guesses, and your team’s',
     body: 'Your guess average against your own record, how your attempts are spread, which openers actually work for you, and how your form moves month by month — then the same depth on your team, member by member, for any month you choose.',
     gatedAt: 'convex/insights.ts',
+    serverEnforced: true,
+  },
+  {
+    id: 'challenges',
+    // WHAT PRO BUYS IS STARTING ONE AND SEEING INSIDE IT — NOT TAKING PART.
+    // convex/challenges.ts holds three gates, all server-side:
+    //
+    //   proposeToTeamFor   throws accessError('PRO_REQUIRED') on !isProFor —
+    //                      naming another team the proposer is ALSO on.
+    //   proposeByLinkFor   the same throw — the link that reaches any team.
+    //   challengesForTeamFor  strips both sides' `members` to [] for a
+    //                      non-Pro viewer, so a free member still sees each
+    //                      team's average and the outcome, never the rows.
+    //
+    // ACCEPTING IS FREE, and the body's last sentence says so: neither
+    // acceptChallengeFor nor claimChallengeLinkFor asks isProFor ("ANY MEMBER
+    // MAY ACCEPT, AND PRO IS NOT CHECKED HERE"). A challenged free team is the
+    // feature's best conversion moment, so no line here may read as Pro being
+    // needed to take part — pro-benefits.test.ts refuses that pairing and reads
+    // all five functions to keep the claim honest.
+    //
+    // "BY NAME" WAS THE FIRST DRAFT AND IT WAS FALSE. proposeToTeamFor requires
+    // membership of the OPPONENT team too, and propose-challenge-dialog.tsx
+    // lists only "Your other teams" — there is no directory to search. So the
+    // body splits the two paths: any team by link, one of your own directly.
+    // "UNTIL THE LAST DAY" is windowFor's fixed endDay (convex/lib/challenge.ts).
+    // Not granted by the Insights trial: every gate above is isProFor.
+    title: 'Challenge another team',
+    body: 'Send any team a challenge link, or take on another team you’re on directly, and follow every player’s average on both sides until the last day. The team you challenge doesn’t need Pro to accept.',
+    gatedAt: 'convex/challenges.ts',
     serverEnforced: true,
   },
   {

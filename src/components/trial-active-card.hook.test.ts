@@ -151,7 +151,7 @@ describe('and nobody else', () => {
 describe('the CTA opens the upgrade dialog on this card’s own headline', () => {
   /**
    * THE ORIGIN LITERAL, WHICH NOTHING ELSE IN THE REPO CAN SEE. Swapping it for
-   * any of the other six type-checks, lints and builds while headlining the
+   * any of the other seven type-checks, lints and builds while headlining the
    * wrong sentence. Read off UPGRADE_HEADLINES rather than typed out, so the
    * copy stays owned by plans.ts: this pins WHICH headline, never what it says.
    */

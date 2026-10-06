@@ -439,10 +439,10 @@ function TeamChallenges({
             },
           )
         }}
-        // 'insights': its headline ("See who's actually beating whom") is the
-        // per-player comparison this hint withholds. A challenges-specific
-        // origin would mean a new UpgradeOrigin and headline in lib/plans.ts.
-        onUpgrade={() => openUpgrade('insights')}
+        // 'challenges', its own origin (wordle-teams-zic8.2.22): both the free
+        // "Challenge a team" button and the scoreboard's per-player hint lead
+        // here, and the dialog beneath lists the challenges benefit itself.
+        onUpgrade={() => openUpgrade('challenges')}
         onChallenge={() => setProposeOpen(true)}
       />
       <ProposeChallengeDialog

@@ -108,7 +108,7 @@ describe('the upgrade dialog', () => {
    * `openUpgrade` that only sets it when the state is null, say, which is an
    * easy thing to write while adding a guard). Everything else in this file
    * still passed. A player who opened from the header, dismissed, then tapped
-   * the import upsell would be shown the header's headline — six headlines
+   * the import upsell would be shown the header's headline — eight headlines
    * silently collapsed into whichever one was asked for first.
    */
   test('re-opens with the new origin on a provider that is already mounted', () => {
@@ -130,7 +130,7 @@ describe('the upgrade dialog', () => {
   })
 
   /**
-   * THE DRIFT GATE, AND THE REASON THIS WORK EXISTS. A sixth entry added to
+   * THE DRIFT GATE, AND THE REASON THIS WORK EXISTS. A seventh entry added to
    * PRO_BENEFITS fails here until the dialog names it, which is what stops the
    * product growing a feature its own paywall never mentions.
    *

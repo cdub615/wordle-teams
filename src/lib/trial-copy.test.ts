@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { COMPLETE_HISTORY_WORDS, PRO_ONLY_WORDS } from './pro-benefits.ts'
+import { COMPLETE_HISTORY_WORDS, PRO_BENEFITS, PRO_ONLY_WORDS } from './pro-benefits.ts'
 import {
   TRIAL_ACTIVE_BODY,
   TRIAL_ACTIVE_CTA,
@@ -81,8 +81,9 @@ describe('the active-trial prompt', () => {
   test('names the trial as an INSIGHTS trial, not a month of Pro', () => {
     // The spec's section 3.2 decision, and the reason it is load-bearing: the
     // trial grants Layers 2 and 3 only, so "a free month of Pro" sends players
-    // hunting for import, custom scoring, a third team and the widened month
-    // window — four of the five PRO_BENEFITS entries it does NOT include.
+    // hunting for import, custom scoring, a third team, the widened month window
+    // and starting a challenge — five of the six PRO_BENEFITS entries it does NOT
+    // include.
     expect(TRIAL_ACTIVE_TITLE.toLowerCase()).toContain('insights trial')
   })
 
@@ -94,7 +95,7 @@ describe('the active-trial prompt', () => {
     }
   })
 
-  test('claims none of the four benefits the trial does NOT grant', () => {
+  test('claims none of the five benefits the trial does NOT grant', () => {
     // insightsAccess applies `paid = isPro || trialActive` to layer2 and layer3
     // ONLY. access.ts states the rest in its own words: "The trial does not
     // widen this window". So trial copy may not reach for the vocabulary of
@@ -103,6 +104,16 @@ describe('the active-trial prompt', () => {
     for (const word of PRO_ONLY_WORDS) {
       expect(all(), `"${word}" names a benefit the trial does not grant`).not.toContain(word)
     }
+    // NOR ANY OF THEIR TITLES, the same five tier-table.hook.test.ts keeps out of
+    // the pricing page's trial line: a title is what a skimming reader takes away.
+    for (const id of ['teams', 'scoring', 'import', 'challenges', 'months'] as const) {
+      const benefit = PRO_BENEFITS.find((entry) => entry.id === id)!
+      expect(all(), `the trial copy names "${benefit.title}"`).not.toContain(benefit.title.toLowerCase())
+    }
+    // AND CHALLENGES HAS NO WORD IN PRO_ONLY_WORDS, so it is refused by name.
+    // Starting one asks isProFor (proposeToTeamFor, proposeByLinkFor), and so
+    // does the scoreboard's per-player panel; a trial satisfies neither.
+    expect(all(), 'challenges are not in the trial').not.toMatch(/challeng/)
   })
 
   test('carries no price, because the price lives in Polar', () => {
