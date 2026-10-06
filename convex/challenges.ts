@@ -421,8 +421,18 @@ export async function acceptChallengeFor(
   if (challenge.expiresAt <= Date.now()) throw accessError('CHALLENGE_NOT_PENDING')
   if (challenge.opponentTeamId === undefined) throw accessError('INVALID_TEAM')
 
-  // ANY MEMBER MAY ACCEPT, AND PRO IS NOT CHECKED HERE. See proposeToTeamFor.
+  // ANY MEMBER EXCEPT THE PROPOSER MAY ACCEPT, AND PRO IS NOT CHECKED HERE. See
+  // proposeToTeamFor.
   await requireTeamMemberFor(ctx, playerId, challenge.opponentTeamId)
+
+  // NOT THE PROPOSER (wordle-teams-zic8.2.23). proposeToTeamFor requires
+  // membership of BOTH teams, so the proposer always passes the check above;
+  // without this, one person could start a challenge with nobody on the
+  // opponent consenting. AFTER MEMBERSHIP, so a proposer who has since left the
+  // opponent hears NOT_A_MEMBER — the reason that would still hold if someone
+  // else had proposed — and this code is said only to a member, for whom it is
+  // the one thing standing between them and accepting.
+  if (challenge.proposedBy === playerId) throw accessError('CHALLENGE_OWN_PROPOSAL')
 
   // RE-CHECKED AT ACCEPTANCE, not trusted from propose time: the pair may have
   // filled its slots or turned challenges off while this sat pending.
@@ -478,6 +488,16 @@ export async function claimChallengeLinkFor(
   if (challenge === null) throw accessError('CHALLENGE_LINK_INVALID')
   if (challenge.status !== 'pending') throw accessError('CHALLENGE_LINK_INVALID')
   if (challenge.expiresAt <= Date.now()) throw accessError('CHALLENGE_LINK_INVALID')
+
+  // NOT THE MINTER (wordle-teams-zic8.2.23), the same rule as acceptChallengeFor:
+  // a minter on another team could otherwise claim for it alone. It needs the
+  // row, so it cannot join membership above the lookup — and it goes AFTER all
+  // three CHALLENGE_LINK_INVALID answers, never between them. There it is said
+  // only about a token that is live and was minted by this caller, who already
+  // holds it and so learns nothing; anywhere earlier, a dead token of their own
+  // would answer differently from a dead stranger's, which is the distinction
+  // those answers exist to hide.
+  if (challenge.proposedBy === playerId) throw accessError('CHALLENGE_OWN_PROPOSAL')
 
   await requireChallengeablePair(ctx, challenge.challengerTeamId, opponentTeamId, challenge._id)
 
@@ -1217,7 +1237,8 @@ export const challengesForTeam = query({
 })
 
 /**
- * Whether this team has an incoming, unexpired proposal: the dashboard's
+ * Whether this team has an incoming, unexpired proposal THIS VIEWER COULD
+ * ACCEPT — not their own (zic8.2.23), and none at all on a refusing team: the dashboard's
  * "Your team has been challenged" nudge (owner decision D9). Nothing pushes on a
  * proposal, so this one boolean is how a challenged team finds out.
  *
@@ -1243,9 +1264,9 @@ export async function incomingChallengeFor(
   now: number,
 ): Promise<boolean> {
   const team = await requireTeamMemberFor(ctx, playerId, teamId)
-  // A TEAM THAT HAS SWITCHED CHALLENGES OFF IS NOT NUDGED (zic8.2.21 M8):
-  // acceptChallengeFor refuses its Accept with CHALLENGES_REFUSED, so the nudge
-  // would lead to a button that cannot work. Absent means on, as everywhere.
+  // NO NUDGE TOWARD A BUTTON THAT CANNOT WORK. A TEAM THAT HAS SWITCHED
+  // CHALLENGES OFF IS NOT NUDGED (zic8.2.21 M8): acceptChallengeFor refuses its
+  // Accept with CHALLENGES_REFUSED. Absent means on, as everywhere.
   if (team.acceptsChallenges === false) return false
   const pending = await ctx.db
     .query('teamChallenges')
@@ -1253,7 +1274,14 @@ export async function incomingChallengeFor(
       q.eq('opponentTeamId', teamId).eq('status', 'pending'),
     )
     .collect()
-  return pending.some((challenge) => challenge.expiresAt > now)
+  // NOR IS A PROPOSER NUDGED TOWARD THEIR OWN PROPOSAL (wordle-teams-zic8.2.23),
+  // by the same rule: a direct proposer is a member of both teams, so their row
+  // is incoming here too, but acceptChallengeFor refuses them with
+  // CHALLENGE_OWN_PROPOSAL and the row hides their Accept. Another member of
+  // this team is still nudged by the same row.
+  return pending.some(
+    (challenge) => challenge.expiresAt > now && challenge.proposedBy !== playerId,
+  )
 }
 
 export const incomingChallenge = query({

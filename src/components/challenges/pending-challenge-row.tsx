@@ -21,6 +21,13 @@ import type { ChallengeId, PendingChallenge } from './types.ts'
  * owner decision): acceptChallengeFor would refuse it with CHALLENGES_REFUSED.
  * Decline still works, so it stays, with one line saying why Accept is gone.
  * Owners have the switch at the foot of the same card, so nothing more is said.
+ *
+ * NOR IS THE PROPOSER, ON THEIR OWN PROPOSAL (wordle-teams-zic8.2.23). A direct
+ * proposer is a member of both teams, so their proposal also lands on the
+ * opponent's card as INCOMING — and acceptChallengeFor refuses them with
+ * CHALLENGE_OWN_PROPOSAL, because one person is not the other team's consent.
+ * Decline stays, as above, and one line says who has to accept instead —
+ * unless the team is refusing challenges, when the refusal line alone is shown.
  */
 export function PendingChallengeRow({
   challenge,
@@ -46,6 +53,10 @@ export function PendingChallengeRow({
   const incoming = challenge.direction === 'incoming'
   const canWithdraw = !incoming && (challenge.proposedByViewer || viewerIsOwner)
   const refusing = !expired && incoming && !teamAcceptsChallenges
+  // ONE REASON AT A TIME: on a refusing team nobody can accept, so the refusal
+  // line is the whole story and "waiting for someone else" would be untrue.
+  const ownProposal = !expired && incoming && teamAcceptsChallenges && challenge.proposedByViewer
+  const canAccept = teamAcceptsChallenges && !challenge.proposedByViewer
   const label = labelsFor(challenge)
 
   return (
@@ -56,10 +67,15 @@ export function PendingChallengeRow({
         {refusing && (
           <p className="text-muted-foreground text-sm">Your team isn't taking challenges right now.</p>
         )}
+        {ownProposal && (
+          <p className="text-muted-foreground text-sm">
+            Waiting for someone else on this team to accept.
+          </p>
+        )}
       </div>
       {!expired && incoming && (
         <div className="flex shrink-0 gap-2">
-          {teamAcceptsChallenges && (
+          {canAccept && (
             <Button
               size="sm"
               aria-label={label.accept}

@@ -291,6 +291,7 @@ function row(
 }
 
 const REFUSING = "Your team isn't taking challenges right now."
+const OWN_PROPOSAL = 'Waiting for someone else on this team to accept.'
 
 const buttonNames = () => screen.queryAllByRole('button').map((button) => button.textContent)
 
@@ -313,8 +314,11 @@ describe('PendingChallengeRow', () => {
     expect(onDecline).toHaveBeenCalledExactlyOnceWith('pending-7')
   })
 
-  test('6. incoming: any member may answer, owner or not', () => {
-    row(aPending(), { viewerIsOwner: false })
+  // ANY MEMBER OTHER THAN THE PROPOSER (wordle-teams-zic8.2.23). The proposer's
+  // own row is below; `proposedByViewer: false` is spelled out here because it
+  // is what this test depends on, not a fixture default to lean on.
+  test('6. incoming: any member other than the proposer may answer, owner or not', () => {
+    row(aPending({ proposedByViewer: false }), { viewerIsOwner: false })
     expect(buttonNames()).toEqual(['Accept', 'Decline'])
   })
 
@@ -417,6 +421,44 @@ describe('PendingChallengeRow', () => {
     row(aPending({ expiresAt: NOW }), { teamAcceptsChallenges: false })
     expect(buttonNames()).toEqual([])
     expect(screen.queryByText(REFUSING)).toBeNull()
+  })
+
+  // THE PROPOSER IS NOT THE OPPONENT'S CONSENT (wordle-teams-zic8.2.23). A
+  // direct proposer is a member of both teams, so their own proposal arrives on
+  // the opponent's card as INCOMING. acceptChallengeFor refuses them with
+  // CHALLENGE_OWN_PROPOSAL, so Accept is hidden rather than offered to fail, and
+  // one line says who it is waiting for. Decline stays: it is out of this fix's
+  // scope, and the server still allows it.
+  test('6. incoming that the viewer proposed: no Accept, Decline stays, and who must accept', () => {
+    const onDecline = vi.fn()
+    row(aPending({ proposedByViewer: true, challengeId: id('pending-5') }), { onDecline })
+    expect(buttonNames()).toEqual(['Decline'])
+    expect(screen.queryByRole('button', { name: /^Accept/ })).toBeNull()
+    expect(screen.queryByText(OWN_PROPOSAL)).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /^Decline/ }))
+    expect(onDecline).toHaveBeenCalledExactlyOnceWith('pending-5')
+  })
+
+  test('6. (control) incoming that someone else proposed: Accept, and no waiting line', () => {
+    row(aPending({ proposedByViewer: false }))
+    expect(buttonNames()).toEqual(['Accept', 'Decline'])
+    expect(screen.queryByText(OWN_PROPOSAL)).toBeNull()
+  })
+
+  // ONE REASON AT A TIME. On a team refusing challenges, Accept is gone for
+  // everyone, so "waiting for someone else" would promise an acceptance the
+  // team cannot give; the refusal line is the only one shown.
+  test('6. the viewer\'s own proposal on a team refusing challenges: only the refusal line', () => {
+    row(aPending({ proposedByViewer: true }), { teamAcceptsChallenges: false })
+    expect(buttonNames()).toEqual(['Decline'])
+    expect(screen.queryByText(REFUSING)).not.toBeNull()
+    expect(screen.queryByText(OWN_PROPOSAL)).toBeNull()
+  })
+
+  test('6. the waiting line is about INCOMING rows: an outgoing proposal by the viewer is unchanged', () => {
+    row(aPending({ direction: 'outgoing', proposedByViewer: true }))
+    expect(buttonNames()).toEqual(['Withdraw'])
+    expect(screen.queryByText(OWN_PROPOSAL)).toBeNull()
   })
 
   test.each([

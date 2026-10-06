@@ -241,6 +241,65 @@ describe('6. terminal refusals replace the page with one message and no buttons'
   })
 })
 
+// THE VIEWER'S OWN LINK (wordle-teams-zic8.2.23). CHALLENGE_OWN_PROPOSAL is
+// about WHO is claiming, not which team they picked, so every team in the
+// picker would be refused the same way — leaving the picker up invites them to
+// try each one. It is not a dead link either: the link is still good for
+// anyone else, so it is not one of TERMINAL_REFUSALS and onTerminal is not
+// told. The page says whose move it is and links back to the team page.
+describe('6a. claiming your own link ends the page for you, not for the link', () => {
+  const OWN_LINK =
+    'This is your own challenge link. Share it with another team — someone there has to accept it.'
+
+  test('one message, a link to /team, no picker, no toast, and not a terminal refusal', async () => {
+    const onClaim = vi
+      .fn<Props['onClaim']>()
+      .mockRejectedValue(refusal('CHALLENGE_OWN_PROPOSAL'))
+    const { onTerminal, onClaimed } = page({ teams: [ALPHAS, BRAVOS], onClaim })
+    fireEvent.click(screen.getByLabelText('Alphas'))
+    fireEvent.click(acceptButton()!)
+
+    await waitFor(() => expect(screen.getByRole('heading').textContent).toBe(OWN_LINK))
+    const links = screen.getAllByRole('link')
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/team'])
+    expect(screen.queryAllByRole('button')).toEqual([])
+    expect(radios()).toEqual([])
+    expect(toastError).not.toHaveBeenCalled()
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(onTerminal).not.toHaveBeenCalled()
+    expect(onClaimed).not.toHaveBeenCalled()
+  })
+
+  // NOT THIS BRANCH'S TO FORGET. useChallengeArrival already clears the stash
+  // for a signed-in player on arrival (use-pending-challenge.ts, row three), so
+  // by the time a claim can be refused there is nothing left; and this refusal
+  // says nothing about the link, which another team can still claim.
+  // CLEARS THE STASH, though useChallengeArrival normally already has. If one
+  // ever survived, keeping it would bounce the minter from every dashboard visit
+  // back to a page that always refuses them — the loop useChallengeArrival's
+  // header warns about. Forgetting is idempotent and kills nothing: the link
+  // lives on the server, not in the stash.
+  test('clears the pending-challenge stash', async () => {
+    rememberPendingChallenge('tok')
+    const onClaim = vi
+      .fn<Props['onClaim']>()
+      .mockRejectedValue(refusal('CHALLENGE_OWN_PROPOSAL'))
+    page({ teams: [ALPHAS], onClaim })
+    fireEvent.click(acceptButton()!)
+    await waitFor(() => expect(screen.getByRole('heading').textContent).toBe(OWN_LINK))
+    expect(sessionStorage.getItem(PENDING_CHALLENGE_KEY)).toBeNull()
+  })
+
+  // The code's GENERIC copy is the team page's (a dual-member proposer pressing
+  // Accept there); this page says its own thing above, and does not borrow it.
+  test('the generic own-proposal copy is unchanged, and is not what this page says', () => {
+    expect(typedCodeMessage('CHALLENGE_OWN_PROPOSAL')).toBe(
+      'Someone else on your team has to accept a challenge you sent.',
+    )
+    expect(typedCodeMessage('CHALLENGE_OWN_PROPOSAL')).not.toBe(OWN_LINK)
+  })
+})
+
 describe('7. recoverable refusals toast and leave the picker', () => {
   const RECOVERABLE = [
     'CHALLENGE_LIMIT_REACHED',
