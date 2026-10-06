@@ -438,6 +438,52 @@ describe('duplicateScoresImpact', () => {
   })
 })
 
+// THE PRIVACY RULE FOR THE TWO OTHER OUTPUTS, as the probe has it: legacy ids
+// only — no document id of any player, team or row, no email, no name.
+async function seedSecrets(t: T) {
+  const ada = await seedPlayer(t, 1, { email: 'ada.secret@example.com', firstName: 'Adaline', lastName: 'Zeppelin' })
+  const native = await seedPlayer(t, 2, { legacyId: undefined, email: 'nat.hidden@example.com', firstName: 'Natsuko', lastName: 'Quill' })
+  const rows = [
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 1 }),
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 2 }),
+    await seedBoard(t, native, '2025-01-10', { legacyId: 3 }),
+  ]
+  const copied = await seedTeam(t, 206, [ada, native])
+  const nativeTeam = await seedTeam(t, undefined, [ada])
+  await storeMonth(t, copied)
+  const secrets = [ada, native, ...rows, copied, nativeTeam, 'ada.secret', 'nat.hidden', 'example.com', 'Adaline', 'Zeppelin', 'Natsuko', 'Quill']
+  return { secrets }
+}
+
+function expectNoSecrets(output: unknown, secrets: string[]) {
+  const wire = JSON.stringify(output)
+  for (const secret of secrets) expect(wire).not.toContain(secret)
+}
+
+describe('privacy of impact and repair outputs', () => {
+  test('impact returns no document id, email or name', async () => {
+    const t = convexTest(schema, modules)
+    const { secrets } = await seedSecrets(t)
+    const result = await impact(t)
+    expect(result.entries.map((e) => e.team)).toEqual([206, 'v2-native'])
+    expect(JSON.stringify(result)).toContain('"v2-native"')
+    expectNoSecrets(result, secrets)
+  })
+
+  test('repair, dry and applied, returns no document id, email or name', async () => {
+    const t = convexTest(schema, modules)
+    const { secrets } = await seedSecrets(t)
+    const dry = await t.mutation(internal.migrate.repairDuplicateScores, { month: MONTH })
+    const real = await t.mutation(internal.migrate.repairDuplicateScores, {
+      month: MONTH,
+      dryRun: false,
+      expect: dry.deletionKey,
+    })
+    expect(real.groups).toHaveLength(1)
+    expectNoSecrets([dry, real], secrets)
+  })
+})
+
 describe('latestRepairableMonth', () => {
   test('a month is repairable from the 2nd of the next month, server time', () => {
     expect(latestRepairableMonth(new Date(2026, 10, 1, 12))).toBe('2026-09')
