@@ -1237,7 +1237,8 @@ export const challengesForTeam = query({
 })
 
 /**
- * Whether this team has an incoming, unexpired proposal: the dashboard's
+ * Whether this team has an incoming, unexpired proposal THIS VIEWER COULD
+ * ACCEPT — not their own (zic8.2.23), and none at all on a refusing team: the dashboard's
  * "Your team has been challenged" nudge (owner decision D9). Nothing pushes on a
  * proposal, so this one boolean is how a challenged team finds out.
  *

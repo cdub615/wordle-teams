@@ -165,8 +165,10 @@ export function ChallengeClaim({
         forgetPendingChallenge()
         onTerminal(code)
       } else if (code === 'CHALLENGE_OWN_PROPOSAL') {
-        // NO forgetPendingChallenge: useChallengeArrival already cleared the
-        // stash when this signed-in player arrived, and the link is not dead.
+        // FORGET ANYWAY, though useChallengeArrival normally already has: a
+        // surviving stash would bounce the minter back here from every
+        // dashboard visit. Idempotent, and the link itself lives on the server.
+        forgetPendingChallenge()
         setOwnLink(true)
       } else {
         toast.error(mutationErrorMessage(error, 'Could not accept that challenge'))
