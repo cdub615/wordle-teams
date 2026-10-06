@@ -1373,6 +1373,9 @@ export const duplicateScoresImpact = internalQuery({
 
     return {
       month,
+      // The same key the repair's dry run returns for this month, so the impact
+      // the owner approves names exactly the rows the fingerprint covers.
+      deletionKey: deletionKey(month, plan.flatMap((p) => p.groups)),
       entries,
       pairs: teams.length,
       held: plan.reduce((n, p) => n + p.groups.filter((g) => g.held.length > 0).length, 0),

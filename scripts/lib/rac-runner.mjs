@@ -178,11 +178,13 @@ export function monthsOf(affected) {
 
 /**
  * Whether one month's impact pages together hold every (team, month) pair exactly
- * once (revision 2, M2): the total must not move between pages, and the entries
- * must add up to it. Counted rather than keyed, because two v2-born teams both
+ * once (revision 2, M2): neither the total nor the month's deletion key may move
+ * between pages, and the entries must add up to the total. Counted rather than keyed, because two v2-born teams both
  * report as 'v2-native'.
  */
 export function checkImpactPages(pages) {
+  const keys = new Set(pages.map((p) => p.deletionKey))
+  if (keys.size !== 1) return { ok: false, reason: `the deletion key moved between pages: ${[...keys]}` }
   const totals = new Set(pages.map((p) => p.pairs))
   if (totals.size !== 1) return { ok: false, reason: `the pair total moved between pages: ${[...totals]}` }
   const [pairs] = totals

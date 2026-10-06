@@ -280,6 +280,7 @@ describe('duplicateScoresImpact', () => {
 
     expect(await impact(t)).toEqual({
       month: MONTH,
+      deletionKey: '2025-01:202',
       entries: [
         {
           team: 206,
@@ -422,6 +423,23 @@ describe('duplicateScoresImpact', () => {
     expect(second.entries.map((e) => e.team)).toEqual([608, 609])
     expect(second.pairs).toBe(10)
     expect(second.next).toBeNull()
+  })
+
+  test("returns the month's deletionKey on every page, the same key the repair's dry run names", async () => {
+    const t = convexTest(schema, modules)
+    const ada = await seedPlayer(t, 1)
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 12 })
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 30 })
+    await seedBoard(t, ada, '2025-01-10', { legacyId: 9 })
+    await seedBoard(t, ada, '2025-01-10', { legacyId: 100 })
+    for (let n = 0; n < 9; n++) await seedTeam(t, 600 + n, [ada])
+
+    const first = await impact(t)
+    const second = await impact(t, MONTH, first.next)
+    const dry = await t.mutation(internal.migrate.repairDuplicateScores, { month: MONTH })
+    expect(first.deletionKey).toBe('2025-01:30,100')
+    expect(second.deletionKey).toBe(first.deletionKey)
+    expect(dry.deletionKey).toBe(first.deletionKey)
   })
 
   test('refuses the current month, a month not yet over everywhere, and a malformed month', async () => {
