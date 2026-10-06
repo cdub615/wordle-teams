@@ -5,7 +5,12 @@ import { internal } from './_generated/api'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { recomputeTeamMonth } from './winners'
 import { addDays, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
-import { duplicateScoresImpact, duplicateScoresProbe, latestRepairableMonth } from './migrate'
+import {
+  duplicateScoresImpact,
+  duplicateScoresProbe,
+  latestRepairableMonth,
+  repairDuplicateScores,
+} from './migrate'
 import type { Id } from './_generated/dataModel'
 
 // wordle-teams-rac, revision 2: the measure, impact and repair functions for
@@ -91,6 +96,13 @@ const winnerRowOf = (t: T, teamId: Id<'teams'>) =>
       .withIndex('by_team_year_month', (q) => q.eq('teamId', teamId))
       .first(),
   )
+
+const snapshotAll = (t: T) =>
+  t.run(async (ctx) => ({
+    scores: await ctx.db.query('dailyScores').collect(),
+    winners: await ctx.db.query('monthlyWinners').collect(),
+    stats: await ctx.db.query('teamMonthStats').collect(),
+  }))
 
 /**
  * STORED-VS-LIVE DRIFT, the only way a winner can move under revision 2's rule.
@@ -439,5 +451,255 @@ describe('latestRepairableMonth', () => {
     const today = toPuzzleDay(new Date())
     expect(latestRepairableMonth(new Date()) < monthOf(today)).toBe(true)
     expect(latestRepairableMonth(new Date()) <= monthOf(addDays(today, -1))).toBe(true)
+  })
+})
+
+// --- repair -------------------------------------------------------------------
+
+const repair = (t: T, extra: Record<string, unknown> = {}) =>
+  t.mutation(internal.migrate.repairDuplicateScores, { month: MONTH, ...extra })
+
+/** Dry run, then apply the plan it named. */
+async function dryThenApply(t: T, month = MONTH) {
+  const dry = await repair(t, { month })
+  const real = await repair(t, { month, dryRun: false, expect: dry.deletionKey })
+  return { dry, real }
+}
+
+const legacyIdsOf = (t: T, playerId: Id<'players'>) =>
+  t.run(async (ctx) =>
+    (
+      await ctx.db
+        .query('dailyScores')
+        .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', playerId))
+        .collect()
+    )
+      .map((row) => row.legacyId ?? null)
+      .sort(),
+  )
+
+describe('repairDuplicateScores', () => {
+  test('dryRun is the default: it writes nothing and names the rows an apply deletes', async () => {
+    const t = convexTest(schema, modules)
+    await seedDrift(t)
+    const before = await snapshotAll(t)
+
+    const dry = await repair(t)
+    expect(await snapshotAll(t)).toEqual(before)
+    expect(dry).toEqual({
+      month: MONTH,
+      dryRun: true,
+      deletionKey: '2025-01:202',
+      groups: [
+        {
+          player: uuid(1),
+          puzzleDay: '2025-01-09',
+          rows: 2,
+          differing: true,
+          held: [],
+          dateGapSeconds: 40,
+          keep: { legacyId: 201, createdAt: 5_000, answer: 'SPEED', attempts: 2 },
+          drop: [{ legacyId: 202, createdAt: 45_000, answer: 'SPEED', attempts: 7 }],
+          deleted: [{ legacyId: 202, createdAt: 45_000, answer: 'SPEED', attempts: 7 }],
+        },
+      ],
+      teamMonths: [{ team: 206, month: MONTH, winners: true }],
+    })
+
+    const real = await repair(t, { dryRun: false, expect: dry.deletionKey })
+    expect({ ...real, dryRun: true }).toEqual(dry)
+  })
+
+  test('an apply deletes exactly the dropped rows, keeps the FIRST row, and recomputes the month', async () => {
+    const t = convexTest(schema, modules)
+    const { ada, bob, team } = await seedDrift(t)
+    await seedBoard(t, ada, '2025-01-20', { legacyId: 250, guesses: solvedIn(3) })
+
+    await dryThenApply(t)
+    expect(await legacyIdsOf(t, ada)).toEqual([201, 250])
+    expect(await legacyIdsOf(t, bob)).toEqual([301])
+    // The recompute applies the drift: Ada (3 + 2) over Bob (2).
+    expect((await winnerRowOf(t, team))?.playerId).toBe(ada)
+    const stats = await t.run(async (ctx) => ctx.db.query('teamMonthStats').first())
+    expect(stats?.members.find((m) => m.playerId === ada)).toMatchObject({ boards: 2, attempts: 5 })
+  })
+
+  test('a held group is never deleted, for any of the three reasons', async () => {
+    const t = convexTest(schema, modules)
+    const ada = await seedPlayer(t, 1)
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 1, answer: 'SPEED' })
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 2, answer: 'CRANE', guesses: ['CRANE'] })
+    await seedBoard(t, ada, '2025-01-10', { legacyId: 3 })
+    await seedBoard(t, ada, '2025-01-10', { legacyId: 4, date: NOON('2025-01-10') + 11 * MINUTE })
+    await seedBoard(t, ada, '2025-01-11', { legacyId: 5 })
+    await seedBoard(t, ada, '2025-01-11', { legacyId: null })
+    await seedBoard(t, ada, '2025-01-12', { legacyId: 6 })
+    await seedBoard(t, ada, '2025-01-12', { legacyId: 7 })
+    await storeMonth(t, await seedTeam(t, 206, [ada]))
+
+    const { dry, real } = await dryThenApply(t)
+    expect(dry.deletionKey).toBe('2025-01:7')
+    expect(real.groups.map((g) => [g.puzzleDay, g.held, g.deleted.length])).toEqual([
+      ['2025-01-09', ['answers-differ'], 0],
+      ['2025-01-10', ['dates-apart'], 0],
+      ['2025-01-11', ['v2-row'], 0],
+      ['2025-01-12', [], 1],
+    ])
+    expect(await legacyIdsOf(t, ada)).toEqual([1, 2, 3, 4, 5, 6, null])
+  })
+
+  test('an apply without expect is refused, and writes nothing', async () => {
+    const t = convexTest(schema, modules)
+    await seedDrift(t)
+    const before = await snapshotAll(t)
+    await expect(repair(t, { dryRun: false })).rejects.toThrow(/needs `expect`/)
+    expect(await snapshotAll(t)).toEqual(before)
+  })
+
+  test('an apply whose expect does not match the plan is refused before anything is deleted', async () => {
+    const t = convexTest(schema, modules)
+    const { ada } = await seedDrift(t)
+    const dry = await repair(t)
+    // A new duplicate lands between the dry run and the apply.
+    await seedBoard(t, ada, '2025-01-15', { legacyId: 260 })
+    await seedBoard(t, ada, '2025-01-15', { legacyId: 261 })
+    const before = await snapshotAll(t)
+
+    await expect(repair(t, { dryRun: false, expect: dry.deletionKey })).rejects.toThrow(
+      /plan changed.*expected 2025-01:202, found 2025-01:202,261/,
+    )
+    expect(await snapshotAll(t)).toEqual(before)
+  })
+
+  test('re-plans from what it reads: a survivor gone since the dry run turns the drop into a lone row', async () => {
+    const t = convexTest(schema, modules)
+    const { ada } = await seedDrift(t)
+    const dry = await repair(t)
+    await t.run(async (ctx) => {
+      const survivor = await ctx.db.query('dailyScores').withIndex('by_legacyId', (q) => q.eq('legacyId', 201)).unique()
+      await ctx.db.delete(survivor!._id)
+    })
+    await expect(repair(t, { dryRun: false, expect: dry.deletionKey })).rejects.toThrow(/plan changed/)
+    const fresh = await repair(t)
+    expect(fresh.deletionKey).toBe('2025-01:')
+    await repair(t, { dryRun: false, expect: fresh.deletionKey })
+    expect(await legacyIdsOf(t, ada)).toEqual([202])
+  })
+
+  test('a second run plans nothing, deletes nothing and recomputes nothing', async () => {
+    const t = convexTest(schema, modules)
+    await seedDrift(t)
+    await dryThenApply(t)
+    const settled = await snapshotAll(t)
+    const { dry, real } = await dryThenApply(t)
+    expect(dry.deletionKey).toBe('2025-01:')
+    expect(real).toMatchObject({ groups: [], teamMonths: [] })
+    expect(await snapshotAll(t)).toEqual(settled)
+  })
+
+  test('never deletes a row of a day with one row, or of another month', async () => {
+    const t = convexTest(schema, modules)
+    const { ada, bob } = await seedDrift(t)
+    await seedBoard(t, ada, '2025-01-01', { legacyId: 260 })
+    await seedBoard(t, ada, '2025-02-09', { legacyId: 262 })
+    await seedBoard(t, ada, '2025-02-09', { legacyId: 263 })
+    await dryThenApply(t)
+    expect(await legacyIdsOf(t, ada)).toEqual([201, 260, 262, 263])
+    expect(await legacyIdsOf(t, bob)).toEqual([301])
+  })
+
+  test('recomputes each affected team ONCE, after every member’s deletes', async () => {
+    const t = convexTest(schema, modules)
+    const { bob } = await seedDrift(t)
+    await seedBoard(t, bob, '2025-01-10', { legacyId: 302, guesses: solvedIn(3) })
+    const { real } = await dryThenApply(t)
+    expect(real.deletionKey).toBe('2025-01:202,302')
+    expect(real.teamMonths).toEqual([{ team: 206, month: MONTH, winners: true }])
+  })
+
+  test('recomputes winners only where a winner row exists; otherwise only the stats', async () => {
+    const t = convexTest(schema, modules)
+    const ada = await seedPlayer(t, 1)
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 1 })
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 2 })
+    const team = await seedTeam(t, 206, [ada])
+
+    const { real } = await dryThenApply(t)
+    expect(real.teamMonths).toEqual([{ team: 206, month: MONTH, winners: false }])
+    expect(await winnerRowOf(t, team)).toBeNull()
+    const stats = await t.run(async (ctx) => ctx.db.query('teamMonthStats').first())
+    expect(stats?.members).toEqual([{ playerId: ada, boards: 1, attempts: 3, solved: 1, failed: 0 }])
+  })
+
+  test('recomputes only teams holding a player who lost a row', async () => {
+    const t = convexTest(schema, modules)
+    await seedDrift(t)
+    const carl = await seedPlayer(t, 3)
+    // Carl's only duplicate is HELD, so his team is not touched — its stale
+    // winner row (naming nobody on the roster) survives.
+    await seedBoard(t, carl, '2025-01-09', { legacyId: 401, answer: 'SPEED' })
+    await seedBoard(t, carl, '2025-01-09', { legacyId: 402, answer: 'CRANE', guesses: ['CRANE'] })
+    const carlsTeam = await seedTeam(t, 207, [carl])
+    const stranger = await seedPlayer(t, 4)
+    await t.run(async (ctx) =>
+      ctx.db.insert('monthlyWinners', { playerId: stranger, teamId: carlsTeam, year: 2025, month: 1, hasSeenCelebration: [] }),
+    )
+
+    const { real } = await dryThenApply(t)
+    expect(real.teamMonths.map((tm) => tm.team)).toEqual([206])
+    expect((await winnerRowOf(t, carlsTeam))?.playerId).toBe(stranger)
+  })
+
+  test('refuses the current month and a malformed month, and writes nothing', async () => {
+    const t = convexTest(schema, modules)
+    await seedDrift(t)
+    const before = await snapshotAll(t)
+    const current = monthOf(toPuzzleDay(new Date()))
+    await expect(repair(t, { month: current })).rejects.toThrow(/not a past month/)
+    await expect(repair(t, { month: current, dryRun: false, expect: `${current}:` })).rejects.toThrow(
+      /not a past month/,
+    )
+    await expect(repair(t, { month: '2025' })).rejects.toThrow(/YYYY-MM/)
+    expect(await snapshotAll(t)).toEqual(before)
+  })
+
+  test('refuses to be told what to delete: a list passed in is rejected and nothing changes', async () => {
+    const t = convexTest(schema, modules)
+    await seedDrift(t)
+    const before = await snapshotAll(t)
+    await expect(repair(t, { dryRun: false, expect: '2025-01:202', drop: [301] })).rejects.toThrow()
+    await expect(repair(t, { players: [uuid(2)] })).rejects.toThrow()
+    expect(await snapshotAll(t)).toEqual(before)
+  })
+
+  // THE CELEBRATION STATE, pinned because the plan asked for it to be REPORTED and
+  // not changed: recomputeTeamMonth patches the row in place, resetting
+  // hasSeenCelebration only when the winner changes.
+  test('a repair that changes the winner resets hasSeenCelebration; one that does not, keeps it', async () => {
+    const t = convexTest(schema, modules)
+    const { ada, team } = await seedDrift(t)
+    const row = (await winnerRowOf(t, team))!
+    await dryThenApply(t)
+    const after = (await winnerRowOf(t, team))!
+    expect(after._id).toBe(row._id)
+    expect(after.playerId).toBe(ada)
+    expect(after.hasSeenCelebration).toEqual([])
+
+    const t2 = convexTest(schema, modules)
+    const carl = await seedPlayer(t2, 3)
+    await seedBoard(t2, carl, '2025-01-09', { legacyId: 1 })
+    await seedBoard(t2, carl, '2025-01-09', { legacyId: 2 })
+    const team2 = await seedTeam(t2, 206, [carl])
+    await storeMonth(t2, team2)
+    const kept = (await winnerRowOf(t2, team2))!
+    await t2.run(async (ctx) => ctx.db.patch(kept._id, { hasSeenCelebration: [carl] }))
+    await dryThenApply(t2)
+    expect((await winnerRowOf(t2, team2))?.hasSeenCelebration).toEqual([carl])
+  })
+
+  test('is registered as an internal mutation', () => {
+    const fn = repairDuplicateScores as unknown as Record<string, unknown>
+    expect(fn.isMutation).toBe(true)
+    expect(fn.isInternal).toBe(true)
   })
 })
