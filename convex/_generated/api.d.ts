@@ -28,6 +28,7 @@ import type * as lib_avatar from "../lib/avatar.js";
 import type * as lib_board from "../lib/board.js";
 import type * as lib_chat from "../lib/chat.js";
 import type * as lib_chatLimits from "../lib/chatLimits.js";
+import type * as lib_duplicateScores from "../lib/duplicateScores.js";
 import type * as lib_e2e from "../lib/e2e.js";
 import type * as lib_globalThreshold from "../lib/globalThreshold.js";
 import type * as lib_html from "../lib/html.js";
@@ -93,6 +94,7 @@ declare const fullApi: ApiFromModules<{
   "lib/board": typeof lib_board;
   "lib/chat": typeof lib_chat;
   "lib/chatLimits": typeof lib_chatLimits;
+  "lib/duplicateScores": typeof lib_duplicateScores;
   "lib/e2e": typeof lib_e2e;
   "lib/globalThreshold": typeof lib_globalThreshold;
   "lib/html": typeof lib_html;
