@@ -175,6 +175,14 @@ backend before it ships anything.
 The Worker reads a `MAINTENANCE` var at runtime, so the site can be put behind a
 maintenance page from the Cloudflare dashboard without a deploy.
 
+### Announcing a release
+
+The app menu's **What's new** links to the
+[changelog](https://feedback.wordleteams.com/changelog), with an unread dot for
+signed-in players. To announce a release: post the entry on Feedbase first, then
+set `LATEST_RELEASE` in `src/lib/whats-new.ts` to that entry's date and ship it.
+Bumping it lights the dot again for everyone who saw the previous one.
+
 ## v1 → v2
 
 v1 was Next.js on Vercel with Supabase for data and auth. v2 keeps the product

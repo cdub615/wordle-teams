@@ -39,6 +39,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { ConvexError } from 'convex/values'
 import { getFunctionName, type FunctionReference } from 'convex/server'
 import { createElement, type ReactNode } from 'react'
+import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from '../../convex/_generated/api'
 import { AppMenu } from './app-menu.tsx'
@@ -47,6 +48,7 @@ import { typedCodeMessage } from '#/lib/convex-error.ts'
 import { STORAGE_KEY as SELECTED_TEAM_KEY } from '#/lib/dashboard-search.ts'
 import { THEME_STORAGE_KEY } from '#/lib/theme.ts'
 import { REDUCED_MOTION_QUERY } from '#/lib/use-reduced-motion.ts'
+import { LATEST_RELEASE, WHATS_NEW_SEEN_KEY, WHATS_NEW_URL } from '#/lib/whats-new.ts'
 
 /**
  * The two portal sentences this file needs by value, neither of which is an
@@ -275,6 +277,13 @@ beforeEach(() => {
   onboardingQueryArgs = undefined
 
   vi.stubGlobal('localStorage', memoryStorage())
+  // THE DEFAULT PLAYER HAS ALREADY READ THE LATEST RELEASE (wordle-teams-ued7).
+  // A signed-in player with nothing stored gets the What's new dot, and the dot
+  // renames the trigger to "Main menu, new updates" — so without this every
+  // test below that is about something else would be finding the trigger under
+  // a name that depends on a release date. The unread states are opted into,
+  // explicitly, in the What's new block at the bottom of this file.
+  window.localStorage.setItem(WHATS_NEW_SEEN_KEY, LATEST_RELEASE)
 
   // jsdom implements neither, and useThemeMode and useReducedMotion both call
   // matchMedia on mount. `reducedMotion` is read per test; the colour-scheme
@@ -342,7 +351,10 @@ describe('the menu offers a signed-out visitor navigation and nothing else', () 
     isAuthenticated = false
     render(createElement(AppMenu))
 
-    expect(openMenu()).toEqual(['Theme', 'About', 'Feedback', 'Log in'])
+    // What's new is for EVERYONE (wordle-teams-ued7 AC1): a changelog is
+    // public, and it sits beside Feedback because both leave the app for the
+    // same Feedbase site.
+    expect(openMenu()).toEqual(['Theme', 'About', 'Feedback', "What's new", 'Log in'])
   })
 
   test('signed in: the full set, and NO "Log in" in it', () => {
@@ -359,6 +371,7 @@ describe('the menu offers a signed-out visitor navigation and nothing else', () 
       'Billing',
       'About',
       'Feedback',
+      "What's new",
       'Log out',
     ])
   })
@@ -393,6 +406,7 @@ describe('the menu offers a signed-out visitor navigation and nothing else', () 
       '---',
       'About',
       'Feedback',
+      "What's new",
       'Log out',
     ])
   })
@@ -945,3 +959,177 @@ describe('Show getting started brings back a dismissed onboarding card', () => {
     )
   })
 })
+
+describe("What's new links the changelog, with an unread dot we light at release (wordle-teams-ued7)", () => {
+  /**
+   * WHAT IS PINNED HERE AND WHAT IS NOT. lib/whats-new.test.ts owns the RULE —
+   * which stored values count as unread, the malformed-value and blocked-store
+   * guards. This block owns what the menu DOES with it: that the item exists for
+   * everyone, that the dot appears in both places and the trigger's name says so,
+   * that opening the item clears both at once, and that none of it happens on the
+   * server render.
+   *
+   * THE DOT IS FOUND BY ITS COLOUR TOKEN, `bg-accent-solid`, which is also an
+   * assertion: that is the token chat/unread-badge.tsx's UnreadDot argues for
+   * (not `bg-primary`, which is near-white in dark), and a copy painted with
+   * anything else would not be found at all.
+   */
+  const DOT = '.bg-accent-solid'
+
+  // `hidden: true` because Radix aria-hides everything outside an open menu, the
+  // trigger included — see openThemeSubmenu's note above.
+  const trigger = () => screen.getByRole('button', { name: /^Main menu/, hidden: true })
+
+  /** Opens the menu and returns the What's new item. */
+  const whatsNewItem = () => {
+    fireEvent.pointerDown(trigger(), { button: 0, ctrlKey: false, pointerType: 'mouse' })
+    return screen.getByRole('menuitem', { name: "What's new" })
+  }
+
+  /** Nothing stored: the first-visit state. */
+  const forgetSeen = () => window.localStorage.removeItem(WHATS_NEW_SEEN_KEY)
+
+  test('signed out: the item links the Feedbase changelog (AC1)', () => {
+    isAuthenticated = false
+    render(createElement(AppMenu))
+
+    expect(whatsNewItem().getAttribute('href')).toBe(WHATS_NEW_URL)
+  })
+
+  test('signed in: the same item, the same link (AC1)', () => {
+    render(createElement(AppMenu))
+
+    expect(whatsNewItem().getAttribute('href')).toBe(WHATS_NEW_URL)
+  })
+
+  test('a signed-in player who has never opened it sees the dot in BOTH places, and is told (AC2)', () => {
+    // THE FIRST-VISIT RULE: existing players learn of the current release once.
+    // The trigger's dot is the one visible without opening anything; the name
+    // is the only place a screen reader can hear it, because `aria-label`
+    // replaces the button's content and the dot is aria-hidden in any case.
+    forgetSeen()
+    render(createElement(AppMenu))
+
+    expect(trigger().getAttribute('aria-label')).toBe('Main menu, new updates')
+    const triggerDot = trigger().querySelector(DOT)
+    expect(triggerDot).not.toBeNull()
+    expect(triggerDot?.getAttribute('aria-hidden')).toBe('true')
+
+    const itemDot = whatsNewItem().querySelector(DOT)
+    expect(itemDot).not.toBeNull()
+    expect(itemDot?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  test('having seen the latest release: no dot anywhere, and the plain name', () => {
+    // beforeEach already stores LATEST_RELEASE; restated so the test reads alone.
+    window.localStorage.setItem(WHATS_NEW_SEEN_KEY, LATEST_RELEASE)
+    render(createElement(AppMenu))
+
+    expect(trigger().getAttribute('aria-label')).toBe('Main menu')
+    expect(trigger().querySelector(DOT)).toBeNull()
+    expect(whatsNewItem().querySelector(DOT)).toBeNull()
+  })
+
+  test('having seen an OLDER release: the dot comes back (AC5 — bumping the marker re-lights it)', () => {
+    window.localStorage.setItem(WHATS_NEW_SEEN_KEY, '2000-01-01')
+    render(createElement(AppMenu))
+
+    expect(trigger().getAttribute('aria-label')).toBe('Main menu, new updates')
+    expect(trigger().querySelector(DOT)).not.toBeNull()
+  })
+
+  test('a signed-out visitor never gets a dot, even with nothing stored (AC4)', () => {
+    isAuthenticated = false
+    forgetSeen()
+    render(createElement(AppMenu))
+
+    expect(trigger().getAttribute('aria-label')).toBe('Main menu')
+    expect(trigger().querySelector(DOT)).toBeNull()
+    expect(whatsNewItem().querySelector(DOT)).toBeNull()
+  })
+
+  test('signing in re-evaluates: the dot follows the session, not the first render', () => {
+    // The menu mounts once in the header and stays mounted across sign-in, so a
+    // dot computed once for the signed-out first paint would never appear.
+    isAuthenticated = false
+    forgetSeen()
+    const { rerender } = render(createElement(AppMenu))
+    expect(trigger().querySelector(DOT)).toBeNull()
+
+    isAuthenticated = true
+    rerender(createElement(AppMenu))
+
+    expect(trigger().getAttribute('aria-label')).toBe('Main menu, new updates')
+    expect(trigger().querySelector(DOT)).not.toBeNull()
+  })
+
+  test('signing out re-evaluates too: the dot goes with the session (AC4)', () => {
+    forgetSeen()
+    const { rerender } = render(createElement(AppMenu))
+    expect(trigger().querySelector(DOT)).not.toBeNull()
+
+    isAuthenticated = false
+    rerender(createElement(AppMenu))
+
+    expect(trigger().getAttribute('aria-label')).toBe('Main menu')
+    expect(trigger().querySelector(DOT)).toBeNull()
+  })
+
+  test('opening it records the release and clears BOTH dots at once (AC3)', () => {
+    // AT ONCE, NOT ON THE NEXT VISIT. Writing storage re-renders nothing, so a
+    // handler that only stored the date would leave the trigger dot lit until
+    // something else happened to re-render the header.
+    forgetSeen()
+    render(createElement(AppMenu))
+
+    fireEvent.click(whatsNewItem())
+
+    expect(window.localStorage.getItem(WHATS_NEW_SEEN_KEY)).toBe(LATEST_RELEASE)
+    expect(trigger().getAttribute('aria-label')).toBe('Main menu')
+    expect(trigger().querySelector(DOT)).toBeNull()
+    expect(whatsNewItem().querySelector(DOT)).toBeNull()
+  })
+
+  test('a store that THROWS breaks nothing: no dot, the item still there, the click still safe (AC6)', () => {
+    // Private mode and "block all site data" throw on access rather than
+    // answering null. A dot we could never clear — markReleaseSeen cannot write
+    // either — would be lit on every visit forever, so no store means no dot.
+    const refuse = () => {
+      throw new DOMException('blocked', 'SecurityError')
+    }
+    vi.stubGlobal('localStorage', {
+      getItem: refuse,
+      setItem: refuse,
+      removeItem: refuse,
+      clear: refuse,
+      key: refuse,
+      length: 0,
+    })
+    render(createElement(AppMenu))
+
+    expect(trigger().getAttribute('aria-label')).toBe('Main menu')
+    expect(trigger().querySelector(DOT)).toBeNull()
+    const item = whatsNewItem()
+    expect(item.getAttribute('href')).toBe(WHATS_NEW_URL)
+    expect(() => fireEvent.click(item)).not.toThrow()
+  })
+
+  test('THE SERVER RENDER HAS NO DOT, so hydration has nothing to disagree with (AC6)', () => {
+    /**
+     * renderToString runs no effects, which is exactly the server's position and
+     * the client's first render: localStorage must not have been consulted yet.
+     * The state asserted here — signed in, nothing stored — is the one where a
+     * dot computed DURING render would appear (jsdom has a window, so the read
+     * would answer null and the rule would say "unread"). The server cannot see
+     * storage at all, so that render would disagree with the server's HTML for
+     * exactly the players the dot is for.
+     */
+    forgetSeen()
+    const html = renderToString(createElement(AppMenu))
+
+    expect(html).toContain('aria-label="Main menu"')
+    expect(html).not.toContain('new updates')
+    expect(html).not.toContain('bg-accent-solid')
+  })
+})
+
