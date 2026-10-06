@@ -144,7 +144,9 @@ async function winnerRow(
  * database.
  */
 export async function loadTeamMonthSystem(
-  ctx: WriterCtx,
+  // A READER, because that is all it needs: migrate.ts's duplicateScoresImpact
+  // (wordle-teams-rac) calls it from a query. Every writer satisfies it.
+  ctx: ReaderCtx,
   team: Doc<'teams'>,
   month: PuzzleMonth,
 ) {
