@@ -2248,6 +2248,92 @@ describe('the dashboard builds its month window from the team, not from a litera
 })
 
 /**
+ * THE CHALLENGE ROUTES' WIRING (zic8.2.21), which no component test can reach.
+ *
+ * The components are tested through their props; what is pinned here is that
+ * the routes hand them the right things. A route module cannot be rendered
+ * under vitest (see this file's header), so these read the source, with the
+ * same AST helpers the dashboard block above uses and for the same reason: a
+ * `toContain` over a fragment is satisfied by a detached or inverted copy.
+ */
+describe('the challenge routes are wired the way their components are tested', () => {
+  const TEAM = './routes/team.tsx'
+
+  test("team.tsx wraps the Challenges card in its own error boundary, keyed by team (M5)", () => {
+    // WITHOUT IT a challengesForTeam failure reaches the route's DashboardError
+    // and replaces the whole page, member management included.
+    // challenges-boundary.hook.test.ts proves what the boundary does; this
+    // proves the card is actually inside one.
+    const file = parseSource(TEAM, read(TEAM))
+    let card: ts.Node | undefined
+    const find = (node: ts.Node): void => {
+      if (ts.isJsxSelfClosingElement(node) && node.tagName.getText() === 'TeamChallenges') card ??= node
+      ts.forEachChild(node, find)
+    }
+    find(file)
+    expect(card, 'routes/team.tsx no longer renders <TeamChallenges>').toBeDefined()
+
+    const wrappers: string[] = []
+    for (let node = card?.parent; node; node = node.parent) {
+      if (ts.isJsxElement(node)) wrappers.push(node.openingElement.tagName.getText())
+    }
+    expect(wrappers, '<TeamChallenges> is not inside a <ChallengesBoundary>').toContain(
+      'ChallengesBoundary',
+    )
+    // Keyed by the team, so switching `?team=` tries again rather than keeping
+    // the last team's error on screen.
+    expect(jsxProps(TEAM, 'ChallengesBoundary').get('resetKey')).toBe('selectedTeam.id')
+  })
+
+  test("team.tsx's Accept sends the viewer's LOCAL day, not UTC's (M6)", () => {
+    // THE WINDOW STARTS THE DAY AFTER `today`, in the accepter's zone.
+    // `new Date().toISOString().slice(0, 10)` type-checks as a PuzzleDay-shaped
+    // string, passes every other gate, and is a day off for anyone west of UTC
+    // in the evening or east of it in the morning. Pinned as the expression
+    // itself, so that substitute fails here.
+    const accept = parsed(TEAM, 'accept.mutateAsync')
+    expect(accept.get('today')?.getText()).toBe('toPuzzleDay(new Date())')
+  })
+
+  test("app.tsx's challenge nudge asks with the membership-gated monthWindowArgs (M6)", () => {
+    // THE SAME ARGS AS monthWindow, whose initializer the dashboard block above
+    // pins whole: skip unless the viewer is a member of the team in `?team=`.
+    // A bare `{ teamId: teamParam }` here would fire a guaranteed NOT_A_MEMBER
+    // refusal for every stale `?team=` before useSearchSync corrects it.
+    const APP = './routes/app.tsx'
+    const nudge = callSitesOf(APP, read(APP), 'convexQuery').filter(
+      (site) => site.args[0] === 'api.challenges.incomingChallenge',
+    )
+    expect(nudge, 'routes/app.tsx does not query api.challenges.incomingChallenge').toHaveLength(1)
+    expect(nudge[0].args[1]).toBe('monthWindowArgs')
+  })
+
+  test('/challenge/<token> shows a failed team lookup as an error, not as loading (M12)', () => {
+    // challenge-claim.hook.test.ts proves what the 'error' state renders; this
+    // proves the route ever asks for it. Without the error arm, a failed
+    // getMyTeams or needsProfile leaves `teams` undefined and the page on
+    // "One moment…" for ever. PINNED WHOLE: the arm's POSITION is the property
+    // — after 'signed-out' (a signed-out page looks nothing up, so it has no
+    // error to show) and before 'loading' (which a failure also satisfies).
+    const CLAIM = './routes/challenge.$token.tsx'
+    const initializer = (identifier: string) => initializerOf(CLAIM, read(CLAIM), identifier)
+    expect(initializer('claimState')).toBe(
+      "! isAuthenticated ? 'signed-out' : needsProfileError || teamsError ? 'error' : needsProfile !== false || ! teams ? 'loading' : 'ready'",
+    )
+    expect(jsxProps(CLAIM, 'ChallengeClaim').get('state')).toBe('claimState')
+
+    // EACH ERROR IS ITS OWN QUERY'S. Read off the destructuring that binds it,
+    // so swapping one for a constant or for the other query's is a failure.
+    expect(initializer('{ data: needsProfile, error: needsProfileError }')).toMatch(
+      /^useQuery \( convexQuery \( api \. players \. needsProfile ,/,
+    )
+    expect(initializer('{ data: teams, error: teamsError }')).toMatch(
+      /^useQuery \( convexQuery \( api \. teams \. getMyTeams ,/,
+    )
+  })
+})
+
+/**
  * initializerOf, ON THE NORMALISATION THE BLOCK ABOVE LEANS ON.
  *
  * Hand-written fixtures, for the reason the callSitesOf block below gives: a

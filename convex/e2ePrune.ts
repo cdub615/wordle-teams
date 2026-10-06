@@ -1,6 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation } from './_generated/server'
 import { isE2eEmail, isE2ePlayerRow } from './lib/e2e.ts'
+import { challengesResolvedByDeleting } from './challenges.ts'
 import { cascadeDeleteTeam } from './teams.ts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
@@ -108,6 +109,14 @@ export type PruneBatchReport = {
   celebrationRefsCleared: number
   teamsKeptWithUnresolvableMembers: number
   invitesDiscardedWithDeletedTeams: number
+  // A DOOMED TEAM'S CHALLENGES (wordle-teams-uvtz). cascadeDeleteTeam closes its
+  // active ones, pushing the surviving team, and withdraws its pending ones —
+  // and an active one whose other team is already gone. Counted from
+  // challengesResolvedByDeleting, the plan that close itself consumes, and
+  // de-duplicated by id: a challenge between two teams pruned in the same batch
+  // is live for both on a dry run, but the write resolves it once.
+  challengesClosed: number
+  challengesWithdrawn: number
 }
 
 const emptyReport = (cursor: string, isDone: boolean): PruneBatchReport => ({
@@ -128,6 +137,8 @@ const emptyReport = (cursor: string, isDone: boolean): PruneBatchReport => ({
   celebrationRefsCleared: 0,
   teamsKeptWithUnresolvableMembers: 0,
   invitesDiscardedWithDeletedTeams: 0,
+  challengesClosed: 0,
+  challengesWithdrawn: 0,
 })
 
 /**
@@ -246,6 +257,10 @@ export const pruneBatch = internalMutation({
     // The same guard for chat cursors, which leave by the same two routes. See
     // chatReadsDeleted on the report type.
     const cursorsAlreadyCounted = new Set<string>()
+    // And for challenges, whose second route is the OTHER doomed team: a
+    // challenge between two teams pruned in this batch is live for both on a
+    // dry run. See challengesClosed on the report type.
+    const challengesAlreadyCounted = new Set<string>()
 
     // --- teams: rosters, invites, and the ones left with nobody ---------------
 
@@ -307,6 +322,20 @@ export const pruneBatch = internalMutation({
         // made it, and its pending invites can only have been typed by that
         // test. The count is surfaced so the claim stays checkable.
         report.invitesDiscardedWithDeletedTeams += team.invited.length
+
+        // FROM THE PLAN THE CASCADE'S CLOSE CONSUMES, read before the cascade
+        // like everything above, so a dry run predicts the write.
+        const challenges = await challengesResolvedByDeleting(ctx, team._id)
+        for (const id of challenges.close) {
+          if (challengesAlreadyCounted.has(id)) continue
+          challengesAlreadyCounted.add(id)
+          report.challengesClosed += 1
+        }
+        for (const id of challenges.withdraw) {
+          if (challengesAlreadyCounted.has(id)) continue
+          challengesAlreadyCounted.add(id)
+          report.challengesWithdrawn += 1
+        }
         // cascadeDeleteTeam, never a bare db.delete: it also collects this
         // team's monthlyWinners and scoringSystems rows, which a bare delete
         // would orphan — the hazard Phase 4's deleteNamelessPlayers was written

@@ -50,12 +50,27 @@ function ChallengeLinkFor({ token }: { token: string }) {
   const [outcome, setOutcome] = useState<TerminalRefusal | null>(null)
 
   // NOT ASKED WHILE SIGNED OUT: a signed-out page looks nothing up.
-  const { data: needsProfile } = useQuery(
+  const { data: needsProfile, error: needsProfileError } = useQuery(
     convexQuery(api.players.needsProfile, isAuthenticated ? {} : 'skip'),
   )
-  const { data: teams } = useQuery(
+  const { data: teams, error: teamsError } = useQuery(
     convexQuery(api.teams.getMyTeams, isAuthenticated && needsProfile === false ? {} : 'skip'),
   )
+
+  /*
+    A FAILED LOOKUP IS NOT A SLOW ONE (zic8.2.21 M12). Either query failing
+    leaves `teams` undefined, which on its own reads as 'loading' — "One
+    moment…" for ever. The error arm sits after 'signed-out' (a signed-out page
+    looks nothing up) and before 'loading' (which a failure also satisfies).
+    A NAMED CONST so src/routes.test.ts can pin it whole with initializerOf.
+  */
+  const claimState = !isAuthenticated
+    ? 'signed-out'
+    : needsProfileError || teamsError
+      ? 'error'
+      : needsProfile !== false || !teams
+        ? 'loading'
+        : 'ready'
   const claim = useMutation({
     mutationFn: useConvexMutation(api.challenges.claimChallengeLink),
   })
@@ -71,7 +86,7 @@ function ChallengeLinkFor({ token }: { token: string }) {
 
   return (
     <ChallengeClaim
-      state={!isAuthenticated ? 'signed-out' : needsProfile !== false || !teams ? 'loading' : 'ready'}
+      state={claimState}
       teams={teams ?? []}
       onClaim={(teamId) => claim.mutateAsync(challengeClaimArgs(token, teamId))}
       onClaimed={(teamId) =>

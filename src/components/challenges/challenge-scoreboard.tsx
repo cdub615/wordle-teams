@@ -89,7 +89,7 @@ export function ChallengeScoreboard({
       <div className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
           {/* break-words: team names have no length limit at any layer
-              (lib/pushText.ts), and "<Other> is ahead" sits beside Cancel. */}
+              (lib/pushText.ts), and "<Other> is ahead" sits beside End challenge. */}
           <h3 className="text-sm font-semibold break-words md:text-base">{verdictFor(challenge)}</h3>
           <p className="text-muted-foreground text-xs md:text-sm">
             {today !== undefined && challenge.startDay > today ? 'starts' : 'since'}{' '}
@@ -99,14 +99,16 @@ export function ChallengeScoreboard({
         {/* EITHER TEAM'S OWNER MAY END IT (D1); this card only ever knows about
             the viewer's own team, so "owner" here means that one. CONFIRMED,
             like every other destructive control on this page: cancelling
-            freezes the contest as it stands for both rosters. */}
+            freezes the contest as it stands for both rosters. THE TRIGGER SAYS
+            "End challenge", as its confirm does (zic8.2.21 M9): "Cancel" read
+            as "dismiss this". */}
         {viewerIsOwner && (
           <ConfirmPopover
             open={confirmOpen}
             onOpenChange={setConfirmOpen}
             trigger={
               <Button variant="outline" size="sm" className="shrink-0">
-                Cancel
+                End challenge
               </Button>
             }
             message={`End the challenge with ${theirs.teamName} now?`}

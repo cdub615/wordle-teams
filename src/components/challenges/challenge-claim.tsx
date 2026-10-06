@@ -51,7 +51,11 @@ export function ChallengeClaim({
   outcome,
   onTerminal,
 }: {
-  state: 'signed-out' | 'loading' | 'ready'
+  /**
+   * 'error': getMyTeams or needsProfile FAILED (zic8.2.21 M12). Distinct from
+   * 'loading', which would otherwise say "One moment…" for ever.
+   */
+  state: 'signed-out' | 'loading' | 'error' | 'ready'
   /** The viewer's teams (getMyTeams). */
   teams: ReadonlyArray<{ id: TeamId; name: string }>
   /** claimChallengeLink for this token and the viewer's local day. */
@@ -73,6 +77,18 @@ export function ChallengeClaim({
     teams.length === 1
       ? teams[0]
       : (teams.find((team) => team.id === selected) ?? null)
+
+  if (state === 'error') {
+    // ONE MESSAGE, NO CONTROLS: nothing on this page would succeed where the
+    // subscription failed, and a refresh is the retry.
+    return (
+      <main className="page-wrap flex min-h-[50vh] flex-col items-center justify-center gap-2 text-center">
+        <h1 className="text-lg font-semibold">
+          Something went wrong loading your teams. Refresh to try again.
+        </h1>
+      </main>
+    )
+  }
 
   if (state !== 'ready') {
     // Like the join route: names nothing, because this side has not looked the

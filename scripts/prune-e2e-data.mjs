@@ -116,6 +116,8 @@ const TOTAL_KEYS = [
   'celebrationRefsCleared',
   'teamsKeptWithUnresolvableMembers',
   'invitesDiscardedWithDeletedTeams',
+  'challengesClosed',
+  'challengesWithdrawn',
 ]
 
 // A safety ceiling, not a tuning knob. Each call advances the cursor by one page

@@ -9,6 +9,7 @@ import {
   challengeNotificationBody,
   challengeScoreboardFor,
   challengesForTeamFor,
+  challengesResolvedByDeleting,
   claimChallengeLinkFor,
   closeChallengesForDeletedTeam,
   closeDueChallengeFor,
@@ -2018,6 +2019,29 @@ describe('incomingChallengeFor', () => {
     })
   })
 
+  // A TEAM THAT HAS SWITCHED CHALLENGES OFF IS NOT NUDGED (zic8.2.21 M8, owner
+  // decision): acceptChallengeFor would refuse its Accept with
+  // CHALLENGES_REFUSED, so a nudge would send its members to a button that
+  // cannot work. ABSENT MEANS ON, so `true` and a missing field both still nudge.
+  test.each([
+    { acceptsChallenges: false, expected: false },
+    { acceptsChallenges: true, expected: true },
+    { acceptsChallenges: undefined, expected: true },
+  ])(
+    'acceptsChallenges=$acceptsChallenges answers $expected for a live incoming row',
+    async ({ acceptsChallenges, expected }) => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+        const { accepterId, theirTeamId } = await seedAccepter(ctx)
+        await seedPending(ctx, challengerTeamId, theirTeamId, playerId)
+        await ctx.db.patch(theirTeamId, { acceptsChallenges })
+
+        expect(await incomingChallengeFor(ctx, accepterId, theirTeamId, now)).toBe(expected)
+      })
+    },
+  )
+
   test('a non-member is refused with NOT_A_MEMBER', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -2170,6 +2194,80 @@ async function closeJobs(ctx: Ctx) {
 
 type PushArgs = { playerId: string; notification: { body: string; url: string } }
 const pushArgs = async (ctx: Ctx) => (await pushJobs(ctx)).map((job) => job.args[0] as PushArgs)
+
+/**
+ * THE PLAN A TEAM DELETION RESOLVES ITS CHALLENGES BY (wordle-teams-uvtz).
+ *
+ * One row per branch of closeChallengesForDeletedTeam, plus rows the plan must
+ * NOT name. e2ePrune counts from this plan on a dry run, so a plan that drifted
+ * from what the close actually does would make the dry run lie — the second
+ * test is the one that fails then.
+ */
+describe('challengesResolvedByDeleting', () => {
+  async function seedEveryBranch(ctx: Ctx) {
+    const { playerId, challengerTeamId: doomed, opponentTeamId: survivor } = await seedTwoTeams(ctx)
+    const goneId = await ctx.db.insert('teams', aTeam({ legacyId: 901, name: 'Gone', playerIds: [playerId], owner: playerId }))
+    await ctx.db.delete(goneId)
+    const row = async (challengerTeamId: Id<'teams'>, opponentTeamId: Id<'teams'> | undefined, status: Doc<'teamChallenges'>['status']) =>
+      await ctx.db.insert('teamChallenges', {
+        challengerTeamId,
+        ...(opponentTeamId === undefined ? {} : { opponentTeamId }),
+        proposedBy: playerId,
+        status,
+        ...(status === 'active' || status === 'closed' ? { startDay: '2026-10-05', endDay: '2026-10-31' } : {}),
+        expiresAt: Date.now() + TTL,
+        createdAt: Date.now(),
+      })
+    return {
+      doomed,
+      survivor,
+      activeAsChallenger: await row(doomed, survivor, 'active'),
+      activeAsOpponent: await row(survivor, doomed, 'active'),
+      pendingDirect: await row(doomed, survivor, 'pending'),
+      pendingLink: await row(doomed, undefined, 'pending'),
+      activeOrphan: await row(doomed, goneId, 'active'),
+      // Not live, so not the deletion's to resolve.
+      alreadyClosed: await row(doomed, survivor, 'closed'),
+      declined: await row(survivor, doomed, 'declined'),
+      // Live, but not this team's.
+      unrelated: await row(survivor, goneId, 'pending'),
+    }
+  }
+
+  test('active goes to close; pending, and active with its other team gone, go to withdraw; it writes nothing', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const seeded = await seedEveryBranch(ctx)
+      const before = await ctx.db.query('teamChallenges').collect()
+
+      const plan = await challengesResolvedByDeleting(ctx, seeded.doomed)
+
+      expect([...plan.close].sort()).toEqual([seeded.activeAsChallenger, seeded.activeAsOpponent].sort())
+      expect([...plan.withdraw].sort()).toEqual(
+        [seeded.pendingDirect, seeded.pendingLink, seeded.activeOrphan].sort(),
+      )
+      // A PLAN, NOT A WRITE: e2ePrune calls it on a dry run.
+      expect(await ctx.db.query('teamChallenges').collect()).toEqual(before)
+    })
+  })
+
+  test('the close does exactly what the plan said, and nothing else', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const seeded = await seedEveryBranch(ctx)
+      const before = new Map((await ctx.db.query('teamChallenges').collect()).map((row) => [row._id, row.status]))
+
+      const plan = await challengesResolvedByDeleting(ctx, seeded.doomed)
+      await closeChallengesForDeletedTeam(ctx, seeded.doomed)
+
+      const expected = new Map(before)
+      for (const id of plan.close) expected.set(id, 'closed')
+      for (const id of plan.withdraw) expected.set(id, 'withdrawn')
+      const after = new Map((await ctx.db.query('teamChallenges').collect()).map((row) => [row._id, row.status]))
+      expect(after).toEqual(expected)
+    })
+  })
+})
 
 describe('closeDueChallengesFor', () => {
   // endDay is 2026-10-31. Due on endDay + 2 = 2026-11-02: see the function's banner.

@@ -1,7 +1,7 @@
 import { ConvexError } from 'convex/values'
 import { authComponent } from './auth'
 import { insightsAccess } from './lib/insightsAccess.ts'
-import { isPlausiblePuzzleDay, isPlausibleToday, isPuzzleDay, toPuzzleDay } from './lib/puzzleDay.ts'
+import { isPlausiblePuzzleDay, isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { GenericDatabaseReader } from 'convex/server'
@@ -282,13 +282,15 @@ export async function requireTeamOwnerFor(
  * (This said SIX until wordle-teams-gl00: consumeLink called it and recomputes
  * the joined team's winners, and was missing from the list.)
  *
- * SHAPE FIRST, THEN THE BOUND (wordle-teams-gl00). isPlausibleToday is a
- * LEXICOGRAPHIC range test, so '2026-10-039', '2026-10-04x' and
- * '2026-10-04T00:00:00Z' all sit inside it. The first is the dangerous one: it
- * does not look malformed, and windowFor turns it into a challenge window 36
- * days out that is WRITTEN to teamChallenges and silently resolves 'void'.
- * isPuzzleDay is the strict check requirePlausiblePuzzleDay already applies via
- * isPlausiblePuzzleDay, so this makes the two siblings agree.
+ * A MALFORMED DAY IS REFUSED TOO, but not by a check in this function.
+ * isPlausibleToday itself checks the shape (isPuzzleDay) before its
+ * LEXICOGRAPHIC range test, because '2026-10-039', '2026-10-04x' and
+ * '2026-10-04T00:00:00Z' all sit inside that range. The first is the dangerous
+ * one: it does not look malformed, and windowFor turns it into a challenge
+ * window 36 days out that is WRITTEN to teamChallenges and silently resolves
+ * 'void'. This was added here first (wordle-teams-gl00) and moved into
+ * isPlausibleToday (wordle-teams-435s) so the fallback callers below get it as
+ * well; access.test.ts still pins that this function refuses all three.
  *
  * ONE DOCUMENTED EXCEPTION, and it is not an omission: completeProfileFor
  * (players.ts) applies isPlausibleToday directly and falls back to the server's
@@ -296,8 +298,8 @@ export async function requireTeamOwnerFor(
  * PLAYER ROW, and every route guard bounces a playerless account back to
  * /complete-profile, so a wrong device clock would lock the account out of the
  * product rather than blocking one action. It is still a clock-bounded surface;
- * it is not a requirePlausibleToday call site — and so, like insights.ts's
- * teamMonth, it does NOT get the shape check below (wordle-teams-435s).
+ * it is not a requirePlausibleToday call site. Like insights.ts's teamMonth, it
+ * falls back to the server's day for a malformed value as for a wrong clock.
  *
  * KEEP THIS LIST WHOLE — wordle-teams-04r's pre-cutover check is "every
  * clock-bounded surface", and this is where a reader goes to enumerate them.
@@ -318,7 +320,7 @@ export async function requireTeamOwnerFor(
  */
 export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
   const serverToday = toPuzzleDay(new Date())
-  if (!isPuzzleDay(today) || !isPlausibleToday(today, serverToday)) {
+  if (!isPlausibleToday(today, serverToday)) {
     // NOT INVALID_TEAM, NOT INVALID_BOARD, NOT INVALID_SYSTEM — one per calling
     // module. A clock this far off is not a naming problem, a board-shape
     // problem or an out-of-range points problem, and every one of those
