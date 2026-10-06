@@ -47,6 +47,7 @@ import { internal } from '../convex/_generated/api.js'
 import { environmentsFromWranglerConfig } from './lib/copy-target.mjs'
 import {
   checkImpactPages,
+  classifyRefusals,
   decideRacTarget,
   fingerprintOf,
   monthsOf,
@@ -147,6 +148,7 @@ async function measure(label) {
 
 async function impact(months) {
   let complete = true
+  const refusals = []
   for (const month of months) {
     const pages = []
     let after = null
@@ -159,6 +161,7 @@ async function impact(months) {
       } while (after !== null)
     } catch (error) {
       record({ kind: 'impact-refused', month, reason: messageOf(error) })
+      refusals.push({ month, reason: messageOf(error) })
       continue
     }
     const check = checkImpactPages(pages)
@@ -192,6 +195,14 @@ async function impact(months) {
     )
     if (!check.ok) complete = false
   }
+  // A month whose impact threw is MISSING from the report, and --apply would
+  // still delete its rows. Only "not a past month" is a deliberate omission.
+  const { deferred, failed } = classifyRefusals(refusals)
+  if (deferred.length) console.log(`DEFERRED, not yet past (no impact, no repair): ${deferred.join(', ')}`)
+  if (failed.length) {
+    console.error(`IMPACT INCOMPLETE: no impact for ${failed.join(', ')}. Do not approve this report.`)
+    complete = false
+  }
   return complete
 }
 
@@ -199,6 +210,7 @@ async function impact(months) {
 async function plan(months) {
   const keys = []
   const planned = []
+  const refusals = []
   for (const month of months) {
     try {
       const result = await convex.mutation(internal.migrate.repairDuplicateScores, { month, dryRun: true })
@@ -207,10 +219,15 @@ async function plan(months) {
       planned.push(result)
     } catch (error) {
       record({ kind: 'plan-refused', month, reason: messageOf(error) })
+      refusals.push({ month, reason: messageOf(error) })
       keys.push(`${month}:refused`)
     }
   }
-  return { fingerprint: fingerprintOf(keys), planned }
+  // Listed loudly, never folded silently into the fingerprint.
+  const { deferred, failed } = classifyRefusals(refusals)
+  if (deferred.length) console.log(`DEFERRED, not yet past (not planned): ${deferred.join(', ')}`)
+  if (failed.length) console.error(`PLAN REFUSED for ${failed.join(', ')}: those months have no plan.`)
+  return { fingerprint: fingerprintOf(keys), planned, failed }
 }
 
 const { affected } = await measure('before')
@@ -219,17 +236,25 @@ let exitCode = 0
 
 if (args.mode === 'impact') {
   if (!(await impact(months))) {
-    console.error('IMPACT INCOMPLETE: a month did not return every (team, month) pair. Do not approve it.')
+    console.error('IMPACT INCOMPLETE: a month is missing or did not return every pair. Do not approve it.')
     exitCode = 1
   }
 }
 
 if (args.mode === 'repair') {
-  const { fingerprint, planned } = await plan(months)
-  record({ kind: 'fingerprint', fingerprint })
+  const { fingerprint, planned, failed } = await plan(months)
+  record({ kind: 'fingerprint', fingerprint, refusedMonths: failed })
   if (!args.apply) {
     console.log(`\nFINGERPRINT: ${fingerprint}`)
-    console.log(`To apply exactly this plan: repair --apply --confirm-host=${verdict.host} --expect=${fingerprint}`)
+    if (failed.length) {
+      console.error(`NOT APPLICABLE: ${failed.join(', ')} could not be planned, and --apply will refuse.`)
+      exitCode = 1
+    } else {
+      console.log(`To apply exactly this plan: repair --apply --confirm-host=${verdict.host} --expect=${fingerprint}`)
+    }
+  } else if (failed.length) {
+    console.error(`REFUSING TO APPLY: ${failed.join(', ')} could not be planned. Nothing was written.`)
+    exitCode = 1
   } else if (fingerprint !== args.expect) {
     console.error(`REFUSING TO APPLY: the plan's fingerprint is ${fingerprint}, not ${args.expect}.`)
     console.error('Something changed since the dry run that was approved. Nothing was written.')
