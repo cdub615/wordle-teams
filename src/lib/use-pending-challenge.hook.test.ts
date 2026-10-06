@@ -91,7 +91,7 @@ const resumeAt = (url: string, joinParam?: string) => {
   window.history.replaceState({}, '', url)
   const seen: string[] = []
   const hook = renderHook(
-    (join: string | undefined) => usePendingChallenge(join, false, (t) => seen.push(t)),
+    (join: string | undefined) => usePendingChallenge(join, false, true, (t) => seen.push(t)),
     { initialProps: joinParam },
   )
   return { seen, ...hook }
@@ -143,7 +143,7 @@ describe('usePendingChallenge', () => {
     const order: string[] = []
     const { rerender } = renderHook(
       (join: string | undefined) => {
-        usePendingChallenge(join, false, (t) => order.push(`challenge:${t}`))
+        usePendingChallenge(join, false, true, (t) => order.push(`challenge:${t}`))
         usePendingInvite(join, (t) => order.push(`invite:${t}`))
       },
       { initialProps: 'invite' as string | undefined },
@@ -163,7 +163,7 @@ describe('usePendingChallenge', () => {
     window.history.replaceState({}, '', '/app')
     const seen: string[] = []
     const { rerender } = renderHook(
-      (busy: boolean) => usePendingChallenge(undefined, busy, (t) => seen.push(t)),
+      (busy: boolean) => usePendingChallenge(undefined, busy, true, (t) => seen.push(t)),
       { initialProps: false },
     )
     expect(seen).toEqual([]) // the invite is stashed
@@ -172,6 +172,24 @@ describe('usePendingChallenge', () => {
     expect(seen).toEqual([]) // consume in flight
     rerender(false)
     expect(seen).toEqual(['tok']) // settled: forwarded, same arrival
+    expect(stashed()).toBeNull()
+  })
+
+  // THE BUG THE E2E FOUND: forwarding before the dashboard's search correction
+  // had run let that correction's navigation supersede the forward, and the
+  // already-taken token was lost. Nothing is taken until the search settles.
+  test('waits for the dashboard search to settle, and keeps its token until then', () => {
+    rememberPendingChallenge('tok')
+    window.history.replaceState({}, '', '/app')
+    const seen: string[] = []
+    const { rerender } = renderHook(
+      (settled: boolean) => usePendingChallenge(undefined, false, settled, (t) => seen.push(t)),
+      { initialProps: false },
+    )
+    expect(seen).toEqual([])
+    expect(stashed()).toBe('tok') // NOT taken while unsettled
+    rerender(true)
+    expect(seen).toEqual(['tok'])
     expect(stashed()).toBeNull()
   })
 

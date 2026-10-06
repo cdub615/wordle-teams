@@ -409,7 +409,19 @@ function Dashboard() {
    * would always see "no invite" and race the consume. lib/use-pending-
    * challenge.ts has the rest, and use-pending-challenge.hook.test.ts drives it.
    */
-  usePendingChallenge(joinParam, consumeInvite.isPending, (token) => {
+  // The resolver useSearchSync runs: null means it has nothing left to correct.
+  // `storedTeam: null` is safe here — it changes WHICH team the sync picks,
+  // never WHETHER it navigates — and keeps localStorage out of render.
+  const searchSettled =
+    hydrated &&
+    resolveDashboardSearch({
+      teamParam,
+      monthParam,
+      teams,
+      storedTeam: null,
+      currentMonth: monthOf(toPuzzleDay(new Date())),
+    }) === null
+  usePendingChallenge(joinParam, consumeInvite.isPending, searchSettled, (token) => {
     void navigate({ to: '/challenge/$token', params: { token }, replace: true })
   })
 

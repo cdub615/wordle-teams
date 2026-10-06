@@ -108,6 +108,19 @@ export function usePendingChallenge(
   joinParam: string | undefined,
   /** The invite consume is in flight: wait for it to settle. */
   inviteBusy: boolean,
+  /**
+   * The dashboard's own search correction has nothing left to do.
+   *
+   * WITHOUT THIS THE FORWARD IS LOST, and only a real browser shows it (found
+   * by the Task 14 e2e; traced 2026-10-05). On a sign-in arrival this effect
+   * runs on the first client pass, before hydration, and starts the navigation
+   * to /challenge. The dashboard stays mounted while that navigation is
+   * pending; then it hydrates, useSearchSync sees no ?team=/?month= and
+   * navigates back to /app?team=&month= — superseding the forward. The token
+   * has already been taken, so the link is simply gone. Waiting until the sync
+   * is settled means the forward is the LAST navigation, not the first.
+   */
+  searchSettled: boolean,
   onToken: (token: string) => void,
 ): void {
   const latest = useRef(onToken)
@@ -117,10 +130,11 @@ export function usePendingChallenge(
     if (new URL(window.location.href).searchParams.has('join')) return
     if (hasPendingInvite()) return
     if (inviteBusy) return
+    if (!searchSettled) return
     const token = takePendingChallenge()
     if (!token) return
     latest.current(token)
-  }, [joinParam, inviteBusy])
+  }, [joinParam, inviteBusy, searchSettled])
 }
 
 /**
