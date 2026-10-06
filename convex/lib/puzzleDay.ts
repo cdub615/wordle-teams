@@ -96,8 +96,18 @@ export function addMonths(month: PuzzleMonth, delta: number): PuzzleMonth {
  * Takes `serverToday` as a PARAMETER rather than reading the clock itself, so
  * this stays a pure function of its inputs and is directly testable — callers
  * compute it once via `toPuzzleDay(new Date())` and pass it in.
+ *
+ * SHAPE FIRST, THEN THE BOUND (wordle-teams-435s), as `isPlausiblePuzzleDay`
+ * below already does. The bound is a LEXICOGRAPHIC range test, so
+ * '2026-10-039', '2026-10-04x' and '2026-10-04T00:00:00Z' all sit inside it
+ * at server day 2026-10-04. The check lives HERE rather than in access.ts's
+ * requirePlausibleToday alone so that every caller gets it — including the two
+ * that fall back to the server's day instead of throwing (players.ts's
+ * completeProfileFor, insights.ts's teamMonth), which for a malformed value now
+ * fall back exactly as they do for a wrong clock.
  */
 export function isPlausibleToday(today: PuzzleDay, serverToday: PuzzleDay): boolean {
+  if (!isPuzzleDay(today)) return false
   return today >= addDays(serverToday, -1) && today <= addDays(serverToday, 1)
 }
 

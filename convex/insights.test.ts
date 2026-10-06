@@ -269,6 +269,25 @@ describe('teamMonth — the free tier', () => {
     expect(res?.teaser?.days.map((day) => day.puzzleDay)).toEqual([today])
   })
 
+  test('falls back to the server day when today is not a day at all', async () => {
+    // wordle-teams-435s. `${today}x` sits INSIDE the lexicographic +/-1 day
+    // bound, so a range test alone trusted it — and the teaser then filtered the
+    // month for a day no board is on, blanking the free fact. A malformed value
+    // gets the same fallback as a wrong clock.
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const { teamId } = await seed(t)
+
+    const asMe = await authenticatedAs(t, ME)
+    const res = await asMe.query(api.insights.teamMonth, {
+      teamId,
+      month,
+      today: `${today}x`,
+    })
+
+    expect(res?.teaser?.days.map((day) => day.puzzleDay)).toEqual([today])
+  })
+
   test('but a neighbouring day IS honoured, because timezones are real', async () => {
     const t = convexTest(schema, modules)
     registerBetterAuth(t)
