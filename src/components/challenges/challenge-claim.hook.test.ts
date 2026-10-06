@@ -274,7 +274,12 @@ describe('6a. claiming your own link ends the page for you, not for the link', (
   // for a signed-in player on arrival (use-pending-challenge.ts, row three), so
   // by the time a claim can be refused there is nothing left; and this refusal
   // says nothing about the link, which another team can still claim.
-  test('leaves the pending-challenge stash alone', async () => {
+  // CLEARS THE STASH, though useChallengeArrival normally already has. If one
+  // ever survived, keeping it would bounce the minter from every dashboard visit
+  // back to a page that always refuses them — the loop useChallengeArrival's
+  // header warns about. Forgetting is idempotent and kills nothing: the link
+  // lives on the server, not in the stash.
+  test('clears the pending-challenge stash', async () => {
     rememberPendingChallenge('tok')
     const onClaim = vi
       .fn<Props['onClaim']>()
@@ -282,7 +287,7 @@ describe('6a. claiming your own link ends the page for you, not for the link', (
     page({ teams: [ALPHAS], onClaim })
     fireEvent.click(acceptButton()!)
     await waitFor(() => expect(screen.getByRole('heading').textContent).toBe(OWN_LINK))
-    expect(sessionStorage.getItem(PENDING_CHALLENGE_KEY)).toBe('tok')
+    expect(sessionStorage.getItem(PENDING_CHALLENGE_KEY)).toBeNull()
   })
 
   // The code's GENERIC copy is the team page's (a dual-member proposer pressing
