@@ -314,8 +314,11 @@ describe('PendingChallengeRow', () => {
     expect(onDecline).toHaveBeenCalledExactlyOnceWith('pending-7')
   })
 
-  test('6. incoming: any member may answer, owner or not', () => {
-    row(aPending(), { viewerIsOwner: false })
+  // ANY MEMBER OTHER THAN THE PROPOSER (wordle-teams-zic8.2.23). The proposer's
+  // own row is below; `proposedByViewer: false` is spelled out here because it
+  // is what this test depends on, not a fixture default to lean on.
+  test('6. incoming: any member other than the proposer may answer, owner or not', () => {
+    row(aPending({ proposedByViewer: false }), { viewerIsOwner: false })
     expect(buttonNames()).toEqual(['Accept', 'Decline'])
   })
 
@@ -439,6 +442,16 @@ describe('PendingChallengeRow', () => {
   test('6. (control) incoming that someone else proposed: Accept, and no waiting line', () => {
     row(aPending({ proposedByViewer: false }))
     expect(buttonNames()).toEqual(['Accept', 'Decline'])
+    expect(screen.queryByText(OWN_PROPOSAL)).toBeNull()
+  })
+
+  // ONE REASON AT A TIME. On a team refusing challenges, Accept is gone for
+  // everyone, so "waiting for someone else" would promise an acceptance the
+  // team cannot give; the refusal line is the only one shown.
+  test('6. the viewer\'s own proposal on a team refusing challenges: only the refusal line', () => {
+    row(aPending({ proposedByViewer: true }), { teamAcceptsChallenges: false })
+    expect(buttonNames()).toEqual(['Decline'])
+    expect(screen.queryByText(REFUSING)).not.toBeNull()
     expect(screen.queryByText(OWN_PROPOSAL)).toBeNull()
   })
 
