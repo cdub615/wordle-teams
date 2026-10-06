@@ -14,6 +14,7 @@ import {
   Loader2,
   LogIn,
   LogOut,
+  Megaphone,
   Menu,
   MessagesSquare,
   MoonStar,
@@ -52,6 +53,15 @@ import { captureError } from '#/lib/sentry-capture.ts'
 import { cn } from '#/lib/utils.ts'
 import { useReducedMotion } from '#/lib/use-reduced-motion.ts'
 import { useThemeMode, type ThemeMode } from '#/lib/theme.ts'
+import { useHydrated } from '#/lib/use-hydrated.ts'
+import {
+  hasUnreadRelease,
+  LATEST_RELEASE,
+  markReleaseSeen,
+  readSeenRelease,
+  WHATS_NEW_SEEN_KEY,
+  WHATS_NEW_URL,
+} from '#/lib/whats-new.ts'
 
 /**
  * The one menu in the app bar (wordle-teams-lyab). Replaces the old
@@ -106,6 +116,33 @@ export function AppMenu() {
   const [signOutPending, setSignOutPending] = useState(false)
 
   const [dialogOpen, setDialogOpen] = useState(false)
+
+  /**
+   * THE WHAT'S NEW DOT (wordle-teams-ued7), AND WHY IT WAITS FOR HYDRATION.
+   * The server cannot see localStorage, so it always renders "no dot"; a client
+   * whose FIRST render read storage would disagree with that HTML for exactly
+   * the players the dot is for. `hydrated` is false on the server and on the
+   * first client render, so both agree, and the dot arrives one commit later.
+   *
+   * COMPUTED, NOT STORED IN AN EFFECT, so it follows `isAuthenticated` for
+   * free: this menu stays mounted across sign-in, and a dot decided once for
+   * the signed-out first paint would never appear.
+   *
+   * `whatsNewOpened` IS WHAT MAKES "CLEARS AT ONCE" TRUE. markReleaseSeen writes
+   * storage, and writing storage re-renders nothing — without a state change
+   * the trigger's dot would sit there until something else repainted the bar.
+   */
+  const hydrated = useHydrated()
+  const [whatsNewOpened, setWhatsNewOpened] = useState(false)
+  const whatsNewUnread =
+    hydrated &&
+    !whatsNewOpened &&
+    seenStoreReadable() &&
+    hasUnreadRelease({
+      seen: readSeenRelease(),
+      latest: LATEST_RELEASE,
+      signedIn: isAuthenticated,
+    })
 
   // Prefers the players row's own name; falls to Better Auth's `name`, then
   // the email, so the label is never blank even for a brand-new account
@@ -205,8 +242,25 @@ export function AppMenu() {
               ONLY menu in the bar, so the narrower name would be wrong in one
               state and redundant in the other.
             */}
-            <Button variant="ghost" size="sm" aria-label="Main menu" className="px-2">
+            {/*
+              THE UNREAD CLAUSE IS APPENDED TO THE NAME, as chatEntryLabel does
+              for Team chat: `aria-label` replaces the button's content in the
+              accessibility tree, so the dot inside it is silent and the name is
+              the only place a screen reader can hear that something is new.
+              "Main menu" stays the prefix, which e2e/app-menu.ts locates by.
+
+              `relative` and an `absolute` dot for the reason the Team chat
+              button gives: the dot must cost the bar no width, or the bar
+              shifts exactly when there is something new to see.
+            */}
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={whatsNewUnread ? 'Main menu, new updates' : 'Main menu'}
+              className="relative px-2"
+            >
               <Menu className="h-4 w-4" aria-hidden="true" />
+              {whatsNewUnread && <WhatsNewDot className="absolute right-1 top-1" />}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
@@ -451,6 +505,31 @@ export function AppMenu() {
                 <span>Feedback</span>
               </a>
             </DropdownMenuItem>
+            {/*
+              WHAT'S NEW, FOR EVERYONE (wordle-teams-ued7), and beside Feedback
+              because both leave the app for the same Feedbase site. The label
+              is "What's new" here while Footer.tsx and About keep "Changelog":
+              in a menu the question is what changed, not what the page is
+              called.
+
+              NOT `preventDefault`ed, unlike Billing and Log out: the menu
+              should close and the link should go. onSelect records the release
+              and drops the dot in the same tick; the anchor's own click does
+              the navigating.
+            */}
+            <DropdownMenuItem
+              asChild
+              onSelect={() => {
+                markReleaseSeen()
+                setWhatsNewOpened(true)
+              }}
+            >
+              <a href={WHATS_NEW_URL}>
+                <Megaphone className="mr-2 h-4 w-4" aria-hidden="true" />
+                <span>What&apos;s new</span>
+                {whatsNewUnread && <WhatsNewDot className="ml-auto" />}
+              </a>
+            </DropdownMenuItem>
 
             {isAuthenticated && (
               <>
@@ -465,7 +544,7 @@ export function AppMenu() {
                   SO THE MENU HAS TWO GROUPS NOW, WHICH IS WHAT IT ALWAYS
                   MEANT: things inside the app (Dashboard, Insights, Settings,
                   Billing, plus the theme control) and things outside it (About,
-                  Feedback). Log out ends the list because ending the session is
+                  Feedback, What's new). Log out ends the list because ending the session is
                   the last thing anyone does here, not because it is a third
                   kind of thing.
                 */}
@@ -521,6 +600,48 @@ export function AppMenu() {
       */}
       {isAuthenticated && <SettingsDialog email={user?.email} displayName={displayName} />}
     </Dialog>
+  )
+}
+
+/**
+ * Whether the What's new store can be read at all.
+ *
+ * A BLOCKED STORE IS NO DOT (AC6), which readSeenRelease alone cannot say: it
+ * answers null for "blocked" and for "never seen" alike, and null is a dot for a
+ * signed-in player. Here that would be a dot that can never be cleared —
+ * markReleaseSeen cannot write to a store that refuses reads — lit on every
+ * visit for a browser setting. Checked separately rather than by changing what
+ * readSeenRelease returns, whose contract lib/whats-new.test.ts pins.
+ */
+function seenStoreReadable(): boolean {
+  try {
+    window.localStorage.getItem(WHATS_NEW_SEEN_KEY)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The unread dot, painted the way chat/unread-badge.tsx's UnreadDot is.
+ *
+ * THE SAME CLASSES, DELIBERATELY NOT THE SAME IMPORT. That module drags
+ * use-chat-sync.ts — chat hooks, chatLimits, clock formatting — in behind it,
+ * and this menu renders on every page; six Tailwind classes are cheaper than
+ * the chat layer in the bar's chunk. What must NOT drift is the token:
+ * `bg-accent-solid`, never `bg-primary`, for the reason UnreadDot records
+ * (--primary is near-white in dark, so the dot would read as stark white rather
+ * than as the brand). The hook test finds the dot by that class.
+ *
+ * ALWAYS aria-hidden: on the trigger the button's name already says it, and on
+ * the item the dot sits beside the words it would only repeat.
+ */
+function WhatsNewDot({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn('inline-block size-2 shrink-0 rounded-full bg-accent-solid', className)}
+    />
   )
 }
 
