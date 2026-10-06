@@ -1013,13 +1013,20 @@ describe('claimChallengeLinkFor', () => {
   // liveChallengesFor returns a row twice if a team is on both sides, which
   // would inflate every cap count thereafter. The claim path is the SECOND way
   // to reach that state and the only one nothing asserted.
+  //
+  // CLAIMED BY A TEAMMATE, NOT THE MINTER (wordle-teams-zic8.2.23). The minter
+  // now stops at CHALLENGE_OWN_PROPOSAL before the pair check runs, which would
+  // leave this asserting a different guard than the one it is about. Another
+  // member of the challenging team is the claimant who still reaches it.
   test("you cannot claim your own team's link", async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const teammateId = await ctx.db.insert('players', aPlayer({ email: 'teammate@example.com' }))
+      await ctx.db.patch(challengerTeamId, { playerIds: [playerId, teammateId] })
       const token = await proposeByLinkFor(ctx, playerId, challengerTeamId)
       await expect(
-        claimChallengeLinkFor(ctx, playerId, token, challengerTeamId, today),
+        claimChallengeLinkFor(ctx, teammateId, token, challengerTeamId, today),
       ).rejects.toMatchObject({ data: { code: 'INVALID_TEAM' } })
     })
   })

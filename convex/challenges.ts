@@ -421,8 +421,18 @@ export async function acceptChallengeFor(
   if (challenge.expiresAt <= Date.now()) throw accessError('CHALLENGE_NOT_PENDING')
   if (challenge.opponentTeamId === undefined) throw accessError('INVALID_TEAM')
 
-  // ANY MEMBER MAY ACCEPT, AND PRO IS NOT CHECKED HERE. See proposeToTeamFor.
+  // ANY MEMBER EXCEPT THE PROPOSER MAY ACCEPT, AND PRO IS NOT CHECKED HERE. See
+  // proposeToTeamFor.
   await requireTeamMemberFor(ctx, playerId, challenge.opponentTeamId)
+
+  // NOT THE PROPOSER (wordle-teams-zic8.2.23). proposeToTeamFor requires
+  // membership of BOTH teams, so the proposer always passes the check above;
+  // without this, one person could start a challenge with nobody on the
+  // opponent consenting. AFTER MEMBERSHIP, so a proposer who has since left the
+  // opponent hears NOT_A_MEMBER — the reason that would still hold if someone
+  // else had proposed — and this code is said only to a member, for whom it is
+  // the one thing standing between them and accepting.
+  if (challenge.proposedBy === playerId) throw accessError('CHALLENGE_OWN_PROPOSAL')
 
   // RE-CHECKED AT ACCEPTANCE, not trusted from propose time: the pair may have
   // filled its slots or turned challenges off while this sat pending.
@@ -478,6 +488,16 @@ export async function claimChallengeLinkFor(
   if (challenge === null) throw accessError('CHALLENGE_LINK_INVALID')
   if (challenge.status !== 'pending') throw accessError('CHALLENGE_LINK_INVALID')
   if (challenge.expiresAt <= Date.now()) throw accessError('CHALLENGE_LINK_INVALID')
+
+  // NOT THE MINTER (wordle-teams-zic8.2.23), the same rule as acceptChallengeFor:
+  // a minter on another team could otherwise claim for it alone. It needs the
+  // row, so it cannot join membership above the lookup — and it goes AFTER all
+  // three CHALLENGE_LINK_INVALID answers, never between them. There it is said
+  // only about a token that is live and was minted by this caller, who already
+  // holds it and so learns nothing; anywhere earlier, a dead token of their own
+  // would answer differently from a dead stranger's, which is the distinction
+  // those answers exist to hide.
+  if (challenge.proposedBy === playerId) throw accessError('CHALLENGE_OWN_PROPOSAL')
 
   await requireChallengeablePair(ctx, challenge.challengerTeamId, opponentTeamId, challenge._id)
 

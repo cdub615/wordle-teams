@@ -63,7 +63,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'CHALLENGE_NOT_PENDING' ||
     code === 'CHALLENGE_LINK_INVALID' ||
     code === 'CHALLENGE_NOT_ACTIVE' ||
-    code === 'CHALLENGES_DISABLED'
+    code === 'CHALLENGES_DISABLED' ||
+    code === 'CHALLENGE_OWN_PROPOSAL'
   ) {
     return code
   }
@@ -285,6 +286,12 @@ export function typedCodeMessage(code: AccessCode): string {
       // The CHALLENGES_ENABLED deployment switch is off. "Yet" because the
       // switch exists to hold the feature dark until it ships.
       return "Challenges aren't available yet."
+    case 'CHALLENGE_OWN_PROPOSAL':
+      // Thrown by acceptChallengeFor and claimChallengeLinkFor when the caller
+      // proposed the challenge. Says what DOES work — a teammate accepting —
+      // rather than only what does not, since the proposer is usually on both
+      // teams and would otherwise not see why the button they pressed refused.
+      return 'Someone else on your team has to accept a challenge you sent.'
     default: {
       const _exhaustive: never = code
       return _exhaustive

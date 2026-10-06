@@ -195,7 +195,7 @@ export const PRO_BENEFITS: ReadonlyArray<ProBenefit> = [
     //
     // ACCEPTING IS FREE, and the body's last sentence says so: neither
     // acceptChallengeFor nor claimChallengeLinkFor asks isProFor ("ANY MEMBER
-    // MAY ACCEPT, AND PRO IS NOT CHECKED HERE"). A challenged free team is the
+    // EXCEPT THE PROPOSER MAY ACCEPT, AND PRO IS NOT CHECKED HERE"). A challenged free team is the
     // feature's best conversion moment, so no line here may read as Pro being
     // needed to take part — pro-benefits.test.ts refuses that pairing and reads
     // all five functions to keep the claim honest.

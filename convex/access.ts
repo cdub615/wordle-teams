@@ -138,6 +138,12 @@ export type AccessCode =
   // CHALLENGE_NOT_ACTIVE is a scoreboard asked of a challenge that is not running.
   // CHALLENGES_DISABLED is the CHALLENGES_ENABLED deployment switch being off
   // (lib/challenge.ts challengesEnabled); only starting or activating refuses.
+  // CHALLENGE_OWN_PROPOSAL (wordle-teams-zic8.2.23) is the proposer answering
+  // their own challenge — accepting a direct one, or claiming their own link for
+  // another team they are on. A direct proposer is always a member of BOTH
+  // teams, so membership alone would let one person start a challenge with no
+  // one on the other team consenting. claimChallengeLinkFor raises it only
+  // after every CHALLENGE_LINK_INVALID check, so it never tells a dead token apart.
   | 'CHALLENGES_REFUSED'
   | 'CHALLENGE_LIMIT_REACHED'
   | 'CHALLENGE_EXISTS'
@@ -146,6 +152,7 @@ export type AccessCode =
   | 'CHALLENGE_LINK_INVALID'
   | 'CHALLENGE_NOT_ACTIVE'
   | 'CHALLENGES_DISABLED'
+  | 'CHALLENGE_OWN_PROPOSAL'
 
 /**
  * Throws a ConvexError carrying `{ code }`.
