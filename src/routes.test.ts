@@ -2248,6 +2248,45 @@ describe('the dashboard builds its month window from the team, not from a litera
 })
 
 /**
+ * THE CHALLENGE ROUTES' WIRING (zic8.2.21), which no component test can reach.
+ *
+ * The components are tested through their props; what is pinned here is that
+ * the routes hand them the right things. A route module cannot be rendered
+ * under vitest (see this file's header), so these read the source, with the
+ * same AST helpers the dashboard block above uses and for the same reason: a
+ * `toContain` over a fragment is satisfied by a detached or inverted copy.
+ */
+describe('the challenge routes are wired the way their components are tested', () => {
+  const TEAM = './routes/team.tsx'
+
+  test("team.tsx wraps the Challenges card in its own error boundary, keyed by team (M5)", () => {
+    // WITHOUT IT a challengesForTeam failure reaches the route's DashboardError
+    // and replaces the whole page, member management included.
+    // challenges-boundary.hook.test.ts proves what the boundary does; this
+    // proves the card is actually inside one.
+    const file = parseSource(TEAM, read(TEAM))
+    let card: ts.Node | undefined
+    const find = (node: ts.Node): void => {
+      if (ts.isJsxSelfClosingElement(node) && node.tagName.getText() === 'TeamChallenges') card ??= node
+      ts.forEachChild(node, find)
+    }
+    find(file)
+    expect(card, 'routes/team.tsx no longer renders <TeamChallenges>').toBeDefined()
+
+    const wrappers: string[] = []
+    for (let node = card?.parent; node; node = node.parent) {
+      if (ts.isJsxElement(node)) wrappers.push(node.openingElement.tagName.getText())
+    }
+    expect(wrappers, '<TeamChallenges> is not inside a <ChallengesBoundary>').toContain(
+      'ChallengesBoundary',
+    )
+    // Keyed by the team, so switching `?team=` tries again rather than keeping
+    // the last team's error on screen.
+    expect(jsxProps(TEAM, 'ChallengesBoundary').get('resetKey')).toBe('selectedTeam.id')
+  })
+})
+
+/**
  * initializerOf, ON THE NORMALISATION THE BLOCK ABOVE LEANS ON.
  *
  * Hand-written fixtures, for the reason the callSitesOf block below gives: a

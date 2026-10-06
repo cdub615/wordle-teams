@@ -12,6 +12,7 @@ import { MyTeamsCard } from '#/components/teams/my-teams-card.tsx'
 import { UpdateTeamDialog } from '#/components/teams/update-team-dialog.tsx'
 import { ScoringSystemCard } from '#/components/scoring-system-card.tsx'
 import { ChallengesCard, ChallengesCardSkeleton } from '#/components/challenges/challenges-card.tsx'
+import { ChallengesBoundary } from '#/components/challenges/challenges-boundary.tsx'
 import { ProposeChallengeDialog } from '#/components/challenges/propose-challenge-dialog.tsx'
 import type { ChallengeId } from '#/components/challenges/types.ts'
 import { useUpgrade } from '#/components/upgrade-dialog.tsx'
@@ -232,19 +233,26 @@ function TeamSettingsPage() {
           loader, and a slow scoreboard must never suspend the whole page back
           to TeamSettingsSkeleton. On a dark deployment the card renders
           nothing once the query answers.
+
+          AND ITS OWN ERROR BOUNDARY (zic8.2.21 M5), for the same reason one
+          level up: without it a challengesForTeam failure reaches
+          DashboardError and replaces this whole page, member management
+          included. Keyed by team, so a ?team= switch tries again.
         */}
-        <Suspense fallback={<ChallengesCardSkeleton />}>
-          {/* KEYED BY TEAM: `now` and `busyId` are per-team state, and without a
-              key a ?team= switch would resume the same instance with both. */}
-          <TeamChallenges
-            key={selectedTeam.id}
-            teamId={selectedTeam.id}
-            teamName={selectedTeam.name}
-            teams={teams}
-            isOwner={selectedTeam.isOwner}
-            acceptsChallenges={selectedTeam.acceptsChallenges}
-          />
-        </Suspense>
+        <ChallengesBoundary resetKey={selectedTeam.id}>
+          <Suspense fallback={<ChallengesCardSkeleton />}>
+            {/* KEYED BY TEAM: `now` and `busyId` are per-team state, and without a
+                key a ?team= switch would resume the same instance with both. */}
+            <TeamChallenges
+              key={selectedTeam.id}
+              teamId={selectedTeam.id}
+              teamName={selectedTeam.name}
+              teams={teams}
+              isOwner={selectedTeam.isOwner}
+              acceptsChallenges={selectedTeam.acceptsChallenges}
+            />
+          </Suspense>
+        </ChallengesBoundary>
         {/*
           `id="scoring"` IS THE SCORING DEEP LINK'S WHOLE MECHANISM
           (wordle-teams-5jcn.29). routes/app.tsx's ScoringLegend "Edit" control
