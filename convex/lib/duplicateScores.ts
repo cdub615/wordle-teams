@@ -6,68 +6,61 @@
  * rows. The copy carried them into v2 faithfully, by design (migrate.ts's
  * upsertDailyScores). v2 cannot create new ones, so this is a one-time repair, and
  * this function is the whole of its decision: every row the repair deletes is a
- * row this function put in a `drop` list.
+ * row this function put in the `drop` list of a group it did not hold.
  *
- * PURE, AND OVER ONE PLAYER'S ROWS. Callers pass rows they have just read from
- * `by_player_and_puzzleDay` for a single player; the groups are keyed on
- * `puzzleDay` alone, so rows from two players must never be mixed in one call.
- * Nothing here imports beyond convex/lib, so the rule is a unit test over
- * fixtures rather than something only a live deployment could demonstrate.
+ * PURE, AND OVER ONE PLAYER'S ROWS. Groups are keyed on `puzzleDay` alone, so rows
+ * from two players must never be mixed in one call. Nothing here imports beyond
+ * convex/lib.
  *
- * THE SURVIVOR IS THE LATER-WRITTEN ROW — the owner's decision of 2026-10-05.
- * "Later" is decided, in order, by:
- *   1. `createdAt` (v1's created_at, carried by the copy). A row WITHOUT one sorts
- *      before every row with one.
- *   2. `legacyId` (v1's serial id). A row without one sorts before every row with
- *      one, for the same reason as (1): absence is never evidence of being newer.
- *   3. `_creationTime`, which is unique per document and so makes the order total.
+ * THE SURVIVOR IS THE ROW v2 EDITS (owner's decision, revision 2, 2026-10-06):
+ * the FIRST row in `by_player_and_puzzleDay` order, which for one player and day
+ * is ascending `_creationTime`. upsertBoardFor patches whatever `.first()`
+ * returns and never touches `createdAt`, so every edit made in v2 since the
+ * cutover landed on this row. Keeping the "later-written" row instead — the
+ * revision-1 rule — could delete a row a player had since edited.
  *
- * A CONSEQUENCE WORTH KNOWING: a row v2 itself wrote (upsertBoardFor) carries
- * neither `createdAt` nor `legacyId`, so it would LOSE to a copied row for the same
- * day. Unreachable after the cutover's purge-and-copy — upsertBoardFor patches the
- * existing row rather than inserting beside it — and the probe reports a row's
- * missing legacyId, so such a pair would be visible before anything is deleted.
+ * HELD, NEVER DELETED, AND REPORTED WITH THE REASON:
+ *   answers-differ  two different non-empty answers are two different PUZZLES.
+ *                   Days were derived from v1 instants in the player's CURRENT
+ *                   zone (copy-from-supabase.mjs), so two real boards can land on
+ *                   one day. That needs re-dating, not deleting.
+ *   dates-apart     `date` instants more than ten minutes apart are not the
+ *                   double-submit signature (v1's pairs were 1-40 s apart).
+ *   v2-row          a row with no `legacyId` was written by v2, which can only
+ *                   happen if something other than a v1 double submit made it.
  *
  * `differing` is true when any dropped row's guesses or answer differ from the
- * survivor's, compared strictly (an absent answer and '' differ). Strict on
- * purpose: this flag is what tells the owner a delete loses information, so it
- * errs towards saying so.
+ * survivor's, compared strictly (an absent answer and '' differ): it tells the
+ * owner a delete loses information, so it errs towards saying so.
  */
 
 export type CollapseRow<Id extends string = string> = {
   _id: Id
   _creationTime: number
   puzzleDay: string
+  date: number
   guesses: string[]
   answer?: string
   createdAt?: number
   legacyId?: number
 }
 
+export type HoldReason = 'answers-differ' | 'dates-apart' | 'v2-row'
+
 export type CollapseGroup<Row> = {
   puzzleDay: string
   keep: Row
-  /** Every other row for the day, earliest-written first. */
+  /** Every other row for the day, in index order. NOT deleted when `held` is non-empty. */
   drop: Row[]
   differing: boolean
+  /** Why this group must not be collapsed. Empty means it may be. */
+  held: HoldReason[]
+  /** Largest minus smallest `date` instant in the group. */
+  dateGapMs: number
 }
 
-/** Absent sorts first: absence is never evidence of being the later row. */
-function compareOptional(a: number | undefined, b: number | undefined): number {
-  if (a === b) return 0
-  if (a === undefined) return -1
-  if (b === undefined) return 1
-  return a - b
-}
-
-/** Negative when `a` was written before `b`. Total over distinct documents. */
-function writtenOrder(a: CollapseRow, b: CollapseRow): number {
-  return (
-    compareOptional(a.createdAt, b.createdAt) ||
-    compareOptional(a.legacyId, b.legacyId) ||
-    a._creationTime - b._creationTime
-  )
-}
+/** Ten minutes: v1's double submits were seconds apart (wordle-teams-rac). */
+export const DATE_GAP_LIMIT_MS = 10 * 60 * 1000
 
 function sameContent(a: CollapseRow, b: CollapseRow): boolean {
   return (
@@ -77,9 +70,18 @@ function sameContent(a: CollapseRow, b: CollapseRow): boolean {
   )
 }
 
+function holdReasons(rows: readonly CollapseRow[], dateGapMs: number): HoldReason[] {
+  const held: HoldReason[] = []
+  const answers = new Set(rows.map((row) => row.answer).filter((answer) => !!answer))
+  if (answers.size > 1) held.push('answers-differ')
+  if (dateGapMs > DATE_GAP_LIMIT_MS) held.push('dates-apart')
+  if (rows.some((row) => row.legacyId === undefined)) held.push('v2-row')
+  return held
+}
+
 /**
- * One collapse group per `puzzleDay` holding more than one row, ordered by day.
- * A day with a single row produces nothing.
+ * One group per `puzzleDay` holding more than one row, ordered by day. A day with
+ * a single row produces nothing.
  */
 export function planCollapse<Row extends CollapseRow>(rows: readonly Row[]): CollapseGroup<Row>[] {
   const byDay = new Map<string, Row[]>()
@@ -92,15 +94,39 @@ export function planCollapse<Row extends CollapseRow>(rows: readonly Row[]): Col
   const groups: CollapseGroup<Row>[] = []
   for (const [puzzleDay, dayRows] of byDay) {
     if (dayRows.length < 2) continue
-    const ordered = [...dayRows].sort(writtenOrder)
-    const keep = ordered[ordered.length - 1]
-    const drop = ordered.slice(0, -1)
+    const ordered = [...dayRows].sort((a, b) => a._creationTime - b._creationTime)
+    const [keep, ...drop] = ordered
+    const dates = ordered.map((row) => row.date)
+    const dateGapMs = Math.max(...dates) - Math.min(...dates)
     groups.push({
       puzzleDay,
       keep,
       drop,
       differing: drop.some((row) => !sameContent(row, keep)),
+      held: holdReasons(ordered, dateGapMs),
+      dateGapMs,
     })
   }
   return groups.sort((a, b) => a.puzzleDay.localeCompare(b.puzzleDay))
+}
+
+/** The rows a repair of these groups deletes: every `drop` of every group not held. */
+export function rowsToDelete<Row extends CollapseRow>(groups: readonly CollapseGroup<Row>[]): Row[] {
+  return groups.filter((group) => group.held.length === 0).flatMap((group) => group.drop)
+}
+
+/**
+ * EXACTLY WHAT A REPAIR OF ONE MONTH WOULD DELETE, as a string the dry run hands
+ * the operator and the apply must match: `YYYY-MM:` and the deleted rows' legacy
+ * ids in ascending numeric order. Every deletable row has a legacyId — a group
+ * holding a row without one is held.
+ */
+export function deletionKey<Row extends CollapseRow>(
+  month: string,
+  groups: readonly CollapseGroup<Row>[],
+): string {
+  const ids = rowsToDelete(groups)
+    .map((row) => row.legacyId as number)
+    .sort((a, b) => a - b)
+  return `${month}:${ids.join(',')}`
 }
