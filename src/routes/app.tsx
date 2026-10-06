@@ -12,7 +12,7 @@ import { promoteLoginAttempt } from '#/lib/last-login.ts'
 import { shouldOfferPasskey } from '#/lib/passkey.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { captureError } from '#/lib/sentry-capture.ts'
-import { resolveDashboardSearch } from '#/lib/dashboard-search.ts'
+import { dashboardSearchSettled, resolveDashboardSearch } from '#/lib/dashboard-search.ts'
 import { correctedMonth, fallbackMonths, isServableMonth } from '#/lib/dashboard-months.ts'
 import { formatMonthLabel } from '#/lib/format-day.ts'
 import { useSearchSync } from '#/lib/use-search-sync.ts'
@@ -409,18 +409,16 @@ function Dashboard() {
    * would always see "no invite" and race the consume. lib/use-pending-
    * challenge.ts has the rest, and use-pending-challenge.hook.test.ts drives it.
    */
-  // The resolver useSearchSync runs: null means it has nothing left to correct.
-  // `storedTeam: null` is safe here — it changes WHICH team the sync picks,
-  // never WHETHER it navigates — and keeps localStorage out of render.
-  const searchSettled =
-    hydrated &&
-    resolveDashboardSearch({
-      teamParam,
-      monthParam,
-      teams,
-      storedTeam: null,
-      currentMonth: monthOf(toPuzzleDay(new Date())),
-    }) === null
+  // See dashboardSearchSettled. `new Date()` is read only once hydrated: the
+  // helper returns false first, but the argument is built every render, so the
+  // clock read is guarded here rather than relied on there.
+  const searchSettled = dashboardSearchSettled({
+    hydrated,
+    teamParam,
+    monthParam,
+    teams,
+    currentMonth: hydrated ? monthOf(toPuzzleDay(new Date())) : '',
+  })
   usePendingChallenge(joinParam, consumeInvite.isPending, searchSettled, (token) => {
     void navigate({ to: '/challenge/$token', params: { token }, replace: true })
   })
@@ -690,7 +688,9 @@ function Dashboard() {
     or null, so this effect's dependency list is two primitives and `navigate`, and
     no array identity can re-fire it.
 
-    IT CANNOT FIGHT useSearchSync, the other effect on this page that navigates,
+    IT CANNOT FIGHT useSearchSync, another effect on this page that navigates
+    (the challenge resume above is the third; it waits for useSearchSync to
+    settle, but NOT for this correction — see use-pending-challenge.ts),
     and the reason is worth getting right rather than nearly right.
     resolveDashboardSearch returns null as soon as `?team=` names a team the viewer
     belongs to AND `?month=` is set. It is NOT the case that `loadedWindow` is

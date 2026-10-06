@@ -118,7 +118,15 @@ export function usePendingChallenge(
    * pending; then it hydrates, useSearchSync sees no ?team=/?month= and
    * navigates back to /app?team=&month= — superseding the forward. The token
    * has already been taken, so the link is simply gone. Waiting until the sync
-   * is settled means the forward is the LAST navigation, not the first.
+   * is settled means the forward comes AFTER useSearchSync's correction.
+   *
+   * NOT AFTER EVERY NAVIGATION. The month-window correction in app.tsx is
+   * computed below usePendingInvite, which this must precede, so the gate
+   * cannot see it. It fires only for a ?month= outside the team's window, and
+   * the arrivals this resume serves (sign-in, /complete-profile) carry no
+   * month until useSearchSync sets the current one, which is always inside the
+   * window. A stashed token meeting a bookmarked out-of-window month is the
+   * unguarded case; it would lose the link, not loop.
    */
   searchSettled: boolean,
   onToken: (token: string) => void,
