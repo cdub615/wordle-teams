@@ -64,10 +64,12 @@ export const TRIAL_ENDED_CTA = 'See your history'
  * IT SAYS *INSIGHTS* TRIAL, AND THAT IS THE WHOLE DESIGN. insightsAccess applies
  * `paid = isPro || trialActive` to layer2 and layer3 ONLY: a trialist still sees
  * Layer 1 as free, gets no Layer 4, and does not get the widened month window
- * (access.ts: "The trial does not widen this window"). So four of the five
- * PRO_BENEFITS entries — teams, scoring, import, months — are NOT in the trial.
- * "A free month of Pro" would be a claim this product does not honour, and
- * trial-copy.test.ts refuses the vocabulary of all four.
+ * (access.ts: "The trial does not widen this window"), and starting a
+ * challenge or seeing its per-player rows asks isProFor, which a trial does not
+ * satisfy. So five of the six PRO_BENEFITS entries — teams, scoring, import,
+ * challenges, months — are NOT in the trial. "A free month of Pro" would be a
+ * claim this product does not honour, and trial-copy.test.ts refuses the
+ * titles of all five and the vocabulary of each that has some.
  *
  * THE END DATE IS NOT IN THESE STRINGS. It is per-player, arrives as epoch ms on
  * `access.trialEndsAt`, and is rendered by `trialEndsOnLine` below from a date

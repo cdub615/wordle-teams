@@ -2,13 +2,14 @@
 //
 // THE JOIN BETWEEN THE CARD AND THE DIALOG IT OPENS (wordle-teams-iht.1.11).
 //
-// Six affordances each hand `openUpgrade` a different origin, and the origin is
-// the only thing that chooses the dialog's headline. Four of the six were
-// pinned before this file: src/routes.test.ts reads routes/app.tsx and
-// routes/insights.tsx as SOURCE and pins `teams`, `months` and `insights` that
-// way; Header.hook.test.ts pins `header` by rendering the bar. Neither approach
-// reaches a plain component, so `trial-ended` here and `import` in
-// board-entry/form-import.hook.test.ts were covered by nothing at all.
+// Eight affordances now each hand `openUpgrade` a different origin, and the
+// origin is the only thing that chooses the dialog's headline. There were six
+// when this file was written, and four of those six were pinned before it:
+// src/routes.test.ts reads routes/app.tsx and routes/insights.tsx as SOURCE
+// and pins `teams`, `months` and `insights` that way; Header.hook.test.ts pins
+// `header` by rendering the bar. Neither approach reaches a plain component,
+// so `trial-ended` here and `import` in board-entry/form-import.hook.test.ts
+// were covered by nothing at all.
 //
 // MEASURED, NOT ASSUMED. Before this file, rewriting line 39 of
 // trial-ended-card.tsx as `openUpgrade('header')` passed the whole suite, tsc,

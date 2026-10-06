@@ -22,22 +22,24 @@ import { useStartUpgrade } from '#/lib/use-start-upgrade.ts'
  * WAS described, the landing page's feature cards, is a page a signed-in player
  * never sees, because routes/index.tsx redirects them to /app.
  *
- * A PROVIDER, NOT SIX MOUNTS. Six affordances in five files need this surface;
- * mounting it beside each would be six dialogs to keep in step and six chances
- * for the next one to be added without it. One mount at __root
+ * A PROVIDER, NOT EIGHT MOUNTS. Eight affordances in seven files need this
+ * surface; mounting it beside each would be eight dialogs to keep in step and
+ * eight chances for the next one to be added without it. One mount at __root
  * (`wordle-teams-iht.1.4`), one `openUpgrade(origin)`, and — the part that
- * matters — the CTA below IS the app's one route to checkout. All six
+ * matters — the CTA below IS the app's one route to checkout. All eight
  * affordances — Header.tsx, routes/app.tsx (TeamPicker and MonthPicker),
- * board-entry/import-upsell.tsx, trial-ended-card.tsx and routes/insights.tsx —
+ * board-entry/import-upsell.tsx, routes/insights.tsx, trial-ended-card.tsx,
+ * trial-active-card.tsx and routes/team.tsx (ChallengesCard, whose one
+ * `onUpgrade` serves both its "Challenge a team" and its scoreboard's hint) —
  * call `openUpgrade` rather than useStartUpgrade, and src/checkout-entry-point.test.ts
  * pins this file as that hook's only importer. That test is the load-bearing
  * half: a second unguarded path would defeat the whole thing and would
  * type-check, lint and build clean.
  *
  * THE HEADLINE IS THE ONLY THING THAT VARIES. The benefits list is PRO_BENEFITS
- * in full for every origin: one inventory, six openings. Nothing here writes a
+ * in full for every origin: one inventory, eight openings. Nothing here writes a
  * benefit of its own, and the test fails if the inventory grows an entry this
- * does not render — title AND body, so five bare headings do not satisfy it.
+ * does not render — title AND body, so six bare headings do not satisfy it.
  *
  * NO SKIP-TO-CHECKOUT PATH. The CTA below IS the checkout, so skipping saves
  * exactly one click, and the thing being skipped is the only statement of what
@@ -64,7 +66,7 @@ export function UpgradeDialogProvider({ children }: { children: React.ReactNode 
    * keeps DialogContent mounted through `data-[state=closed]:animate-out`
    * (ui/dialog.tsx sets it, with `duration-200`), so dropping the origin on
    * close blanks the TITLE for the length of the fade while the price line, the
-   * five benefits and the footer are all still on screen — the dialog appears
+   * six benefits and the footer are all still on screen — the dialog appears
    * to lose its headline as it leaves. Flipping only `open` means it renders
    * what it was opened with, all the way out. REASONING, NOT A TEST, HOLDS
    * THIS: jsdom runs no animations, so Radix unmounts immediately there and
@@ -151,7 +153,7 @@ function UpgradeDialog({
         is worse than a coin toss, not better: it means one caller can switch
         off wordle-teams-8h2p's safe-area scrolling for its own dialog silently,
         which is the class of failure ui/dialog.hook.test.ts exists to catch.
-        Five benefits is not a long document, and Task 8's 390px pass is what
+        Six benefits is not a long document, and Task 8's 390px pass is what
         would catch it if the CTA ever stopped being reachable.
 
         AND IT PASSES NO className AT ALL, which is the second half of the same

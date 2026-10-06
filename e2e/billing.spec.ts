@@ -108,7 +108,7 @@ const billingItem = (page: Page): Locator => page.getByRole('menuitem', { name: 
  * (wordle-teams-iht.1).
  *
  * Until it existed, clicking Upgrade called createProCheckout and the player
- * arrived at Polar having been told nothing about what Pro is. Six affordances
+ * arrived at Polar having been told nothing about what Pro is. Eight affordances
  * now call `openUpgrade(origin)` instead, and the CTA below is the app's ONE
  * route to checkout — src/checkout-entry-point.test.ts pins upgrade-dialog.tsx
  * as that hook's only importer, so a second unguarded path fails a gate rather
@@ -438,15 +438,16 @@ test('the portal and both upgrade entry points each report their own failure', a
   // and scrolls itself (wordle-teams-8h2p), and overriding that would switch
   // off the protection for this one caller. So the property worth holding is
   // not "the CTA is pinned", it is "the CTA is REACHABLE and nothing spills
-  // sideways" — five benefit entries plus a headline is a lot to put in a
+  // sideways" — six benefit entries plus a headline is a lot to put in a
   // 390px-wide box, and the alternative to this assertion is nobody noticing
-  // when a sixth is added.
+  // when a seventh is added.
   //
   // `click()` IS THE REACHABILITY TEST, not `toBeVisible()`. Playwright scrolls
   // the element into view first, so it exercises the scroll the design relies
-  // on; measured at 390x667 the CTA starts 42px below the fold and this is what
-  // gets to it. A bound is given because an unreachable element HANGS here
-  // rather than failing — actionTimeout is 0 suite-wide.
+  // on; measured at 390x667 back when the list had five entries, the CTA
+  // started 42px below the fold (not re-measured since the sixth), and this
+  // is what gets to it. A bound is given because an unreachable element HANGS
+  // here rather than failing — actionTimeout is 0 suite-wide.
   await upgradeButton(page).click()
   await expect(upgradeDialog(page)).toBeVisible()
   const dialogOverflow = await page.evaluate(

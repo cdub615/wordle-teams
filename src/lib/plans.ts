@@ -87,8 +87,8 @@ export const PRO_PRICE_LINE = `Pro is ${annual.label}`
 export const MONTHLY_FINE_PRINT = `or ${monthly.label}`
 
 /**
- * Where an upgrade was asked for. Eight lines over seven affordances, and the
- * eighth is a state.
+ * Where an upgrade was asked for. Eight lines over eight affordances, and the
+ * `trial-active` one opens from a state rather than a feature reached for.
  *
  * THE HEADLINE VARIES AND THE BODY DOES NOT. Someone who clicked "Import from a
  * screenshot" has demonstrated interest in import specifically, and a generic

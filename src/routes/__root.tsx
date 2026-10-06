@@ -276,7 +276,7 @@ function RootComponent() {
       <PullToRefresh />
       {/*
         THE PROVIDER WRAPS HEADER TOO, not only the Outlet: Header.tsx's own
-        Upgrade button is one of the six affordances, so it has to be inside.
+        Upgrade button is one of the eight affordances, so it has to be inside.
         One mount for the whole app is the point — see upgrade-dialog.tsx.
       */}
       <UpgradeDialogProvider>
