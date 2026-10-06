@@ -9,7 +9,7 @@ import { addDays, addMonths, monthRange, toPuzzleDay, type PuzzleMonth } from '.
 import { monthTotal, winnerOf } from './lib/scoring.ts'
 import { aggregateTeamMonth, meanAttemptsOf, sameStats } from './lib/teamStats.ts'
 import { rollupTeamMonth } from './teamStats.ts'
-import { loadTeamMonthSystem, recomputeTeamMonth, type ReaderCtx } from './winners.ts'
+import { loadTeamMonthSystem, type ReaderCtx } from './winners.ts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 
@@ -1101,12 +1101,17 @@ export const insightsPairProbe = internalQuery({
 // re-plans from rows it has just read.
 //
 // IMPACT AND REPAIR WORK ONE MONTH AT A TIME, ACROSS EVERY PLAYER. A team-month's
-// winner and statistics depend on all its members' boards, so the repair deletes
-// every collapsible duplicate in the month and only then recomputes each affected
-// team ONCE — a member's partial repair can never flip a winner, reset
-// hasSeenCelebration, and have another member's repair flip it back. Scanning the
-// month itself, rather than taking a list of players, is also what keeps the
-// repair from trusting anything handed to it.
+// statistics depend on all its members' boards, so the repair deletes every
+// collapsible duplicate in the month and only then rolls up each affected team
+// ONCE. Scanning the month itself, rather than taking a list of players, is also
+// what keeps the repair from trusting anything handed to it.
+//
+// THE REPAIR NEVER WRITES WINNERS (revision 3). monthTotal scores the FIRST row of
+// a day, and the survivor IS the first row, so collapsing cannot change any
+// winner — only board counts and averages. The repair rolls up teamMonthStats and
+// leaves monthlyWinners, and with it hasSeenCelebration, untouched. The impact
+// still reports where a stored winner disagrees with a recompute today, labelled
+// as drift: information for the owner, not something this repair does.
 //
 // THE ID POLICY IS THIS FILE'S: legacy ids, never document ids, because this
 // repository is public and these outputs get pasted into issues. A player or team
@@ -1251,25 +1256,21 @@ async function storedWinnerRow(ctx: ReaderCtx, team: Doc<'teams'>, month: Puzzle
 }
 
 /**
- * One (team, month): as stored, as a recompute would leave it today with the
- * duplicates in place (`winnerLive`), and as the repair would leave it.
+ * One (team, month): statistics as stored and as the repair would leave them, and
+ * WINNER DRIFT — informational only.
  *
- * WINNERS ONLY WHERE A ROW ALREADY EXISTS (revision 2, I1). The repair recomputes
- * winners only for a month that already has a monthlyWinners row for the team —
- * recomputeForJoiner's rule — and otherwise rolls up statistics alone, so it never
- * creates a winner for a month before a team existed. Here that means: with no
- * stored row, winnerBefore and winnerAfter are both null and winnerChanged is
- * false; `null -> X` is never reported as a change.
+ * STATISTICS are the repair's whole effect (revision 3): aggregateTeamMonth over
+ * every member's month of boards with the deleted rows removed, compared with the
+ * stored teamMonthStats doc.
  *
- * EVERY DAY IS DUE: `today` is the first of the next month — exactly what the
- * repair's recompute computes for a past month with the server's day.
- *
- * Under revision 2's rule the survivor is the first row, which is also the row
- * monthTotal already scores (first row wins for a day), so the collapse alone
- * never moves a winner against a fresh recompute: winnerAfter equals winnerLive.
- * A winnerChanged here is stored-vs-live drift — v1 computed the copied winners
- * in its own row order, and recomputeTeamMonth scores the CURRENT roster — which
- * the repair's recompute would apply. The owner approves that too.
+ * WINNER DRIFT IS NOT CHANGED BY THE REPAIR, which never writes monthlyWinners.
+ * It is reported because the owner asked to see it: where a winner row exists,
+ * `liveWinner` is what recomputeTeamMonth would compute today — duplicates in
+ * place or not, since monthTotal scores the first row of a day and that row is
+ * the survivor — and `winnerDrift` is true when it differs from the stored row.
+ * That happens when v1 computed the copied winner in its own row order, or the
+ * roster has changed since the month. Every day is due: `today` is the first of
+ * the next month. With no winner row, both are null and there is no drift.
  */
 async function monthImpact(
   ctx: ReaderCtx,
@@ -1286,7 +1287,6 @@ async function monthImpact(
   const members: Doc<'players'>[] = []
   const after: Doc<'dailyScores'>[] = []
   const totalsLive = []
-  const totalsAfter = []
   for (const memberId of team.playerIds) {
     // recomputeTeamMonth's guard: a roster id with no player is not a candidate.
     const member = await ctx.db.get(memberId)
@@ -1297,7 +1297,6 @@ async function monthImpact(
     const kept = rows.filter((row) => !deleted.has(row._id))
     after.push(...kept)
     totalsLive.push({ playerId: memberId, total: score(rows) })
-    totalsAfter.push({ playerId: memberId, total: score(kept) })
   }
 
   const stored = await storedWinnerRow(ctx, team, month)
@@ -1309,19 +1308,13 @@ async function monthImpact(
     .unique()
 
   const statsAfter = aggregateTeamMonth({ memberIds: team.playerIds, scores: after })
-  const winnerAfter = stored ? (winnerOf(totalsAfter) as Id<'players'> | null) : null
-  const winnerLive = stored ? (winnerOf(totalsLive) as Id<'players'> | null) : null
+  const liveWinner = stored ? (winnerOf(totalsLive) as Id<'players'> | null) : null
   const ref = async (id: Id<'players'> | null) =>
     id === null ? null : playerRef(members.find((m) => m._id === id) ?? (await ctx.db.get(id)))
 
   return {
     team: teamRef(team),
     month,
-    hasWinnerRow: stored !== null,
-    winnerBefore: await ref(stored?.playerId ?? null),
-    winnerAfter: await ref(winnerAfter),
-    winnerLive: await ref(winnerLive),
-    winnerChanged: stored !== null && stored.playerId !== winnerAfter,
     statsChanged:
       storedStats === null ||
       !sameStats({ members: storedStats.members, days: storedStats.days }, statsAfter),
@@ -1336,6 +1329,11 @@ async function monthImpact(
         avgAfter: meanAttemptsOf(now),
       }
     }),
+    // Informational: the repair does not change any of this (revision 3).
+    hasWinnerRow: stored !== null,
+    storedWinner: await ref(stored?.playerId ?? null),
+    liveWinner: await ref(liveWinner),
+    winnerDrift: stored !== null && stored.playerId !== liveWinner,
   }
 }
 
@@ -1395,19 +1393,17 @@ export const duplicateScoresImpact = internalQuery({
  * or none at all.
  *
  * Then, unless dryRun, it deletes every collapsible group's drop rows — HELD
- * groups are never touched — and only after ALL of the month's deletes recomputes
- * each team whose roster holds a player who lost a row, ONCE (revision 2, I3):
- * recomputeTeamMonth (winner and stats) where the team already has a winner row
- * for the month, rollupTeamMonth (stats only) where it does not (I1). Same
- * transaction, so no reader sees the boards gone and the standings not.
+ * groups are never touched — and only after ALL of the month's deletes rolls up
+ * teamMonthStats ONCE for each team whose roster holds a player who lost a row
+ * (rollupTeamMonth), in the same transaction.
  *
- * WHAT A CHANGED WINNER DOES TO THE CELEBRATION: recomputeTeamMonth patches the
- * row in place, keeping hasSeenCelebration for an unchanged winner and resetting
- * it to [] for a changed one. The dialog only asks for the viewer's previous local
- * month, so a reset on an older month is invisible. Pinned in the tests.
+ * IT NEVER WRITES WINNERS (revision 3): no recomputeTeamMonth, no monthlyWinners
+ * write, so no winner and no hasSeenCelebration changes. Collapsing cannot move a
+ * winner — monthTotal scores the first row of a day, which is the survivor — and
+ * a recompute would only apply unrelated drift (see monthImpact).
  *
- * IDEMPOTENT: a second run plans nothing collapsible, deletes nothing and
- * recomputes nothing. NOT GATED on SWEEPS_ENABLED or CHALLENGES_ENABLED, for
+ * IDEMPOTENT: a second run plans nothing collapsible, deletes nothing and rolls
+ * up nothing. NOT GATED on SWEEPS_ENABLED or CHALLENGES_ENABLED, for
  * backfillMonth's reason. Bound: monthPlan, the `teams` scan, and per affected
  * team one month of each member's boards.
  */
@@ -1433,14 +1429,9 @@ export const repairDuplicateScores = internalMutation({
     }
 
     const teamMonths = []
-    const today = toPuzzleDay(new Date())
     for (const team of await affectedTeams(ctx, deletingPlayers(plan))) {
-      const winners = (await storedWinnerRow(ctx, team, args.month)) !== null
-      if (!dryRun) {
-        if (winners) await recomputeTeamMonth(ctx, team, args.month, today)
-        else await rollupTeamMonth(ctx, team, args.month)
-      }
-      teamMonths.push({ team: teamRef(team), month: args.month, winners })
+      if (!dryRun) await rollupTeamMonth(ctx, team, args.month)
+      teamMonths.push({ team: teamRef(team), month: args.month })
     }
 
     return {

@@ -9,10 +9,12 @@
  *   measure          every player holding a duplicated day (the probe, all
  *                    pages), with every HELD group and its reasons
  *   impact           the probe, then each month's impact, all pages, checked
- *                    complete: winner and stats as stored vs. as the repair
- *                    would leave them. The diff the owner approves.
+ *                    complete: stats as stored vs. as the repair would leave
+ *                    them — the diff the owner approves. Winner DRIFT (a stored
+ *                    winner a recompute today would disagree with) is listed as
+ *                    information only: the repair never writes winners.
  *   repair           a DRY RUN (the default; --dry-run says so explicitly): what
- *                    each month's repair would delete and recompute, and the
+ *                    each month's repair would delete and roll up, and the
  *                    FINGERPRINT of exactly those rows
  *   repair --apply --confirm-host=<host> --expect=<fingerprint>
  *                    re-plans every month; refuses unless the fingerprint still
@@ -160,7 +162,24 @@ async function impact(months) {
       continue
     }
     const check = checkImpactPages(pages)
-    record({ kind: 'impact-month', month, pairs: pages[0].pairs, held: pages[0].held, ...check })
+    const entries = pages.flatMap((p) => p.entries)
+    const statsChanges = entries.filter((e) => e.statsChanged).length
+    const drift = entries.filter((e) => e.winnerDrift).length
+    record({
+      kind: 'impact-month',
+      month,
+      pairs: pages[0].pairs,
+      held: pages[0].held,
+      statsChanges,
+      // Counted apart from what the repair does, and labelled so: the repair never
+      // writes monthlyWinners (revision 3).
+      winnerDriftInformational: drift,
+      ...check,
+    })
+    console.log(
+      `${month}: ${statsChanges} team stats change(s) by this repair; ` +
+        `${drift} winner drift (not changed by this repair); ${pages[0].held} held group(s)`,
+    )
     if (!check.ok) complete = false
   }
   return complete
