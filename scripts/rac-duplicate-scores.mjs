@@ -6,14 +6,18 @@
  * repairDuplicateScores with the migration key. EVERY MODE IS READ-ONLY EXCEPT
  * `repair --apply`.
  *
- *   measure          every player holding a duplicated day (the probe, all pages)
- *   impact           the probe, then every affected (team, month): winner and
- *                    stats as stored vs. with the duplicates collapsed. This is
- *                    the diff the owner approves before anything is written.
+ *   measure          every player holding a duplicated day (the probe, all
+ *                    pages), with every HELD group and its reasons
+ *   impact           the probe, then each month's impact, all pages, checked
+ *                    complete: winner and stats as stored vs. as the repair
+ *                    would leave them. The diff the owner approves.
  *   repair           a DRY RUN (the default; --dry-run says so explicitly): what
- *                    each player's repair would delete and recompute
- *   repair --apply   deletes and recomputes, one (player, month) per call, then
- *                    measures again and fails unless nothing is left
+ *                    each month's repair would delete and recompute, and the
+ *                    FINGERPRINT of exactly those rows
+ *   repair --apply --confirm-host=<host> --expect=<fingerprint>
+ *                    re-plans every month; refuses unless the fingerprint still
+ *                    matches; then repairs one month per call, each call tied to
+ *                    its month's deletion key, and measures again
  *
  * TARGET. Load the PRODUCTION URL and migration key BY NAME from the commented
  * block of the repo-root .env.local, exactly as copy-from-supabase.mjs is run
@@ -28,23 +32,25 @@
  * testing against the local backend only. `--apply` additionally needs
  * `--confirm-host=<the printed host>`.
  *
- * OUTPUT. A summary on stdout; with --out=<path> the full JSON as well, and only
- * under the OS temp dir. It names real players' legacy ids and boards, so it must
- * never land in this repository, which is public.
+ * OUTPUT. Every function call's result is printed AS IT RETURNS and, with
+ * --out=<path>, appended to that file as one JSON line before the next call
+ * (revision 2, I2), so a run that dies halfway keeps the record of what it already
+ * deleted. --out is accepted only under the OS temp dir, symlinks resolved: it
+ * names real players' legacy ids and boards, and this repository is public.
  */
 import os from 'node:os'
-import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
 import { environmentsFromWranglerConfig } from './lib/copy-target.mjs'
 import {
-  chunk,
+  checkImpactPages,
   decideRacTarget,
-  dedupeEntries,
-  monthsToRepair,
+  fingerprintOf,
+  monthsOf,
   outputPathAllowed,
   parseRacArgs,
+  recorder,
 } from './lib/rac-runner.mjs'
 
 const CONVEX_URL = process.env.CONVEX_URL
@@ -62,8 +68,9 @@ console.log(`TARGET HOST: ${printedHost}`)
 const args = parseRacArgs(process.argv.slice(2))
 if (args.error) {
   console.error(args.error)
-  console.error('Usage: rac-duplicate-scores.mjs measure|impact|repair [--dry-run|--apply')
-  console.error('         --confirm-host=<host>] [--local] [--out=<path under the OS temp dir>]')
+  console.error('Usage: rac-duplicate-scores.mjs measure|impact|repair [--dry-run]')
+  console.error('       rac-duplicate-scores.mjs repair --apply --confirm-host=<host> --expect=<fingerprint>')
+  console.error('       [--local] [--out=<path under the OS temp dir>]')
   process.exit(1)
 }
 
@@ -91,18 +98,23 @@ if (!CONVEX_MIGRATION_KEY) {
 }
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 if (args.out && !outputPathAllowed(args.out, { tmpdir: os.tmpdir(), repoRoot })) {
-  console.error(`REFUSING --out=${args.out}: it must be under ${os.tmpdir()} and outside the repo.`)
+  console.error(`REFUSING --out=${args.out}: it must be in an existing directory under ${os.tmpdir()},`)
+  console.error('outside the repository, with symlinks resolved.')
   process.exit(1)
 }
 
 const writes = args.mode === 'repair' && args.apply
 console.log(`MODE: ${args.mode}${args.mode === 'repair' ? (writes ? ' --apply (WRITES)' : ' (dry run)') : ''}`)
-console.log('')
+const record = recorder(args.out)
+record({ kind: 'run', host: verdict.host, mode: args.mode, apply: args.apply, at: new Date().toISOString() })
 
 const convex = new ConvexHttpClient(CONVEX_URL)
 convex.setAdminAuth(CONVEX_MIGRATION_KEY)
 
-async function measure() {
+/** A ConvexError's message rides on `data`; anything else on `message`. */
+const messageOf = (error) => String(error?.data ?? error?.message ?? error)
+
+async function measure(label) {
   const affected = []
   let players = 0
   let cursor = null
@@ -113,150 +125,115 @@ async function measure() {
     if (page.isDone) break
     cursor = page.cursor
   }
-  const groups = affected.flatMap((a) => a.groups)
-  return {
+  const groups = affected.flatMap((a) => a.groups.map((g) => ({ player: a.player, ...g })))
+  const held = groups.filter((g) => g.held.length > 0)
+  const summary = {
+    kind: 'measure',
+    label,
     playersScanned: players,
     affectedPlayers: affected.length,
     groups: groups.length,
-    differingGroups: groups.filter((g) => g.differing).length,
-    rowsToDrop: groups.reduce((n, g) => n + g.drop.length, 0),
-    affected,
+    collapsible: groups.length - held.length,
+    held: held.length,
+    differing: groups.filter((g) => g.differing).length,
+    rowsToDelete: groups.filter((g) => g.held.length === 0).reduce((n, g) => n + g.drop.length, 0),
   }
+  record(summary)
+  for (const g of groups) record({ kind: 'group', ...g })
+  return { affected, groups, summary }
 }
 
-function printMeasure(m) {
-  console.log(
-    `${m.playersScanned} players scanned; ${m.affectedPlayers} hold duplicates: ` +
-      `${m.groups} duplicated days (${m.differingGroups} differing), ${m.rowsToDrop} rows to drop.`,
-  )
-  for (const a of m.affected) {
-    for (const g of a.groups) {
-      const row = (r) => `#${r.legacyId ?? 'v2'} @${r.createdAt ?? '-'} (${r.attempts})`
-      console.log(
-        `  ${a.player}  ${g.puzzleDay}  x${g.rows}${g.differing ? '  DIFFERING' : ''}` +
-          `  keep ${row(g.keep)}  drop ${g.drop.map(row).join(', ')}`,
-      )
-    }
-  }
-}
-
-/** Players the functions can address. A v2-born player has no legacy id. */
-function addressable(m) {
-  const native = m.affected.filter((a) => a.player === 'v2-native')
-  if (native.length > 0) {
-    console.log(`${native.length} v2-born player(s) hold duplicates and cannot be named here.`)
-  }
-  return m.affected.filter((a) => a.player !== 'v2-native')
-}
-
-async function impact(m) {
-  const entries = []
-  const missing = []
-  for (const batch of chunk(addressable(m).map((a) => a.player), 5)) {
-    let offset = 0
-    while (offset !== null) {
-      const page = await convex.query(internal.migrate.duplicateScoresImpact, {
-        players: batch,
-        offset,
-      })
-      if (offset === 0) missing.push(...page.missing)
-      entries.push(...page.entries)
-      offset = page.nextOffset
-    }
-  }
-  return { entries: dedupeEntries(entries), missing }
-}
-
-function printImpact({ entries, missing }) {
-  const changed = entries.filter((e) => e.winnerChanged)
-  console.log(
-    `${entries.length} (team, month) pairs affected; ${changed.length} winner change(s), ` +
-      `${entries.filter((e) => e.statsChanged).length} stats change(s).`,
-  )
-  if (missing.length) console.log(`Players not found: ${missing.join(', ')}`)
-  for (const e of entries) {
-    const winner =
-      e.winnerChanged ? `WINNER ${e.winnerBefore} -> ${e.winnerAfter}` : `winner ${e.winnerAfter}`
-    const drift = e.winnerLive !== e.winnerBefore ? `  (stored winner already stale: live ${e.winnerLive})` : ''
-    console.log(`  team ${e.team}  ${e.month}  ${winner}${drift}`)
-    for (const p of e.players) {
-      if (p.boardsBefore === p.boardsAfter && p.avgBefore === p.avgAfter) continue
-      console.log(
-        `      ${p.player}  boards ${p.boardsBefore} -> ${p.boardsAfter}  avg ${p.avgBefore} -> ${p.avgAfter}`,
-      )
-    }
-  }
-}
-
-async function repair(m) {
-  const results = []
-  for (const a of addressable(m)) {
-    for (const month of monthsToRepair(a)) {
-      results.push(
-        await convex.mutation(internal.migrate.repairDuplicateScores, {
-          player: a.player,
-          month,
-          dryRun: !args.apply,
-        }),
-      )
-    }
-  }
-  return results
-}
-
-function printRepair(results) {
-  const verb = args.apply ? 'deleted' : 'would delete'
-  let rows = 0
-  for (const r of results) {
-    if (!r.found) {
-      console.log(`  ${r.player}: NOT FOUND`)
+async function impact(months) {
+  let complete = true
+  for (const month of months) {
+    const pages = []
+    let after = null
+    try {
+      do {
+        const page = await convex.query(internal.migrate.duplicateScoresImpact, { month, after })
+        pages.push(page)
+        for (const entry of page.entries) record({ kind: 'impact', ...entry })
+        after = page.next
+      } while (after !== null)
+    } catch (error) {
+      record({ kind: 'impact-refused', month, reason: messageOf(error) })
       continue
     }
-    for (const g of r.groups) {
-      rows += g.deleted.length
-      console.log(
-        `  ${r.player}  ${g.puzzleDay}${g.differing ? '  DIFFERING' : ''}  keep #${g.kept.legacyId}` +
-          `  ${verb} ${g.deleted.map((d) => `#${d.legacyId}`).join(', ')}`,
-      )
-    }
-    for (const tm of r.teamMonths) {
-      console.log(`      ${args.apply ? 'recomputed' : 'would recompute'} team ${tm.team} ${tm.month}`)
+    const check = checkImpactPages(pages)
+    record({ kind: 'impact-month', month, pairs: pages[0].pairs, held: pages[0].held, ...check })
+    if (!check.ok) complete = false
+  }
+  return complete
+}
+
+/** One dry-run pass over every month: the plan, recorded as it returns. */
+async function plan(months) {
+  const keys = []
+  const planned = []
+  for (const month of months) {
+    try {
+      const result = await convex.mutation(internal.migrate.repairDuplicateScores, { month, dryRun: true })
+      record({ kind: 'plan', ...result })
+      keys.push(result.deletionKey)
+      planned.push(result)
+    } catch (error) {
+      record({ kind: 'plan-refused', month, reason: messageOf(error) })
+      keys.push(`${month}:refused`)
     }
   }
-  console.log(`${rows} row(s) ${verb}.`)
+  return { fingerprint: fingerprintOf(keys), planned }
 }
 
-const report = { host: verdict.host, mode: args.mode, apply: args.apply }
-const measured = await measure()
-report.measure = measured
-printMeasure(measured)
+const { affected } = await measure('before')
+const months = monthsOf(affected)
+let exitCode = 0
 
 if (args.mode === 'impact') {
-  console.log('')
-  report.impact = await impact(measured)
-  printImpact(report.impact)
+  if (!(await impact(months))) {
+    console.error('IMPACT INCOMPLETE: a month did not return every (team, month) pair. Do not approve it.')
+    exitCode = 1
+  }
 }
 
-let exitCode = 0
 if (args.mode === 'repair') {
-  console.log('')
-  report.repair = await repair(measured)
-  printRepair(report.repair)
-  if (args.apply) {
-    console.log('')
-    console.log('Measuring again after the repair:')
-    const after = await measure()
-    report.after = after
-    printMeasure(after)
-    if (after.groups > 0) {
-      console.error('DUPLICATES REMAIN after --apply.')
+  const { fingerprint, planned } = await plan(months)
+  record({ kind: 'fingerprint', fingerprint })
+  if (!args.apply) {
+    console.log(`\nFINGERPRINT: ${fingerprint}`)
+    console.log(`To apply exactly this plan: repair --apply --confirm-host=${verdict.host} --expect=${fingerprint}`)
+  } else if (fingerprint !== args.expect) {
+    console.error(`REFUSING TO APPLY: the plan's fingerprint is ${fingerprint}, not ${args.expect}.`)
+    console.error('Something changed since the dry run that was approved. Nothing was written.')
+    exitCode = 1
+  } else {
+    for (const month of planned) {
+      if (month.deletionKey.endsWith(':')) continue // nothing to delete in this month
+      try {
+        const result = await convex.mutation(internal.migrate.repairDuplicateScores, {
+          month: month.month,
+          dryRun: false,
+          expect: month.deletionKey,
+        })
+        record({ kind: 'applied', ...result })
+      } catch (error) {
+        record({ kind: 'apply-refused', month: month.month, reason: messageOf(error) })
+        console.error(`STOPPED at ${month.month}: ${messageOf(error)}`)
+        exitCode = 1
+        break
+      }
+    }
+    // Only months the plan covered can be expected clean: a month the server
+    // refused (not yet past) was never planned, and is reported, not failed.
+    const covered = new Set(planned.map((p) => p.month))
+    const { groups } = await measure('after')
+    const left = groups.filter((g) => g.held.length === 0 && covered.has(g.puzzleDay.slice(0, 7)))
+    const refused = groups.filter((g) => g.held.length === 0 && !covered.has(g.puzzleDay.slice(0, 7)))
+    record({ kind: 'verify', collapsibleLeft: left.length, refusedMonthGroups: refused.length })
+    if (left.length > 0) {
+      console.error(`${left.length} COLLAPSIBLE DUPLICATE(S) REMAIN in repaired months after --apply.`)
       exitCode = 1
     }
   }
 }
 
-if (args.out) {
-  writeFileSync(args.out, JSON.stringify(report, null, 2))
-  console.log(`\nFull report: ${args.out}`)
-}
 process.exit(exitCode)

@@ -7,14 +7,17 @@
 // rac-runner.test.mjs can drive the refusals — the script itself does its work at
 // module scope and is untestable, like every runner in scripts/.
 
+import { createHash } from 'node:crypto'
+import fs from 'node:fs'
 import path from 'node:path'
 
 const MODES = ['measure', 'impact', 'repair']
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]'])
 
 /**
- * argv (without node and the script) -> { mode, apply, local, confirmHost, out }
- * or { error }. Unknown flags are refused rather than ignored: a mistyped
+ * argv (without node and the script) -> { mode, apply, local, confirmHost, expect,
+ * out } or { error }. `--apply` needs `--expect=<fingerprint>`, the one a dry run
+ * printed (revision 2, I4). Unknown flags are refused rather than ignored: a mistyped
  * `--aply` must not quietly become a dry run that the operator believes wrote.
  */
 export function parseRacArgs(argv) {
@@ -26,18 +29,23 @@ export function parseRacArgs(argv) {
   let dryRun = false
   let local = false
   let confirmHost
+  let expect
   let out
   for (const flag of flags) {
     if (flag === '--apply') apply = true
     else if (flag === '--dry-run') dryRun = true
     else if (flag === '--local') local = true
     else if (flag.startsWith('--confirm-host=')) confirmHost = flag.slice('--confirm-host='.length)
+    else if (flag.startsWith('--expect=')) expect = flag.slice('--expect='.length)
     else if (flag.startsWith('--out=')) out = flag.slice('--out='.length)
     else return { error: `Unknown flag ${flag}.` }
   }
   if (apply && mode !== 'repair') return { error: '--apply applies only to repair.' }
   if (apply && dryRun) return { error: 'Pass --apply or --dry-run, not both.' }
-  return { mode, apply, local, confirmHost, out }
+  if (apply && !expect) {
+    return { error: '--apply needs --expect=<fingerprint>, as printed by `repair --dry-run`.' }
+  }
+  return { mode, apply, local, confirmHost, expect, out }
 }
 
 function hostnameOf(url) {
@@ -99,36 +107,77 @@ export function decideRacTarget({ convexUrl, environments, local, apply, confirm
  * A report names real players' legacy ids and boards, so it may go to stdout or
  * under the OS temp dir — never into the repository, even where the repository
  * itself sits under the temp dir.
+ *
+ * SYMLINKS ARE RESOLVED (revision 2, M3): the file's real path is what is checked
+ * — the file itself when it exists, else its directory's real path plus its name —
+ * and the temp dir and repository are compared by their real paths too. A
+ * directory that does not exist is refused rather than guessed at.
  */
 export function outputPathAllowed(file, { tmpdir, repoRoot }) {
-  const resolved = path.resolve(file)
-  const inside = (dir) => resolved.startsWith(path.resolve(dir) + path.sep)
-  return inside(tmpdir) && !inside(repoRoot) && resolved !== path.resolve(repoRoot)
-}
-
-export function chunk(list, n) {
-  const out = []
-  for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n))
-  return out
-}
-
-/** The months a probe entry's groups fall in, each once, in order. */
-export function monthsToRepair({ groups }) {
-  return [...new Set(groups.map((g) => g.puzzleDay.slice(0, 7)))].sort()
+  const real = (p) => fs.realpathSync.native(p)
+  const abs = path.resolve(file)
+  let resolved
+  try {
+    resolved = real(abs)
+  } catch {
+    try {
+      resolved = path.join(real(path.dirname(abs)), path.basename(abs))
+    } catch {
+      return false
+    }
+  }
+  let tmp, repo
+  try {
+    tmp = real(tmpdir)
+    repo = real(repoRoot)
+  } catch {
+    return false
+  }
+  const inside = (dir) => resolved.startsWith(dir + path.sep)
+  return inside(tmp) && !inside(repo) && resolved !== repo
 }
 
 /**
- * Impact entries from several batches, each (team, month) once. Two batches can
- * both reach a team-month holding affected players from each; duplicateScoresImpact
- * collapses every member's duplicates whichever batch asks, so the two entries are
- * identical and one is dropped.
+ * Print each record and, with a file, APPEND it as one JSON line before returning
+ * (revision 2, I2), so a run that dies halfway keeps the record of everything it
+ * already did — above all, of every row it already deleted.
  */
-export function dedupeEntries(entries) {
-  const seen = new Set()
-  return entries.filter((entry) => {
-    const key = JSON.stringify(entry)
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+export function recorder(file, print = console.log) {
+  return (record) => {
+    const line = JSON.stringify(record)
+    if (file) fs.appendFileSync(file, line + '\n')
+    print(line)
+  }
+}
+
+/**
+ * THE FINGERPRINT AN APPLY MUST QUOTE (revision 2, I4): sixteen hex characters of
+ * SHA-256 over every month's deletionKey (see lib/duplicateScores.ts), sorted and
+ * newline-separated. Any change to any row a repair would delete changes it.
+ */
+export function fingerprintOf(deletionKeys) {
+  return createHash('sha256')
+    .update([...deletionKeys].sort().join('\n'))
+    .digest('hex')
+    .slice(0, 16)
+}
+
+/** The months probe entries' groups fall in, each once, in order. */
+export function monthsOf(affected) {
+  return [...new Set(affected.flatMap((a) => a.groups.map((g) => g.puzzleDay.slice(0, 7))))].sort()
+}
+
+/**
+ * Whether one month's impact pages together hold every (team, month) pair exactly
+ * once (revision 2, M2): the total must not move between pages, and the entries
+ * must add up to it. Counted rather than keyed, because two v2-born teams both
+ * report as 'v2-native'.
+ */
+export function checkImpactPages(pages) {
+  const totals = new Set(pages.map((p) => p.pairs))
+  if (totals.size !== 1) return { ok: false, reason: `the pair total moved between pages: ${[...totals]}` }
+  const [pairs] = totals
+  const seen = pages.reduce((n, p) => n + p.entries.length, 0)
+  if (seen !== pairs) return { ok: false, reason: `saw ${seen} entries for ${pairs} pairs` }
+  return { ok: true }
 }
