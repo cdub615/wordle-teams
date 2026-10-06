@@ -851,19 +851,60 @@ export async function closeChallengesForDeletedTeam(
   ctx: SchedulingCtx,
   teamId: Id<'teams'>,
 ): Promise<void> {
+  const { close, withdraw } = await planDeletion(ctx, teamId)
+  for (const challenge of withdraw) await ctx.db.patch(challenge._id, { status: 'withdrawn' })
+  for (const challenge of close) await closeOne(ctx, challenge, 'closed', { skipTeamId: teamId })
+}
+
+/**
+ * What deleting this team WOULD do to its challenges, without doing it
+ * (wordle-teams-uvtz): the ids closeChallengesForDeletedTeam will close and the
+ * ids it will withdraw.
+ *
+ * EXISTS FOR e2ePrune's DRY RUN, whose report must predict the write. It counts
+ * from this before calling cascadeDeleteTeam, the way it counts every other
+ * table, and de-duplicates by id: a challenge between two teams pruned in the
+ * same batch is live for both on a dry run, but the write resolves it once.
+ *
+ * THE CLOSE CONSUMES THE SAME PLAN (planDeletion below), so the prediction and
+ * the write cannot classify a row differently. challenges.test.ts pins that.
+ */
+export async function challengesResolvedByDeleting(
+  ctx: ReaderCtx,
+  teamId: Id<'teams'>,
+): Promise<{ close: Array<Id<'teamChallenges'>>; withdraw: Array<Id<'teamChallenges'>> }> {
+  const { close, withdraw } = await planDeletion(ctx, teamId)
+  return { close: close.map((row) => row._id), withdraw: withdraw.map((row) => row._id) }
+}
+
+/**
+ * THE ONE CLASSIFICATION of a deleted team's live challenges, shared by the
+ * close and its read-only plan. See closeChallengesForDeletedTeam for why each
+ * branch resolves the way it does: a pending proposal is withdrawn; an active
+ * challenge whose other team is gone is withdrawn, because closeOne would throw
+ * INVALID_TEAM on it and the close must never throw; every other active one is
+ * closed.
+ */
+async function planDeletion(
+  ctx: ReaderCtx,
+  teamId: Id<'teams'>,
+): Promise<{ close: Array<Doc<'teamChallenges'>>; withdraw: Array<Doc<'teamChallenges'>> }> {
+  const close: Array<Doc<'teamChallenges'>> = []
+  const withdraw: Array<Doc<'teamChallenges'>> = []
   for (const challenge of await liveChallengesFor(ctx, teamId)) {
     if (challenge.status === 'pending') {
-      await ctx.db.patch(challenge._id, { status: 'withdrawn' })
+      withdraw.push(challenge)
       continue
     }
     const otherId =
       challenge.challengerTeamId === teamId ? challenge.opponentTeamId : challenge.challengerTeamId
     if (otherId === undefined || (await ctx.db.get(otherId)) === null) {
-      await ctx.db.patch(challenge._id, { status: 'withdrawn' })
+      withdraw.push(challenge)
       continue
     }
-    await closeOne(ctx, challenge, 'closed', { skipTeamId: teamId })
+    close.push(challenge)
   }
+  return { close, withdraw }
 }
 
 /**
