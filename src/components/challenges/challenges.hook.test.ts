@@ -449,11 +449,13 @@ function card(
     acceptsChallenges,
     onSetAcceptsChallenges = vi.fn(),
     acceptsPending = false,
+    onUpgrade = vi.fn(),
   }: {
     isOwner?: boolean
     acceptsChallenges?: boolean
     onSetAcceptsChallenges?: (accepts: boolean) => void
     acceptsPending?: boolean
+    onUpgrade?: () => void
   } = {},
 ) {
   return render(
@@ -469,7 +471,7 @@ function card(
       onSetAcceptsChallenges,
       onChallenge: vi.fn(),
       acceptsPending,
-      onUpgrade: vi.fn(),
+      onUpgrade,
     }),
   )
 }
@@ -650,6 +652,20 @@ describe('ChallengesCard', () => {
     expect(toggle.hasAttribute('disabled')).toBe(true)
     fireEvent.click(toggle)
     expect(onSetAcceptsChallenges).not.toHaveBeenCalled()
+  })
+
+  test("4. a free viewer's scoreboard hint opens the card's own onUpgrade", () => {
+    // THE SCOREBOARD'S `onUpgrade` IS OPTIONAL, and its hint renders no button
+    // without one — so a card that stopped passing it would still show "part of
+    // Pro" with nothing to press, and every scoreboard test (which passes its own)
+    // would stay green. This is the second of the two controls team.tsx's
+    // `openUpgrade('challenges')` reaches through this one prop; the header's
+    // "Challenge a team" is the first, and is NOT the button clicked here.
+    const onUpgrade = vi.fn()
+    card(enabled({ pro: false, active: [anActive()] }), { onUpgrade })
+    const hint = screen.getByText('Each player’s average is part of Pro.').parentElement!
+    fireEvent.click(within(hint).getByRole('button', { name: 'Upgrade' }))
+    expect(onUpgrade).toHaveBeenCalledTimes(1)
   })
 
   test('2. the card tells each scoreboard the viewer\'s day, so a window opening tomorrow reads "starts"', () => {

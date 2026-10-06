@@ -164,19 +164,30 @@ describe('the challenges entry', () => {
   const CHALLENGES = resolve(__dirname, '../..', 'convex/challenges.ts')
 
   /**
-   * One exported function's code, comments stripped. Comments out because
+   * One top-level function's code, comments stripped. Comments out because
    * acceptChallengeFor's own note says "PRO IS NOT CHECKED HERE", and a comment
    * that mentions the gate is not the gate.
+   *
+   * A `const x = mutation({...})` WRAPPER COUNTS TOO: it is a VariableStatement,
+   * not a FunctionDeclaration, and a gate added in its handler stops a free
+   * caller exactly as well as one added in the *For helper it calls.
    */
-  const functionCode = (name: string) => {
+  const declarationOf = (name: string) => {
     const file = parseSource(CHALLENGES, readFileSync(CHALLENGES, 'utf8'))
-    let found: ts.FunctionDeclaration | undefined
+    let found: ts.FunctionDeclaration | ts.VariableStatement | undefined
     ts.forEachChild(file, (node) => {
       if (ts.isFunctionDeclaration(node) && node.name?.text === name) found = node
+      if (
+        ts.isVariableStatement(node) &&
+        node.declarationList.declarations.some((d) => ts.isIdentifier(d.name) && d.name.text === name)
+      ) {
+        found = node
+      }
     })
     expect(found, `convex/challenges.ts no longer declares ${name}`).toBeDefined()
-    return codeOf(found!.getText())
+    return found!
   }
+  const functionCode = (name: string) => codeOf(declarationOf(name).getText())
 
   test('names the file the gates live in', () => {
     // Asserted directly, not only through the disk loop above: any existing file
@@ -211,9 +222,39 @@ describe('the challenges entry', () => {
     expect(view).toContain("challenger: pro ? board.challenger : { ...board.challenger, members: [] }")
     expect(view).toContain("opponent: pro ? board.opponent : { ...board.opponent, members: [] }")
 
-    // AND THE FREE HALF: neither way of ACCEPTING asks about Pro. If either ever
-    // does, the body's last sentence is false and this is where it says so.
-    for (const name of ['acceptChallengeFor', 'claimChallengeLinkFor']) {
+    // AND `pro` IS EXACTLY THE PRO CHECK. The ternaries above gate on a name; a
+    // widened source — `|| trialActive`, `|| true` — keeps both of them intact
+    // and hands the paid rows to a free viewer. One declaration of it, const,
+    // initialised with isProFor for the viewer and nothing else.
+    const pros: ts.VariableDeclaration[] = []
+    const visit = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === 'pro') {
+        pros.push(node)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(declarationOf('challengesForTeamFor'))
+    expect(pros, 'challengesForTeamFor should declare `pro` exactly once').toHaveLength(1)
+    expect(pros[0].parent.flags & ts.NodeFlags.Const, '`pro` must be const').toBeTruthy()
+    expect(pros[0].initializer?.getText()).toBe('await isProFor(ctx, playerId)')
+    // Its declaration is the one assignment; a second (`pro ||= trialActive`) is a widening.
+    expect(view.match(/\bpro\s*(?:\|\||\?\?|&&)?=(?!=)/g), '`pro` is reassigned').toHaveLength(1)
+
+    // AND THE FREE HALF: no step of ACCEPTING asks about Pro — neither mutation
+    // a client calls, the *For helper each delegates to, nor anything in this
+    // file those reach (the pair check and its live-row read, activate, and the
+    // roster notification it sends). If any ever does, the body's last sentence
+    // is false and this is where it says so.
+    for (const name of [
+      'acceptChallenge',
+      'claimChallengeLink',
+      'acceptChallengeFor',
+      'claimChallengeLinkFor',
+      'requireChallengeablePair',
+      'liveChallengesFor',
+      'activate',
+      'notifyRosters',
+    ]) {
       const code = functionCode(name)
       expect(code, `${name} now checks Pro, so the body's "doesn’t need Pro" is false`).not.toContain(
         'isProFor',

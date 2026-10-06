@@ -2294,6 +2294,12 @@ describe('the challenge routes are wired the way their components are tested', (
     expect(jsxProps(TEAM, 'ChallengesCard').get('onUpgrade')).toBe(
       "() => openUpgrade('challenges')",
     )
+    // AND `openUpgrade` IS THE SHARED CONTEXT, as at /app and /insights: a local
+    // of the same name leaves the prop's text untouched, so the line above alone
+    // is defeated by a rename. Nor may it skip the dialog for checkout.
+    expect(codeOf(read(TEAM))).toMatch(/const \{ openUpgrade \} = useUpgrade\(\)/)
+    expect(codeOf(read(TEAM))).not.toMatch(/useStartUpgrade/)
+    expect(codeOf(read(TEAM))).not.toMatch(/getCustomerPortalUrl/)
   })
 
   test("team.tsx's Accept sends the viewer's LOCAL day, not UTC's (M6)", () => {
