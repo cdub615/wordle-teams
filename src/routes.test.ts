@@ -2284,6 +2284,29 @@ describe('the challenge routes are wired the way their components are tested', (
     // the last team's error on screen.
     expect(jsxProps(TEAM, 'ChallengesBoundary').get('resetKey')).toBe('selectedTeam.id')
   })
+
+  test("team.tsx's Accept sends the viewer's LOCAL day, not UTC's (M6)", () => {
+    // THE WINDOW STARTS THE DAY AFTER `today`, in the accepter's zone.
+    // `new Date().toISOString().slice(0, 10)` type-checks as a PuzzleDay-shaped
+    // string, passes every other gate, and is a day off for anyone west of UTC
+    // in the evening or east of it in the morning. Pinned as the expression
+    // itself, so that substitute fails here.
+    const accept = parsed(TEAM, 'accept.mutateAsync')
+    expect(accept.get('today')?.getText()).toBe('toPuzzleDay(new Date())')
+  })
+
+  test("app.tsx's challenge nudge asks with the membership-gated monthWindowArgs (M6)", () => {
+    // THE SAME ARGS AS monthWindow, whose initializer the dashboard block above
+    // pins whole: skip unless the viewer is a member of the team in `?team=`.
+    // A bare `{ teamId: teamParam }` here would fire a guaranteed NOT_A_MEMBER
+    // refusal for every stale `?team=` before useSearchSync corrects it.
+    const APP = './routes/app.tsx'
+    const nudge = callSitesOf(APP, read(APP), 'convexQuery').filter(
+      (site) => site.args[0] === 'api.challenges.incomingChallenge',
+    )
+    expect(nudge, 'routes/app.tsx does not query api.challenges.incomingChallenge').toHaveLength(1)
+    expect(nudge[0].args[1]).toBe('monthWindowArgs')
+  })
 })
 
 /**
