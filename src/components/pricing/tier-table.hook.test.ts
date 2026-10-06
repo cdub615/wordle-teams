@@ -379,8 +379,8 @@ describe('the thirty-day trial', () => {
      * `layer3: paid ? 'full' : 'free'`, where `paid` admits a trial — but
      * `layer1` and `layer4` stay keyed to `isPro` directly. So a player mid
      * trial gets their personal history and their team's whole month, and gets
-     * NOTHING of the other three things Pro sells: the team cap, custom scoring
-     * and screenshot import are all untouched by a trial.
+     * NOTHING of four other things Pro sells: the team cap, custom scoring,
+     * screenshot import and starting a challenge are all untouched by a trial.
      *
      * "Thirty days of Pro" is therefore a false sentence, and it is the obvious
      * one to write. This is what fails if somebody writes it.
@@ -395,7 +395,9 @@ describe('the thirty-day trial', () => {
     // And it must not quietly extend itself to the benefits a trial never
     // touches. Titles rather than bodies: a title is what a skimming reader
     // takes away, and naming one here is how the sentence starts to overreach.
-    for (const id of ['teams', 'scoring', 'import'] as const) {
+    // `challenges` belongs here too: proposeToTeamFor, proposeByLinkFor and the
+    // scoreboard's member rows all ask isProFor, which a trial does not satisfy.
+    for (const id of ['teams', 'scoring', 'import', 'challenges'] as const) {
       const benefit = PRO_BENEFITS.find((entry) => entry.id === id)!
       expect(trial).not.toContain(benefit.title)
     }

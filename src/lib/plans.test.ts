@@ -60,6 +60,7 @@ describe('UPGRADE_HEADLINES', () => {
     'months',
     'import',
     'insights',
+    'challenges',
     'trial-ended',
     'trial-active',
   ]

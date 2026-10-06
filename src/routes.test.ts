@@ -2285,6 +2285,17 @@ describe('the challenge routes are wired the way their components are tested', (
     expect(jsxProps(TEAM, 'ChallengesBoundary').get('resetKey')).toBe('selectedTeam.id')
   })
 
+  test("team.tsx's Challenges card opens the dialog from the 'challenges' origin", () => {
+    // THE ORIGIN PICKS THE HEADLINE, and nothing else in the dialog varies. This
+    // card borrowed 'insights' until wordle-teams-zic8.2.22 gave challenges an
+    // origin and a PRO_BENEFITS entry of its own; `openUpgrade('insights')`
+    // here type-checks, lints and builds while headlining the wrong feature
+    // above the scoreboard's per-player hint and the free "Challenge a team".
+    expect(jsxProps(TEAM, 'ChallengesCard').get('onUpgrade')).toBe(
+      "() => openUpgrade('challenges')",
+    )
+  })
+
   test("team.tsx's Accept sends the viewer's LOCAL day, not UTC's (M6)", () => {
     // THE WINDOW STARTS THE DAY AFTER `today`, in the accepter's zone.
     // `new Date().toISOString().slice(0, 10)` type-checks as a PuzzleDay-shaped
