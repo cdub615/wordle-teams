@@ -3,22 +3,25 @@
 // node rather than the suite's default edge-runtime, because the gatedAt test
 // below reads the filesystem. That is the whole point of it: a path that does not
 // resolve is a claim nobody checked.
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import ts from 'typescript'
 import { describe, expect, test } from 'vitest'
 import { notAFile } from '#/test-support/copy-claims.ts'
+import { codeOf, parseSource } from '#/test-support/source-ast.ts'
 import { FREE_TEAM_LIMIT } from '../../convex/lib/teamLimits.ts'
 import { FREE_MONTHS } from '../../convex/lib/monthWindow.ts'
 import { COMPLETE_HISTORY_WORDS, PRO_BENEFITS, PRO_ONLY_WORDS } from './pro-benefits.ts'
 
 describe('PRO_BENEFITS', () => {
-  test('lists exactly the five things Pro sells today', () => {
+  test('lists exactly the six things Pro sells today', () => {
     // A COUNT AND ORDER ASSERTION, deliberately. This file is copy, and copy is
     // the one thing typecheck, lint and build cannot check: an entry deleted or a
     // sixth invented would otherwise ship silently to the interstitial and the
     // landing page at once.
     //
     // NAMED "SELLS", NOT "GATES" — insights.ts's globalComparison (Layer 4) is
-    // isPro-gated and server-enforced exactly like the five below, but has no UI
+    // isPro-gated and server-enforced exactly like the six below, but has no UI
     // consumer anywhere in src/ yet, so it is deliberately absent from customer
     // copy. "Gates" would make this test false; "sells" is the claim it actually
     // checks.
@@ -27,6 +30,7 @@ describe('PRO_BENEFITS', () => {
       'scoring',
       'import',
       'insights',
+      'challenges',
       'months',
     ])
   })
@@ -48,11 +52,11 @@ describe('PRO_BENEFITS', () => {
   })
 
   test('records which gates are server-enforced and which are UI-only', () => {
-    // TWO OF THE FIVE ARE NOT ENFORCED AT ALL: access.ts's isProFor doc comment
+    // TWO OF THE SIX ARE NOT ENFORCED AT ALL: access.ts's isProFor doc comment
     // says plainly "THE SCORING-SYSTEM EDITOR IS NOT ENFORCED", and form.tsx's
     // isPro gate — labelled "UI-ONLY BY DESIGN" in its own comment — says the
     // same of the import gate. Both are deliberate v1-parity decisions and
-    // neither is a reason not to sell the feature — but a list implying all five
+    // neither is a reason not to sell the feature — but a list implying all six
     // were enforced would be false on the day it was written.
     //
     // `teams` IS true DESPITE THE SAME DOC COMMENT ALSO SAYING "`createTeam`
@@ -64,7 +68,7 @@ describe('PRO_BENEFITS', () => {
     // exactly as flipping it to true incorrectly would.
     expect(
       PRO_BENEFITS.filter((benefit) => benefit.serverEnforced).map((benefit) => benefit.id),
-    ).toEqual(['teams', 'insights', 'months'])
+    ).toEqual(['teams', 'insights', 'challenges', 'months'])
   })
 
   test('pins the free-tier numbers this copy is written against', () => {
@@ -152,5 +156,110 @@ describe('PRO_BENEFITS', () => {
     // AND AT LEAST ONE IS PRESENT, so that deleting every apostrophe — which
     // would also satisfy the line above — fails instead of passing.
     expect(prose).toContain('’')
+  })
+})
+
+describe('the challenges entry', () => {
+  const challenges = PRO_BENEFITS.find((benefit) => benefit.id === 'challenges')!
+  const CHALLENGES = resolve(__dirname, '../..', 'convex/challenges.ts')
+
+  /**
+   * One top-level function's code, comments stripped. Comments out because
+   * acceptChallengeFor's own note says "PRO IS NOT CHECKED HERE", and a comment
+   * that mentions the gate is not the gate.
+   *
+   * A `const x = mutation({...})` WRAPPER COUNTS TOO: it is a VariableStatement,
+   * not a FunctionDeclaration, and a gate added in its handler stops a free
+   * caller exactly as well as one added in the *For helper it calls.
+   */
+  const declarationOf = (name: string) => {
+    const file = parseSource(CHALLENGES, readFileSync(CHALLENGES, 'utf8'))
+    let found: ts.FunctionDeclaration | ts.VariableStatement | undefined
+    ts.forEachChild(file, (node) => {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === name) found = node
+      if (
+        ts.isVariableStatement(node) &&
+        node.declarationList.declarations.some((d) => ts.isIdentifier(d.name) && d.name.text === name)
+      ) {
+        found = node
+      }
+    })
+    expect(found, `convex/challenges.ts no longer declares ${name}`).toBeDefined()
+    return found!
+  }
+  const functionCode = (name: string) => codeOf(declarationOf(name).getText())
+
+  test('names the file the gates live in', () => {
+    // Asserted directly, not only through the disk loop above: any existing file
+    // satisfies that one, and the functions below are read out of THIS one.
+    expect(challenges.gatedAt).toBe('convex/challenges.ts')
+  })
+
+  test('says the team you challenge needs no Pro, and never ties accepting to Pro', () => {
+    // PRO IS REQUIRED TO INITIATE AND DELIBERATELY NOT TO ACCEPT — challenges.ts
+    // says so above proposeToTeamFor, and a challenged free team is this feature's
+    // best conversion moment. A benefit line that read as "Pro lets you accept
+    // challenges" would talk that team out of the one thing it can do for free.
+    // So the body has to say the opposite out loud, and the prose may not pair
+    // accepting with Pro in any of the shapes that sentence takes.
+    const prose = `${challenges.title} ${challenges.body}`.toLowerCase()
+    expect(prose).toContain('doesn’t need pro to accept')
+    expect(prose).not.toMatch(
+      /pro (members|players|teams|accounts)? ?can accept|accept\w* (a |any )?challenges? with pro|accept\w* (needs|requires) pro|(needs|requires) pro to accept/,
+    )
+  })
+
+  test('every claim of it holds in convex/challenges.ts', () => {
+    // THE THREE SERVER GATES serverEnforced: true stands on: both ways of
+    // STARTING a challenge refuse a free caller, and the scoreboard strips the
+    // per-player rows — "every player’s average on both sides" — for one.
+    for (const name of ['proposeToTeamFor', 'proposeByLinkFor']) {
+      expect(functionCode(name), `${name} no longer refuses a free caller`).toMatch(
+        /if \(!\(await isProFor\(ctx, playerId\)\)\) throw accessError\('PRO_REQUIRED'\)/,
+      )
+    }
+    const view = functionCode('challengesForTeamFor')
+    expect(view).toContain("challenger: pro ? board.challenger : { ...board.challenger, members: [] }")
+    expect(view).toContain("opponent: pro ? board.opponent : { ...board.opponent, members: [] }")
+
+    // AND `pro` IS EXACTLY THE PRO CHECK. The ternaries above gate on a name; a
+    // widened source — `|| trialActive`, `|| true` — keeps both of them intact
+    // and hands the paid rows to a free viewer. One declaration of it, const,
+    // initialised with isProFor for the viewer and nothing else.
+    const pros: ts.VariableDeclaration[] = []
+    const visit = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === 'pro') {
+        pros.push(node)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(declarationOf('challengesForTeamFor'))
+    expect(pros, 'challengesForTeamFor should declare `pro` exactly once').toHaveLength(1)
+    expect(pros[0].parent.flags & ts.NodeFlags.Const, '`pro` must be const').toBeTruthy()
+    expect(pros[0].initializer?.getText()).toBe('await isProFor(ctx, playerId)')
+    // Its declaration is the one assignment; a second (`pro ||= trialActive`) is a widening.
+    expect(view.match(/\bpro\s*(?:\|\||\?\?|&&)?=(?!=)/g), '`pro` is reassigned').toHaveLength(1)
+
+    // AND THE FREE HALF: no step of ACCEPTING asks about Pro — neither mutation
+    // a client calls, the *For helper each delegates to, nor anything in this
+    // file those reach (the pair check and its live-row read, activate, and the
+    // roster notification it sends). If any ever does, the body's last sentence
+    // is false and this is where it says so.
+    for (const name of [
+      'acceptChallenge',
+      'claimChallengeLink',
+      'acceptChallengeFor',
+      'claimChallengeLinkFor',
+      'requireChallengeablePair',
+      'liveChallengesFor',
+      'activate',
+      'notifyRosters',
+    ]) {
+      const code = functionCode(name)
+      expect(code, `${name} now checks Pro, so the body's "doesn’t need Pro" is false`).not.toContain(
+        'isProFor',
+      )
+      expect(code).not.toContain('PRO_REQUIRED')
+    }
   })
 })

@@ -303,10 +303,11 @@ describe('Upgrade reaches the dialog, and the dialog reaches checkout', () => {
     // THE ORIGIN LITERAL IS INVISIBLE TO EVERY OTHER GATE. `openUpgrade('teams')`
     // in Header.tsx type-checks, lints, builds and passes the whole suite while
     // headlining "You are at the two-team limit" at somebody who clicked the app
-    // bar and may hold no teams at all — the exact mismatch the six origins
-    // exist to prevent. src/routes.test.ts pins three of the six by reading
+    // bar and may hold no teams at all — the exact mismatch the eight origins
+    // exist to prevent. src/routes.test.ts pins four of the eight by reading
     // SOURCE — both pickers' origins out of routes/app.tsx and the panel's out
-    // of routes/insights.tsx — and a source guard cannot reach the other three,
+    // of routes/insights.tsx, and the challenges card's out of routes/team.tsx —
+    // and a source guard cannot reach the other three,
     // which are plain components rather than route modules. So each of those is
     // pinned by RENDERING it: the bar here, ImportUpsell in
     // board-entry/form-import.hook.test.ts, and TrialEndedCard in

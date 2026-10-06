@@ -73,9 +73,9 @@ export const MAINTENANCE_PATH = '/maintenance'
 /**
  * The route subtrees whose descendants are gated as well as their own path.
  *
- * ONLY `/join` HAS A CHILD ROUTE TODAY — src/routeTree.gen.ts lists `/app`,
- * `/team`, `/me`, `/chat` and `/complete-profile` bare, and `/join/$token`
- * under the sixth. The other five are matched as subtrees anyway because v1's
+ * ONLY `/join` AND `/challenge` HAVE CHILD ROUTES TODAY — src/routeTree.gen.ts
+ * lists `/app`, `/team`, `/me`, `/chat` and `/complete-profile` bare, and
+ * `/join/$token` and `/challenge/$token` under the other two. The other five are matched as subtrees anyway because v1's
  * matcher did the same thing for the
  * same reason: it lists `'/me'` next to `'/me/:path*'` and
  * `'/complete-profile'` next to its `:path*` form "rather than relying on
@@ -120,6 +120,13 @@ export const MAINTENANCE_PATH = '/maintenance'
  * ungated worse rather than better: the page would render a benchmark panel with
  * no boards in it and no explanation, instead of the page that says what is
  * happening.
+ *
+ * `/challenge` JOINED WITH CHALLENGE LINKS (zic8.2.13), beside `/join` and for
+ * its reasons: a subtree in earnest (`/challenge/$token` is the only route),
+ * and its page decides where to send its holder from `context.isAuthenticated`
+ * and then asks the same Convex deployment for the holder's teams. The same
+ * trade is accepted — the gate answers first, so nothing is stashed, and the
+ * link in the chat message still works afterwards.
  */
 const GATED_SUBTREES = [
   '/app',
@@ -129,6 +136,7 @@ const GATED_SUBTREES = [
   '/insights',
   '/complete-profile',
   '/join',
+  '/challenge',
 ] as const
 
 /**

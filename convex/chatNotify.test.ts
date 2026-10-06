@@ -5,11 +5,11 @@ import { internal } from './_generated/api'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { markReadFor, sendMessageFor } from './chat.ts'
 import {
-  MAX_NOTIFIED_TEAM_NAME,
   chatNotificationBody,
   markChatNotifiedFor,
   pendingChatNotificationsFor,
 } from './chatNotify.ts'
+import { MAX_NOTIFIED_TEAM_NAME } from './lib/pushText.ts'
 import type { Id } from './_generated/dataModel'
 import type { ReaderCtx, WriterCtx } from './winners.ts'
 

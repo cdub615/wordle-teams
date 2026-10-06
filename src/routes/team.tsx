@@ -1,8 +1,9 @@
 import { createFileRoute, redirect, useNavigate, Link } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import { Suspense, useEffect, useState } from 'react'
-import { convexQuery } from '@convex-dev/react-query'
-import { useSuspenseQuery } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
 import { STORAGE_KEY, resolveTeamSettingsSearch } from '#/lib/dashboard-search.ts'
@@ -10,11 +11,18 @@ import { CurrentTeamCard } from '#/components/teams/current-team-card.tsx'
 import { MyTeamsCard } from '#/components/teams/my-teams-card.tsx'
 import { UpdateTeamDialog } from '#/components/teams/update-team-dialog.tsx'
 import { ScoringSystemCard } from '#/components/scoring-system-card.tsx'
+import { ChallengesCard, ChallengesCardSkeleton } from '#/components/challenges/challenges-card.tsx'
+import { ChallengesBoundary } from '#/components/challenges/challenges-boundary.tsx'
+import { ProposeChallengeDialog } from '#/components/challenges/propose-challenge-dialog.tsx'
+import type { ChallengeId } from '#/components/challenges/types.ts'
+import { useUpgrade } from '#/components/upgrade-dialog.tsx'
+import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { ScoringSystemCardSkeleton, TeamSettingsSkeleton } from '#/components/dashboard-skeletons.tsx'
 import { DashboardError } from '#/components/dashboard-error.tsx'
 import { Button } from '#/components/ui/button.tsx'
 import { Skeleton } from '#/components/ui/skeleton.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
+import type { Id } from '../../convex/_generated/dataModel'
 
 type TeamSettingsSearch = { team?: string }
 
@@ -219,6 +227,33 @@ function TeamSettingsPage() {
           }}
         />
         {/*
+          CHALLENGES SIT DIRECTLY BELOW THE CURRENT TEAM AND ABOVE SCORING
+          (zic8.2.12, owner decision D8). ITS OWN BOUNDARY, for the reason the
+          scoring card has one: challengesForTeam is not prefetched by the
+          loader, and a slow scoreboard must never suspend the whole page back
+          to TeamSettingsSkeleton. On a dark deployment the card renders
+          nothing once the query answers.
+
+          AND ITS OWN ERROR BOUNDARY (zic8.2.21 M5), for the same reason one
+          level up: without it a challengesForTeam failure reaches
+          DashboardError and replaces this whole page, member management
+          included. Keyed by team, so a ?team= switch tries again.
+        */}
+        <ChallengesBoundary resetKey={selectedTeam.id}>
+          <Suspense fallback={<ChallengesCardSkeleton />}>
+            {/* KEYED BY TEAM: `now` and `busyId` are per-team state, and without a
+                key a ?team= switch would resume the same instance with both. */}
+            <TeamChallenges
+              key={selectedTeam.id}
+              teamId={selectedTeam.id}
+              teamName={selectedTeam.name}
+              teams={teams}
+              isOwner={selectedTeam.isOwner}
+              acceptsChallenges={selectedTeam.acceptsChallenges}
+            />
+          </Suspense>
+        </ChallengesBoundary>
+        {/*
           `id="scoring"` IS THE SCORING DEEP LINK'S WHOLE MECHANISM
           (wordle-teams-5jcn.29). routes/app.tsx's ScoringLegend "Edit" control
           navigates here with `hash: 'scoring'`; TanStack Router's scroll
@@ -287,5 +322,138 @@ function TeamSettingsPage() {
         <UpdateTeamDialog open={editOpen} onOpenChange={setEditOpen} team={selectedTeam} />
       </div>
     </main>
+  )
+}
+
+/**
+ * The Challenges card's data and verbs. A COMPONENT OF ITS OWN so its
+ * `useSuspenseQuery` suspends only the boundary around it, not the page.
+ *
+ * ONE `busyId` FOR EVERY VERB: a challenge has at most one control in flight,
+ * and disabling that row's buttons while it is stops a double-tap Accept from
+ * coming back as a CHALLENGE_NOT_PENDING toast a moment after it succeeded.
+ *
+ * `now` IS READ ONCE, ON MOUNT. Expiry is judged against the client's clock
+ * (see PendingChallengeRow), and a lazy initial state keeps the read out of
+ * render. A proposal that lapses while the page stays open keeps its buttons
+ * until the next visit; the server refuses the accept either way.
+ *
+ * THE PROPOSE DIALOG (Task 12b) IS MOUNTED HERE, beside the card rather than
+ * inside it, so the card stays plain props: it only reports the tap. `teams` is
+ * the page's own getMyTeams answer; the dialog leaves the current team out.
+ */
+function TeamChallenges({
+  teamId,
+  teamName,
+  teams,
+  isOwner,
+  acceptsChallenges,
+}: {
+  teamId: Id<'teams'>
+  teamName: string
+  teams: ReadonlyArray<{ id: Id<'teams'>; name: string }>
+  isOwner: boolean
+  acceptsChallenges: boolean
+}) {
+  const { data: view } = useSuspenseQuery(convexQuery(api.challenges.challengesForTeam, { teamId }))
+  const { openUpgrade } = useUpgrade()
+  const [now] = useState(() => Date.now())
+  const [busyId, setBusyId] = useState<ChallengeId | null>(null)
+  const accept = useMutation({ mutationFn: useConvexMutation(api.challenges.acceptChallenge) })
+  const decline = useMutation({ mutationFn: useConvexMutation(api.challenges.declineChallenge) })
+  const withdraw = useMutation({ mutationFn: useConvexMutation(api.challenges.withdrawChallenge) })
+  const cancel = useMutation({ mutationFn: useConvexMutation(api.challenges.cancelChallenge) })
+  const setAccepts = useMutation({ mutationFn: useConvexMutation(api.challenges.setAcceptsChallenges) })
+  const proposeToTeam = useMutation({ mutationFn: useConvexMutation(api.challenges.proposeToTeam) })
+  const proposeByLink = useMutation({ mutationFn: useConvexMutation(api.challenges.proposeByLink) })
+  const [proposeOpen, setProposeOpen] = useState(false)
+
+  const run = async (
+    challengeId: ChallengeId,
+    action: () => Promise<unknown>,
+    success: string,
+    failure: string,
+  ) => {
+    setBusyId(challengeId)
+    try {
+      await action()
+      toast.success(success)
+    } catch (error) {
+      toast.error(mutationErrorMessage(error, failure))
+    } finally {
+      // ONLY IF IT IS STILL OURS: a second row's action may have started while
+      // this one was in flight, and clearing it would re-enable that row early.
+      setBusyId((current) => (current === challengeId ? null : current))
+    }
+  }
+
+  return (
+    <>
+      <ChallengesCard
+        view={view}
+        isOwner={isOwner}
+        acceptsChallenges={acceptsChallenges}
+        now={now}
+        busyId={busyId}
+        acceptsPending={setAccepts.isPending}
+        // The viewer's LOCAL day, as every other dated mutation on these routes
+        // sends it: the window starts the day after acceptance, in their zone.
+        onAccept={(challengeId) =>
+          run(
+            challengeId,
+            () => accept.mutateAsync({ challengeId, today: toPuzzleDay(new Date()) }),
+            'Challenge accepted',
+            'Could not accept that challenge',
+          )
+        }
+        onDecline={(challengeId) =>
+          run(
+            challengeId,
+            () => decline.mutateAsync({ challengeId }),
+            'Challenge declined',
+            'Could not decline that challenge',
+          )
+        }
+        onWithdraw={(challengeId) =>
+          run(
+            challengeId,
+            () => withdraw.mutateAsync({ challengeId }),
+            'Challenge withdrawn',
+            'Could not withdraw that challenge',
+          )
+        }
+        onCancel={(challengeId) =>
+          run(
+            challengeId,
+            () => cancel.mutateAsync({ challengeId }),
+            'Challenge ended',
+            'Could not end that challenge',
+          )
+        }
+        onSetAcceptsChallenges={(accepts) => {
+          setAccepts.mutate(
+            { teamId, accepts },
+            {
+              onError: (error) =>
+                toast.error(mutationErrorMessage(error, 'Could not change that setting')),
+            },
+          )
+        }}
+        // 'challenges', its own origin (wordle-teams-zic8.2.22): both the free
+        // "Challenge a team" button and the scoreboard's per-player hint lead
+        // here, and the dialog beneath lists the challenges benefit itself.
+        onUpgrade={() => openUpgrade('challenges')}
+        onChallenge={() => setProposeOpen(true)}
+      />
+      <ProposeChallengeDialog
+        open={proposeOpen}
+        onOpenChange={setProposeOpen}
+        teamId={teamId}
+        teamName={teamName}
+        teams={teams}
+        proposeToTeam={proposeToTeam.mutateAsync}
+        proposeByLink={proposeByLink.mutateAsync}
+      />
+    </>
   )
 }

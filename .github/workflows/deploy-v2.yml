@@ -227,6 +227,8 @@ jobs:
           rm -f convex/tsconfig.json
           pnpm exec convex env set SITE_URL http://localhost:3000
           pnpm exec convex env set E2E_TEST_MODE true
+          # Challenges are dark wherever this is unset; e2e/challenge.spec.ts needs them lit.
+          pnpm exec convex env set CHALLENGES_ENABLED true
 
           pnpm exec convex dev > /tmp/convex-dev.log 2>&1 &
 

@@ -23,7 +23,12 @@
 // That is the shape of green this suite is supposed to be immune to, so the
 // stores are installed here and the ambient ones are never touched.
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { PENDING_INVITE_KEY, rememberPendingInvite, takePendingInvite } from './pending-invite.ts'
+import {
+  PENDING_INVITE_KEY,
+  hasPendingInvite,
+  rememberPendingInvite,
+  takePendingInvite,
+} from './pending-invite.ts'
 
 /** A Storage that behaves, or one that throws the way a blocked store does. */
 function fakeStorage(throwsOn: ReadonlyArray<'getItem' | 'setItem' | 'removeItem'> = []) {
@@ -135,5 +140,26 @@ describe('the pending invite token', () => {
     blocked.setItem(PENDING_INVITE_KEY, 'abc123')
     install('sessionStorage', blocked)
     expect(takePendingInvite()).toBeUndefined()
+  })
+
+  test('can be ASKED about without being spent', () => {
+    // hasPendingInvite is the challenge resume's question. A peek that cleared
+    // would spend the invite before usePendingInvite could, and the holder
+    // would join nothing.
+    expect(hasPendingInvite()).toBe(false)
+    rememberPendingInvite('abc123')
+    expect(hasPendingInvite()).toBe(true)
+    expect(hasPendingInvite()).toBe(true)
+    expect(session.peek(PENDING_INVITE_KEY)).toBe('abc123')
+    expect(takePendingInvite()).toBe('abc123')
+    expect(hasPendingInvite()).toBe(false)
+  })
+
+  test('the peek reads sessionStorage, and does not throw when it is blocked', () => {
+    local.setItem(PENDING_INVITE_KEY, 'abc123')
+    expect(hasPendingInvite()).toBe(false)
+    install('sessionStorage', fakeStorage(['getItem']))
+    expect(() => hasPendingInvite()).not.toThrow()
+    expect(hasPendingInvite()).toBe(false)
   })
 })

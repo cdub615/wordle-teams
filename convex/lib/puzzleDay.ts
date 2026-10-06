@@ -47,6 +47,8 @@ export function monthOf(day: PuzzleDay): PuzzleMonth {
  * `end` is '<month>-31' even in February. It is a lexicographic bound, not a
  * date: no real day string in the month can exceed it, and no day of the next
  * month can fall under it.
+ *
+ * For a real calendar day, use `lastDayOf` in lib/challenge.ts.
  */
 export function monthRange(month: PuzzleMonth): { start: PuzzleDay; end: PuzzleDay } {
   return { start: `${month}-01`, end: `${month}-31` }
@@ -94,8 +96,18 @@ export function addMonths(month: PuzzleMonth, delta: number): PuzzleMonth {
  * Takes `serverToday` as a PARAMETER rather than reading the clock itself, so
  * this stays a pure function of its inputs and is directly testable — callers
  * compute it once via `toPuzzleDay(new Date())` and pass it in.
+ *
+ * SHAPE FIRST, THEN THE BOUND (wordle-teams-435s), as `isPlausiblePuzzleDay`
+ * below already does. The bound is a LEXICOGRAPHIC range test, so
+ * '2026-10-039', '2026-10-04x' and '2026-10-04T00:00:00Z' all sit inside it
+ * at server day 2026-10-04. The check lives HERE rather than in access.ts's
+ * requirePlausibleToday alone so that every caller gets it — including the two
+ * that fall back to the server's day instead of throwing (players.ts's
+ * completeProfileFor, insights.ts's teamMonth), which for a malformed value now
+ * fall back exactly as they do for a wrong clock.
  */
 export function isPlausibleToday(today: PuzzleDay, serverToday: PuzzleDay): boolean {
+  if (!isPuzzleDay(today)) return false
   return today >= addDays(serverToday, -1) && today <= addDays(serverToday, 1)
 }
 

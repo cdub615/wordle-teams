@@ -17,6 +17,8 @@ import {
 import { teamInviteEmail } from './inviteEmails.ts'
 import { upgradeTeamInvitesFor } from './billing.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
+import { MIN_CHALLENGE_BOARDS } from './lib/challenge.ts'
+import { callSitesOf, orderedIn } from '../src/test-support/source-ast.ts'
 import type { GenericMutationCtx } from 'convex/server'
 import type { DataModel, Id } from './_generated/dataModel'
 
@@ -52,6 +54,33 @@ describe('getMyTeamsFor', () => {
       expect(team.playWeekends).toBe(false)
       expect(team.showLetters).toBe(false)
       expect(team.members.map((member) => member.firstName)).toEqual(['Ada', 'Bob'])
+    })
+  })
+
+  test('carries acceptsChallenges as a boolean, with an ABSENT field reading true', async () => {
+    // The schema field is optional and absent means "yes" (every pre-challenge
+    // team). Three teams, three states: absent, explicitly false, explicitly
+    // true. `=== true` would turn the absent one off; the raw field would ship
+    // `undefined` to a Switch that expects a boolean.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ name: 'Absent', playerIds: [ada], owner: ada, createdAt: 1 }))
+      await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 207, name: 'Off', playerIds: [ada], owner: ada, createdAt: 2, acceptsChallenges: false }),
+      )
+      await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 208, name: 'On', playerIds: [ada], owner: ada, createdAt: 3, acceptsChallenges: true }),
+      )
+
+      const teams = await getMyTeamsFor(ctx, ada)
+      expect(teams.map((team) => [team.name, team.acceptsChallenges])).toEqual([
+        ['Absent', true],
+        ['Off', false],
+        ['On', true],
+      ])
     })
   })
 
@@ -1848,5 +1877,153 @@ describe('teamInviteEmail', () => {
     expect(subject).toContain('Ada & Bob & the "Best" "Team"')
     expect(text).toContain('Ada & Bob & the "Best" "Team"')
     expect(text).toContain("O'Hara-O'Neill")
+  })
+})
+
+describe('deleting a team resolves its challenges', () => {
+  async function seedPair(ctx: TestCtx) {
+    const owner = await ctx.db.insert('players', aPlayer({ reminderDeliveryMethods: ['email', 'push'] }))
+    const rival = await ctx.db.insert('players', aPlayer({ email: 'rival@example.com', reminderDeliveryMethods: ['email', 'push'] }))
+    const doomedId = await ctx.db.insert('teams', aTeam({ name: 'Doomed', playerIds: [owner], owner }))
+    const survivorId = await ctx.db.insert('teams', aTeam({ legacyId: 900, name: 'Survivor', playerIds: [rival], owner: rival }))
+    const days = (playerId: Id<'players'>, attempts: number) =>
+      Array.from({ length: MIN_CHALLENGE_BOARDS }, (_, i) => ({
+        puzzleDay: `2026-10-${String(i + 5).padStart(2, '0')}`,
+        entries: [{ playerId, attempts }],
+      }))
+    for (const [teamId, playerId, attempts] of [[doomedId, owner, 3], [survivorId, rival, 4]] as const) {
+      await ctx.db.insert('teamMonthStats', {
+        teamId, year: 2026, month: 10, members: [], days: days(playerId, attempts), computedAt: Date.now(),
+      })
+    }
+    return { owner, rival, doomedId, survivorId }
+  }
+
+  test('an active challenge is CLOSED with the real numbers, not zeroed, and the survivor keeps it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, doomedId, survivorId } = await seedPair(ctx)
+      const challengeId = await ctx.db.insert('teamChallenges', {
+        challengerTeamId: doomedId, opponentTeamId: survivorId, proposedBy: owner,
+        status: 'active', startDay: '2026-10-05', endDay: '2026-10-31',
+        expiresAt: Date.now(), createdAt: Date.now(),
+      })
+
+      await deleteTeamFor(ctx, owner, doomedId)
+
+      const doc = (await ctx.db.get(challengeId))!
+      expect(doc.status).toBe('closed')
+      // NOT 'void': the doomed team's aggregate was read before the cascade deleted it.
+      expect(doc.result).toMatchObject({
+        outcome: 'challenger',
+        challenger: { name: 'Doomed', boards: MIN_CHALLENGE_BOARDS, average: 3 },
+        opponent: { name: 'Survivor', average: 4 },
+      })
+    })
+  })
+
+  test('only the surviving team is pushed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, rival, doomedId, survivorId } = await seedPair(ctx)
+      await ctx.db.insert('teamChallenges', {
+        challengerTeamId: doomedId, opponentTeamId: survivorId, proposedBy: owner,
+        status: 'active', startDay: '2026-10-05', endDay: '2026-10-31',
+        expiresAt: Date.now(), createdAt: Date.now(),
+      })
+      await deleteTeamFor(ctx, owner, doomedId)
+      const jobs = (await ctx.db.system.query('_scheduled_functions').collect())
+        .filter((row) => row.name === 'pushSend:deliverTo')
+      expect(jobs.map((job) => (job.args[0] as { playerId: string }).playerId)).toEqual([rival])
+    })
+  })
+
+  // THE DELETED TEAM ON THE OTHER SIDE. Every test above makes it the
+  // challenger, so a skip that always skipped the CHALLENGER's roster passed
+  // them all — and here would push the deleted team and skip the survivor.
+  test('only the surviving team is pushed when the deleted team was the OPPONENT', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, rival, doomedId, survivorId } = await seedPair(ctx)
+      const challengeId = await ctx.db.insert('teamChallenges', {
+        challengerTeamId: survivorId, opponentTeamId: doomedId, proposedBy: rival,
+        status: 'active', startDay: '2026-10-05', endDay: '2026-10-31',
+        expiresAt: Date.now(), createdAt: Date.now(),
+      })
+      await deleteTeamFor(ctx, owner, doomedId)
+      const jobs = (await ctx.db.system.query('_scheduled_functions').collect())
+        .filter((row) => row.name === 'pushSend:deliverTo')
+      expect(jobs.map((job) => (job.args[0] as { playerId: string }).playerId)).toEqual([rival])
+      // Survivor averaged 4, the deleted team 3: the deleted team won, and the
+      // record says so rather than flattering the side that is left.
+      expect((await ctx.db.get(challengeId))!.result?.outcome).toBe('opponent')
+    })
+  })
+
+  // A DELETION MUST NEVER DEPEND ON A CHALLENGE INVARIANT. The close runs first
+  // in the cascade, and closeOne throws INVALID_TEAM when the other team's row
+  // is gone. If such a row ever existed — a deployment that deleted a team
+  // before the cascade closed challenges — every path that deletes the
+  // survivor would fail with it: deleteTeam, the last member's leave, and the
+  // billing webhook, which Polar would then redeliver forever.
+  test('a challenge whose OTHER team is already gone does not block the deletion', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, doomedId, survivorId } = await seedPair(ctx)
+      const challengeId = await ctx.db.insert('teamChallenges', {
+        challengerTeamId: doomedId, opponentTeamId: survivorId, proposedBy: owner,
+        status: 'active', startDay: '2026-10-05', endDay: '2026-10-31',
+        expiresAt: Date.now(), createdAt: Date.now(),
+      })
+      await ctx.db.delete(survivorId) // the orphaning: no cascade ran for it
+
+      await deleteTeamFor(ctx, owner, doomedId)
+
+      expect(await ctx.db.get(doomedId)).toBeNull()
+      // Nobody is left to hold a record of it, so it is withdrawn, not frozen.
+      expect((await ctx.db.get(challengeId))!.status).toBe('withdrawn')
+    })
+  })
+
+  test('a pending proposal is WITHDRAWN', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { owner, doomedId, survivorId } = await seedPair(ctx)
+      const challengeId = await ctx.db.insert('teamChallenges', {
+        challengerTeamId: doomedId, opponentTeamId: survivorId, proposedBy: owner,
+        status: 'pending', expiresAt: Date.now() + 1000, createdAt: Date.now(),
+      })
+      await deleteTeamFor(ctx, owner, doomedId)
+      expect((await ctx.db.get(challengeId))!.status).toBe('withdrawn')
+    })
+  })
+
+  test('the close is the FIRST statement of cascadeDeleteTeam', async () => {
+    // Source position, the way convex/lib/sweeps.test.ts pins its gate. FOUR
+    // callers reach the cascade, but every behavioural test above drives only
+    // deleteTeamFor — so a close moved OUT of the cascade and into deleteTeamFor
+    // keeps them all green while the last-member leave, the billing downgrade
+    // and e2ePrune silently stop closing challenges. This test is what fails
+    // then. (A close moved below the teamMonthStats deletes is caught by the
+    // behavioural tests too: it freezes 'void'.)
+    //
+    // THROUGH THE COMPILER, NOT A TEXT SLICE (src/test-support/source-ast.ts).
+    // `within` is the cascade's own body, so a call parked in some other
+    // function in teams.ts cannot satisfy it, and comments are trivia rather
+    // than calls. Every anchor is checked for presence first: renaming the
+    // close, or the table, is a named failure here, never a vacuous pass.
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync(new URL('./teams.ts', import.meta.url), 'utf8')
+    const sites = callSitesOf('convex/teams.ts', source, 'closeChallengesForDeletedTeam')
+    expect(sites).toHaveLength(1)
+    const [site] = sites
+    expect(site.args).toEqual(['ctx', 'team._id'])
+
+    const statsRead = site.within.find((callee) => callee.includes("query('teamMonthStats')"))
+    expect(statsRead, 'the close is not in the body that reads teamMonthStats (moved out of cascadeDeleteTeam, or the table renamed)').toBeDefined()
+    expect(orderedIn(site.within, 'closeChallengesForDeletedTeam', statsRead!)).toBe(true)
+    // And the FIRST call the cascade makes, which is the stronger claim the
+    // comment at the call site makes.
+    expect(site.within[0]).toBe('closeChallengesForDeletedTeam')
   })
 })

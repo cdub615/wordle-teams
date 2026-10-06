@@ -2,13 +2,14 @@
 //
 // THE JOIN BETWEEN THE CARD AND THE DIALOG IT OPENS (wordle-teams-iht.1.11).
 //
-// Six affordances each hand `openUpgrade` a different origin, and the origin is
-// the only thing that chooses the dialog's headline. Four of the six were
-// pinned before this file: src/routes.test.ts reads routes/app.tsx and
-// routes/insights.tsx as SOURCE and pins `teams`, `months` and `insights` that
-// way; Header.hook.test.ts pins `header` by rendering the bar. Neither approach
-// reaches a plain component, so `trial-ended` here and `import` in
-// board-entry/form-import.hook.test.ts were covered by nothing at all.
+// Eight affordances now each hand `openUpgrade` a different origin, and the
+// origin is the only thing that chooses the dialog's headline. There were six
+// when this file was written, and four of those six were pinned before it:
+// src/routes.test.ts reads routes/app.tsx and routes/insights.tsx as SOURCE
+// and pins `teams`, `months` and `insights` that way; Header.hook.test.ts pins
+// `header` by rendering the bar. Neither approach reaches a plain component,
+// so `trial-ended` here and `import` in board-entry/form-import.hook.test.ts
+// were covered by nothing at all.
 //
 // MEASURED, NOT ASSUMED. Before this file, rewriting line 39 of
 // trial-ended-card.tsx as `openUpgrade('header')` passed the whole suite, tsc,
@@ -20,7 +21,7 @@
 // keeps the binding referenced evades. An incidental catch is not cover.)
 //
 // WHY THE EXISTING SUITES DO NOT ALREADY DO THIS, since between them they look
-// as though they must. plans.test.ts proves six headlines exist and differ.
+// as though they must. plans.test.ts proves eight headlines exist and differ.
 // upgrade-dialog.hook.test.ts proves the dialog renders each one GIVEN an
 // origin — but it supplies the origin itself, from a hand-written
 // `openUpgrade('trial-ended')` in a test-local `Opener`. That makes the string
@@ -190,7 +191,7 @@ describe('the card the population it is for actually sees', () => {
 describe('the CTA opens the upgrade dialog, on this card’s own headline', () => {
   /**
    * THE ORIGIN LITERAL, WHICH NOTHING ELSE IN THE REPO CAN SEE. Swapping
-   * `openUpgrade('trial-ended')` for any of the other five origins type-checks,
+   * `openUpgrade('trial-ended')` for any of the other seven origins type-checks,
    * lints, builds and — before this assertion — passed all 3708 tests, while
    * headlining a generic Pro pitch at the one player the card exists for.
    *

@@ -242,7 +242,8 @@ export function ScoresTable({
     .sort((a, b) => b.total - a.total)
 
   // v1 shows a first name alone, and 'First L' only when two players on the team
-  // share one; lib/display-names.ts owns that rule so this table and the
+  // share one; convex/lib/displayNames.ts owns that rule (re-exported through
+  // lib/display-names.ts) so this table and the
   // dashboard's Today panel cannot disagree about what to call someone.
   // Initials replace both on mobile, below, which is presentation rather than
   // collision.

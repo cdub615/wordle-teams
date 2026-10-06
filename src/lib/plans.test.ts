@@ -60,6 +60,7 @@ describe('UPGRADE_HEADLINES', () => {
     'months',
     'import',
     'insights',
+    'challenges',
     'trial-ended',
     'trial-active',
   ]
@@ -118,7 +119,7 @@ describe('UPGRADE_HEADLINES', () => {
     // argument for it, including the two mutants worth re-running if it ever
     // moves: `insights` at 4 ("your team’s whole month") and `import` at 6 ("fill
     // the board in for you"), both of which reached a screen as a visible
-    // stutter. What is corpus-specific and stays here: the six headlines as they
+    // stutter. What is corpus-specific and stays here: the eight headlines as they
     // stand share at most 2 consecutive words with any entry, and this guard would
     // NOT have caught `teams`, whose old "Pro lifts the two-team limit" shared 3
     // with its body ("Pro lifts the cap"), nor `months` at 2. Both were reworded

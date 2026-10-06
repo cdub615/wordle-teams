@@ -4,6 +4,7 @@ import { internalMutation } from './_generated/server'
 import { aggregateTeamMonth, sameStats } from './lib/teamStats.ts'
 import { monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { sweepsEnabled } from './lib/sweeps.ts'
+import { closeDueChallengeFor, closeDueChallengesFor } from './challenges.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 import type { PuzzleMonth } from './lib/puzzleDay.ts'
@@ -200,7 +201,25 @@ export const sweep = internalMutation({
         month,
       })
     }
-    return { teams: teams.length, month }
+
+    // CHALLENGES CLOSE ON THIS SWEEP, NOT A CRON OF THEIR OWN (wordle-teams-zic8.2):
+    // a daily pass at 00:45 UTC is already the right cadence, and crons.ts keeps
+    // lanes apart deliberately. NOT ORDERED AFTER THE ROLLUPS ABOVE IN ANY USEFUL
+    // SENSE: those are scheduled, run later, and cover only the current month. A
+    // closed window's month is kept current by the incremental write path.
+    //
+    // SCHEDULED, NOT CLOSED HERE (Task 10b, owner decision D5): this expires
+    // stale proposals and queues one closeChallenge job per due challenge, as
+    // the loop above queues one rollupOne per team. A close that throws fails
+    // its own job; it cannot roll this sweep back. THIS EXECUTION STILL QUEUES
+    // teams + due challenges jobs, and every challenge comes due on the same
+    // day, so the per-execution scheduling cap is shared with the rollups —
+    // far from it at this scale, but not immune to it.
+    //
+    // GATED ON SWEEPS_ENABLED ONLY (the switch above), NEVER ON CHALLENGES_ENABLED:
+    // turning the feature off must not strand a challenge that is already running.
+    const challenges = await closeDueChallengesFor(ctx, toPuzzleDay(new Date()))
+    return { teams: teams.length, month, challenges }
   },
 })
 
@@ -224,6 +243,39 @@ export const rollupOne = internalMutation({
     if (!team) return { rolled: false as const }
     await rollupTeamMonth(ctx, team, month)
     return { rolled: true as const }
+  },
+})
+
+/**
+ * One due challenge's close, as its own execution. Scheduled by `sweep`, through
+ * closeDueChallengesFor; the logic is closeDueChallengeFor in challenges.ts.
+ *
+ * WHY IT LIVES HERE AND NOT IN challenges.ts: an internal mutation there would be
+ * `internal.challenges.*`, and convex/_generated/api.d.ts does not list that
+ * module until it is regenerated (wordle-teams-zic8.2.15), so typecheck would
+ * fail. This module is already listed, already imports from challenges.ts, and
+ * already holds rollupOne, the job this copies.
+ *
+ * TAKES THE ID, NOT THE DOCUMENT, for rollupOne's reason: the row can change
+ * between the sweep and this run — an owner can cancel it, or a team be
+ * deleted — and closeDueChallengeFor re-reads it and does nothing unless it is
+ * still 'active'.
+ *
+ * NOT GATED on SWEEPS_ENABLED or CHALLENGES_ENABLED. The sweep that schedules it
+ * is already gated, and a job already scheduled must finish: switching the
+ * feature off must not strand a challenge that is already running.
+ */
+export const closeChallenge = internalMutation({
+  args: { challengeId: v.id('teamChallenges') },
+  handler: async (ctx, { challengeId }) => {
+    // A FAILED CLOSE IS RETRIED BY TOMORROW'S SWEEP, and nothing else counts it.
+    // Log the id so a row that fails every day can be found from the logs.
+    try {
+      await closeDueChallengeFor(ctx, challengeId)
+    } catch (error) {
+      console.error(`teamStats.closeChallenge: ${challengeId} did not close`)
+      throw error
+    }
   },
 })
 

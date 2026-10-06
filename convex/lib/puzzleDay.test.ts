@@ -114,6 +114,18 @@ describe('isPlausibleToday', () => {
     expect(isPlausibleToday('2026-06-06', '2026-06-08')).toBe(false)
     expect(isPlausibleToday('2026-06-10', '2026-06-08')).toBe(false)
   })
+
+  // wordle-teams-435s. EVERY ONE OF THESE SITS INSIDE THE LEXICOGRAPHIC BOUND —
+  // '2026-10-03' < each < '2026-10-05' as strings — so a range test alone calls
+  // them plausible. The shape check lives HERE rather than only in
+  // requirePlausibleToday so the two callers that fall back instead of throwing
+  // (completeProfileFor, insights' teamMonth) get it too.
+  test.each(['2026-10-039', '2026-10-04x', '2026-10-04T00:00:00Z'])(
+    '%s is inside the string bound but not a day, so it is not plausible',
+    (today) => {
+      expect(isPlausibleToday(today, '2026-10-04')).toBe(false)
+    },
+  )
 })
 
 describe('isPuzzleDay', () => {

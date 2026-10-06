@@ -55,7 +55,16 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'MONTH_OUT_OF_WINDOW' ||
     code === 'INVALID_AVATAR' ||
     code === 'AVATAR_RATE_LIMITED' ||
-    code === 'INVALID_PUZZLE_DAY'
+    code === 'INVALID_PUZZLE_DAY' ||
+    code === 'CHALLENGES_REFUSED' ||
+    code === 'CHALLENGE_LIMIT_REACHED' ||
+    code === 'CHALLENGE_EXISTS' ||
+    code === 'PRO_REQUIRED' ||
+    code === 'CHALLENGE_NOT_PENDING' ||
+    code === 'CHALLENGE_LINK_INVALID' ||
+    code === 'CHALLENGE_NOT_ACTIVE' ||
+    code === 'CHALLENGES_DISABLED' ||
+    code === 'CHALLENGE_OWN_PROPOSAL'
   ) {
     return code
   }
@@ -251,6 +260,38 @@ export function typedCodeMessage(code: AccessCode): string {
       // clock settings, and the clock is not what is wrong here — the day the
       // board was filed under is.
       return "That puzzle day isn't one we can save a board for. Pick the day from the calendar."
+    case 'CHALLENGES_REFUSED':
+      // The opponent's owner switched incoming challenges off
+      // (teams.acceptsChallenges === false). Names the team's choice rather
+      // than a fault, since the proposer did nothing wrong.
+      return 'That team is not taking challenges right now.'
+    case 'CHALLENGE_LIMIT_REACHED':
+      // Says "a team" rather than which one: the check runs against both sides
+      // and the proposer cannot act on the other team's count anyway. No number,
+      // so the copy cannot drift out of step with MAX_ACTIVE_CHALLENGES.
+      return 'One of the teams already has as many challenges as it can run. Wait for one to finish.'
+    case 'CHALLENGE_EXISTS':
+      return 'These two teams already have a challenge running or waiting.'
+    case 'PRO_REQUIRED':
+      // Gates INITIATING only. Accepting a challenge never reaches this, so the
+      // copy is about starting one.
+      return 'Starting a challenge is part of Pro.'
+    case 'CHALLENGE_NOT_PENDING':
+      return 'That challenge is no longer waiting for an answer.'
+    case 'CHALLENGE_LINK_INVALID':
+      return 'That challenge link is no longer valid.'
+    case 'CHALLENGE_NOT_ACTIVE':
+      return "That challenge isn't running."
+    case 'CHALLENGES_DISABLED':
+      // The CHALLENGES_ENABLED deployment switch is off. "Yet" because the
+      // switch exists to hold the feature dark until it ships.
+      return "Challenges aren't available yet."
+    case 'CHALLENGE_OWN_PROPOSAL':
+      // Thrown by acceptChallengeFor and claimChallengeLinkFor when the caller
+      // proposed the challenge. Says what DOES work — a teammate accepting —
+      // rather than only what does not, since the proposer is usually on both
+      // teams and would otherwise not see why the button they pressed refused.
+      return 'Someone else on your team has to accept a challenge you sent.'
     default: {
       const _exhaustive: never = code
       return _exhaustive

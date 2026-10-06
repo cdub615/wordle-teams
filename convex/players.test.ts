@@ -754,6 +754,42 @@ describe('completeProfileFor validation', () => {
     })
   })
 
+  test('recomputes with the SERVER date when the client sends a malformed day', async () => {
+    // wordle-teams-435s. `${serverToday}x` sits INSIDE the lexicographic +/-1
+    // day bound — it sorts after today and before tomorrow — so before the
+    // shape check moved into isPlausibleToday it was trusted as today. As a
+    // string it is AFTER today, so today's board counted as due: the "client
+    // tomorrow" outcome of the test above (Ada wins). Falling back to the
+    // server's date leaves today not yet due, so Bob keeps the month.
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const serverToday = toPuzzleDay(new Date())
+      const [year, month] = monthOf(serverToday).split('-').map(Number)
+
+      const bob = await ctx.db.insert('players', aPlayer({ email: 'bob@example.test' }))
+      const ada = await ctx.db.insert('players', aPlayer({ email: ADA }))
+      const teamId = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [bob], owner: bob, invited: [ADA], nA: -3 }),
+      )
+      await ctx.db.insert(
+        'dailyScores',
+        aScore(ada, serverToday, ['CRANE', 'SLATE', 'SPELL', 'STEEL', 'SHEEP', 'SPEED']),
+      )
+      const staleRow = await ctx.db.insert('monthlyWinners', {
+        playerId: bob,
+        teamId,
+        year,
+        month,
+        hasSeenCelebration: [bob],
+      })
+
+      await completeProfileFor(ctx, ADA, NAMES, `${serverToday}x`)
+
+      expect((await ctx.db.get(staleRow))!.playerId).toBe(bob)
+    })
+  })
+
   test('validates before it writes, so a rejected submit claims no invites', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {

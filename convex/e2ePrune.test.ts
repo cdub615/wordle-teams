@@ -534,6 +534,79 @@ describe('the dry run', () => {
   })
 })
 
+describe('challenges a deleted team was in (wordle-teams-uvtz)', () => {
+  // cascadeDeleteTeam closes a doomed team's active challenges and withdraws its
+  // pending ones. The report is this script's only output, so both are counted —
+  // and counted from the same plan on a dry run, so the dry run predicts them.
+  //
+  // THE A-vs-B AND C-to-B ROWS ARE THE ONES THAT MATTER. Both of its teams are pruned in the
+  // same batch, so it is live for BOTH. On a write the first team's cascade
+  // closes it and the second never sees it; a dry run writes nothing, so the
+  // second team still sees it, and without de-duplication it is counted twice.
+  async function seed(t: ReturnType<typeof convexTest>) {
+    return await t.run(async (ctx) => {
+      const real = await ctx.db.insert('players', aPlayer({ email: REAL_ADDRESS }))
+      const a = await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS, legacyId: undefined }))
+      const b = await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS_2, legacyId: undefined }))
+      const c = await ctx.db.insert('players', aPlayer({ email: 'e2e+prune-3@wordleteams.com', legacyId: undefined }))
+      const survivor = await ctx.db.insert('teams', aTeam({ name: 'Survivor', playerIds: [real], owner: real }))
+      const teamA = await ctx.db.insert('teams', aTeam({ name: 'A', playerIds: [a], owner: a }))
+      const teamB = await ctx.db.insert('teams', aTeam({ name: 'B', playerIds: [b], owner: b }))
+      const teamC = await ctx.db.insert('teams', aTeam({ name: 'C', playerIds: [c], owner: c }))
+      const row = async (
+        challengerTeamId: Id<'teams'>,
+        opponentTeamId: Id<'teams'>,
+        status: 'active' | 'pending',
+        proposedBy: Id<'players'>,
+      ) =>
+        await ctx.db.insert('teamChallenges', {
+          challengerTeamId,
+          opponentTeamId,
+          proposedBy,
+          status,
+          ...(status === 'active' ? { startDay: '2026-10-05', endDay: '2026-10-31' } : {}),
+          expiresAt: Date.now() + 1000,
+          createdAt: Date.now(),
+        })
+      return {
+        aVsSurvivor: await row(teamA, survivor, 'active', a),
+        survivorProposedToA: await row(survivor, teamA, 'pending', real),
+        aVsB: await row(teamA, teamB, 'active', a),
+        // The same hazard on the withdraw side: pending, and both teams pruned.
+        cProposedToB: await row(teamC, teamB, 'pending', c),
+      }
+    })
+  }
+
+  const statuses = async (t: ReturnType<typeof convexTest>) =>
+    await t.run(async (ctx) =>
+      Object.fromEntries((await ctx.db.query('teamChallenges').collect()).map((row) => [row._id, row.status])),
+    )
+
+  test('the dry run predicts the counts the write reports, counting a challenge between two pruned teams ONCE', async () => {
+    const t = convexTest(schema, modules)
+    const ids = await seed(t)
+    const before = await statuses(t)
+
+    const predicted = await prune(t, false)
+    expect(await statuses(t)).toEqual(before)
+    expect(predicted.challengesClosed).toBe(2)
+    expect(predicted.challengesWithdrawn).toBe(2)
+
+    const executed = await prune(t, true)
+    expect(executed.challengesClosed).toBe(predicted.challengesClosed)
+    expect(executed.challengesWithdrawn).toBe(predicted.challengesWithdrawn)
+
+    // And the write did what it reported.
+    expect(await statuses(t)).toEqual({
+      [ids.aVsSurvivor]: 'closed',
+      [ids.survivorProposedToA]: 'withdrawn',
+      [ids.aVsB]: 'closed',
+      [ids.cProposedToB]: 'withdrawn',
+    })
+  })
+})
+
 describe('paging', () => {
   test('a surviving team’s stale invite is counted once, not once per page', async () => {
     // REGRESSION. "Is this an e2e address" does not depend on which page is

@@ -12,12 +12,13 @@ import { promoteLoginAttempt } from '#/lib/last-login.ts'
 import { shouldOfferPasskey } from '#/lib/passkey.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { captureError } from '#/lib/sentry-capture.ts'
-import { resolveDashboardSearch } from '#/lib/dashboard-search.ts'
+import { dashboardSearchSettled, resolveDashboardSearch } from '#/lib/dashboard-search.ts'
 import { correctedMonth, fallbackMonths, isServableMonth } from '#/lib/dashboard-months.ts'
 import { formatMonthLabel } from '#/lib/format-day.ts'
 import { useSearchSync } from '#/lib/use-search-sync.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { usePendingInvite } from '#/lib/use-pending-invite.ts'
+import { usePendingChallenge } from '#/lib/use-pending-challenge.ts'
 import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { UnreadBadge } from '#/components/chat/unread-badge.tsx'
 import { chatEntryLabel, hasUnread, unreadTeamIds, useUnreadTeams } from '#/components/chat/use-chat-sync.ts'
@@ -34,6 +35,7 @@ import { MonthlyWinnerCelebration } from '#/components/monthly-winner-celebratio
 import { PasskeyOffer } from '#/components/passkey-offer.tsx'
 import { BoardEntryButton, BoardEntrySurface } from '#/components/board-entry/button.tsx'
 import { NextStepCard } from '#/components/onboarding/next-step-card.tsx'
+import { ChallengeNudge } from '#/components/challenges/challenge-nudge.tsx'
 import { onboardingFactsFrom } from '#/lib/onboarding-facts.ts'
 import { DashboardError } from '#/components/dashboard-error.tsx'
 import { Button } from '#/components/ui/button.tsx'
@@ -396,6 +398,32 @@ function Dashboard() {
 
 
   /**
+   * THE OTHER END OF routes/challenge.$token.tsx: a challenge link followed
+   * while signed out (or before /complete-profile) left its token stashed, and
+   * this sends the player back to that page to choose a team. Unlike an invite,
+   * nothing is spent here — the claim happens on that page.
+   *
+   * DECLARED BEFORE usePendingInvite, AND THE ORDER IS THE MECHANISM. An invite
+   * goes first, and usePendingInvite DESTROYS its stash inside its own effect;
+   * effects run in the order their hooks are called, so declared after it this
+   * would always see "no invite" and race the consume. lib/use-pending-
+   * challenge.ts has the rest, and use-pending-challenge.hook.test.ts drives it.
+   */
+  // See dashboardSearchSettled. `new Date()` is read only once hydrated: the
+  // helper returns false first, but the argument is built every render, so the
+  // clock read is guarded here rather than relied on there.
+  const searchSettled = dashboardSearchSettled({
+    hydrated,
+    teamParam,
+    monthParam,
+    teams,
+    currentMonth: hydrated ? monthOf(toPuzzleDay(new Date())) : '',
+  })
+  usePendingChallenge(joinParam, consumeInvite.isPending, searchSettled, (token) => {
+    void navigate({ to: '/challenge/$token', params: { token }, replace: true })
+  })
+
+  /**
    * THE OTHER END OF routes/join.$token.tsx, AND THE ONLY PLACE A LINK TOKEN
    * CAN BE SPENT.
    *
@@ -535,6 +563,24 @@ function Dashboard() {
   const earliestMonth = monthWindowInputs?.earliestMonth ?? null
 
   /*
+    THE CHALLENGE NUDGE (zic8.2.12, owner decision D9): one boolean, "does the
+    selected team have an incoming, unexpired proposal". Nothing pushes on a
+    proposal, so this line on the dashboard is how a challenged team finds out.
+
+    useQuery, NOT useSuspenseQuery, like the chat-unread signal and monthWindow
+    above: it must never block or delay the dashboard. `undefined` (in flight,
+    skipped, or failed) renders nothing — ChallengeNudge shows only on `true`.
+
+    THE SAME membership-gated ARGS AS monthWindow, REUSED rather than restated:
+    the question is about the same selected team, and the same stale-`?team=`
+    refusal the comment above describes would apply here word for word. On a
+    dark deployment the query answers `false` before it reads anything.
+  */
+  const { data: challengedIncoming } = useQuery(
+    convexQuery(api.challenges.incomingChallenge, monthWindowArgs),
+  )
+
+  /*
     A FAILURE HERE IS INVISIBLE WITHOUT THIS, AND IT COSTS A PRO SUBSCRIBER THEIR
     HISTORY (wordle-teams-fkbh).
 
@@ -642,7 +688,9 @@ function Dashboard() {
     or null, so this effect's dependency list is two primitives and `navigate`, and
     no array identity can re-fire it.
 
-    IT CANNOT FIGHT useSearchSync, the other effect on this page that navigates,
+    IT CANNOT FIGHT useSearchSync, another effect on this page that navigates
+    (the challenge resume above is the third; it waits for useSearchSync to
+    settle, but NOT for this correction — see use-pending-challenge.ts),
     and the reason is worth getting right rather than nearly right.
     resolveDashboardSearch returns null as soon as `?team=` names a team the viewer
     belongs to AND `?month=` is set. It is NOT the case that `loadedWindow` is
@@ -1377,6 +1425,14 @@ function Dashboard() {
           a card that is temporary by design. Above the upgrade notice would be
           worse still: that notice is first on all three surfaces on purpose. */}
       {onboardingCard('md:col-span-3')}
+      {/* Below the onboarding card and above TodayPanel: a one-line signal that
+          something on /team wants an answer, in the same first-content slot
+          and for the same reason the onboarding card's note gives. */}
+      <ChallengeNudge
+        teamId={teamParam}
+        incoming={challengedIncoming}
+        className="md:col-span-3"
+      />
       {/*
         THE BOUNDARY IS WHY THE GRID NO LONGER BLANKS (wordle-teams-9ahw).
         ScoresTable (whose `footer` prop renders ScoringLegend, folded in
