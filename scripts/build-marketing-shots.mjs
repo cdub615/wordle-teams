@@ -962,7 +962,9 @@ async function main() {
       ([key, value]) => {
         try {
           window.localStorage.setItem(key, value)
-        } catch {}
+        } catch {
+          // A blocked store shows no dot anyway (canRememberRelease).
+        }
       },
       [WHATS_NEW_SEEN_KEY, LATEST_RELEASE],
     )
