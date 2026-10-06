@@ -140,3 +140,37 @@ sequence end to end. That run is the evidence rac.3 needs.
 
 The four gates, separately. Commits per function group. No production access of any
 kind in rac.1/rac.2: production is rac.4 onward, and it is the controller's.
+
+## Revision 2 (2026-10-06) — after the adversarial review
+
+The review found that "later-written" is not "last edited" (a v2 edit patches whichever
+duplicate `.first()` returns, without touching `createdAt`), and that grouping by
+`puzzleDay` can merge two different puzzles (days were derived from v1 instants in the
+player's CURRENT zone). Owner decisions, superseding decision 1 above:
+
+- **Survivor = the row v2 edits:** the FIRST row in `by_player_and_puzzleDay` index
+  order (for one player and day, ascending `_creationTime`). Every v2 edit since the
+  cutover landed on it, so no v2 edit can be lost. Applies to identical and differing
+  groups alike. (v1 source comparison was rejected: no dependable read access.)
+- **Held, never deleted, and listed for the owner:** a group whose non-empty answers
+  differ (two puzzles — needs re-dating, not deleting); a group whose `date` instants
+  are more than 10 minutes apart (not the double-submit signature); and a group with
+  any row lacking `legacyId` (a v2-written row). The report gives the reason.
+
+Also from the review, all to be fixed before any production run:
+- **Winners only where they already exist** (I1): recompute winners only for months
+  that already have a `monthlyWinners` row for that team, as `recomputeForJoiner`
+  does; always roll up stats. Never create a winner row for a month before a team
+  existed. The impact report must not count `null -> X` as a winner change.
+- **One recompute per (team, month), after all deletes** (I3): no member's partial
+  repair may flip and reset `hasSeenCelebration` before another's flips it back.
+- **Results are streamed** (I2): each call's result is printed and appended to `--out`
+  as it returns, so a failure mid-run keeps the record of what was deleted.
+- **`--apply` is tied to the approved plan** (I4): the dry run prints a fingerprint of
+  exactly what it would delete; `--apply` requires `--expect=<fingerprint>` and refuses
+  on mismatch.
+- **Past months only** (M1): impact and repair refuse the current month.
+- **Stable impact paging** (M2) and a check that the runner saw every pair.
+- **Output guard resolves symlinks** (M3).
+- **Tests that can fail** (M5): replace the trivially-true "query writes nothing"
+  tests; add fixtures with differing answers and far-apart `date` instants.
