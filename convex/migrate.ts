@@ -2,8 +2,11 @@ import { internalMutation, internalQuery } from './_generated/server'
 import { v } from 'convex/values'
 import { SYSTEM_FIELDS } from './lib/scoringSystem.ts'
 import { METHODS } from './lib/reminders.ts'
+import { attemptsFor } from './lib/board.ts'
+import { planCollapse } from './lib/duplicateScores.ts'
+import { monthRange, type PuzzleMonth } from './lib/puzzleDay.ts'
 import type { Doc, Id } from './_generated/dataModel'
-import type { MutationCtx } from './_generated/server'
+import type { MutationCtx, QueryCtx } from './_generated/server'
 
 // Write side of the Supabase -> Convex copy. The reader lives outside Convex, in
 // scripts/copy-from-supabase.mjs, because pulling from Supabase would otherwise
@@ -1064,6 +1067,103 @@ export const insightsPairProbe = internalQuery({
       boardsWithoutSecondGuess,
       pairs: [...pairs].map(([pair, n]) => ({ pair, n })),
       fixedPairShare,
+      cursor: page.continueCursor,
+      isDone: page.isDone,
+    }
+  },
+})
+
+// --- duplicate daily scores (wordle-teams-rac) --------------------------------
+//
+// THE ONE-TIME REPAIR OF v1's DUPLICATE (player, puzzle day) ROWS. v1 had no
+// uniqueness constraint and its upsertBoard inserted whenever the client had no
+// score id yet, so a double submit made two rows; upsertDailyScores above copied
+// them faithfully, by design. A duplicate counts a day twice in every
+// aggregate that counts ROWS — board counts, average guesses (the metric
+// team-vs-team challenges compare on), every insights statistic — and can move a
+// monthly winner, because monthTotal scores the FIRST row it meets for a day.
+//
+// THREE FUNCTIONS, READ-ONLY UNTIL THE LAST: duplicateScoresProbe measures,
+// duplicateScoresImpact is the diff the owner approves, and repairDuplicateScores
+// deletes — dry-run by default. scripts/rac-duplicate-scores.mjs drives them with
+// the migration key. The rule they share is planCollapse in
+// lib/duplicateScores.ts, and each function re-plans from rows it has just read
+// rather than trusting a list handed to it.
+//
+// THE ID POLICY IS THIS FILE'S: legacy ids, never document ids, because this
+// repository is public and these outputs get pasted into issues. A player or team
+// born in v2 has no legacy id and is reported as V2_NATIVE; a score row born in
+// v2 reports `legacyId: null`. Never an email, never a name.
+
+/** What a v2-born player or team is reported as, in place of a document id. */
+const V2_NATIVE = 'v2-native'
+
+function playerRef(player: Doc<'players'> | null): string {
+  return player?.legacyId ?? V2_NATIVE
+}
+
+/** One score row as the reports show it: identity, age and outcome, no board. */
+function rowSummary(row: Doc<'dailyScores'>) {
+  return {
+    legacyId: row.legacyId ?? null,
+    createdAt: row.createdAt ?? null,
+    attempts: attemptsFor(row.guesses, row.answer ?? ''),
+  }
+}
+
+async function scoresOf(ctx: QueryCtx, playerId: Id<'players'>, month?: PuzzleMonth) {
+  if (month === undefined) {
+    return await ctx.db
+      .query('dailyScores')
+      .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', playerId))
+      .collect()
+  }
+  const { start, end } = monthRange(month)
+  return await ctx.db
+    .query('dailyScores')
+    .withIndex('by_player_and_puzzleDay', (q) =>
+      q.eq('playerId', playerId).gte('puzzleDay', start).lte('puzzleDay', end),
+    )
+    .collect()
+}
+
+/**
+ * MEASURE: every player holding a duplicated day, one page of ten players a call.
+ *
+ * Paginated over `players` for insightsPairProbe's reason — a player's rows must
+ * be planned together, so paging over dailyScores would split them — and at the
+ * same ten a page. The bound per call is ten players' whole histories: production's
+ * heaviest player has about 700 boards, so a page is at most ~7,000 documents
+ * against the 32,000 scan limit, and 21 index ranges against 4,096.
+ *
+ * Per group: the day, how many rows, whether they differ, and the kept and dropped
+ * rows' legacyId, createdAt and attempts — enough for the owner to see what a
+ * delete loses, and nothing that names anyone. Reads only.
+ */
+export const duplicateScoresProbe = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query('players').paginate({ cursor, numItems: 10 })
+
+    const affected = []
+    for (const player of page.page) {
+      const groups = planCollapse(await scoresOf(ctx, player._id))
+      if (groups.length === 0) continue
+      affected.push({
+        player: playerRef(player),
+        groups: groups.map((group) => ({
+          puzzleDay: group.puzzleDay,
+          rows: group.drop.length + 1,
+          differing: group.differing,
+          keep: rowSummary(group.keep),
+          drop: group.drop.map(rowSummary),
+        })),
+      })
+    }
+
+    return {
+      players: page.page.length,
+      affected,
       cursor: page.continueCursor,
       isDone: page.isDone,
     }
