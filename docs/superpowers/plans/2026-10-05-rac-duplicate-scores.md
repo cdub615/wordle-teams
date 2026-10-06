@@ -174,3 +174,20 @@ Also from the review, all to be fixed before any production run:
 - **Output guard resolves symlinks** (M3).
 - **Tests that can fail** (M5): replace the trivially-true "query writes nothing"
   tests; add fixtures with differing answers and far-apart `date` instants.
+
+## Revision 3 (2026-10-06) — the repair never writes winners
+
+Found while implementing revision 2, and confirmed in `convex/lib/scoring.ts`:
+`monthTotal` scores the FIRST row for a day ("First row wins for a day"), and rows
+arrive in index order, so the revision-2 survivor is exactly the row already being
+scored. **Collapsing duplicates cannot change any winner** — only board counts and
+averages (`teamMonthStats`, insights, challenges). Any winner change the old recompute
+would show is drift unrelated to duplicates: v1's original computation, or today's
+roster versus that month's.
+
+**Owner decision: stats only.** The repair deletes the duplicates and rolls up
+`teamMonthStats` (`rollupTeamMonth`) for each affected (team, month), once, after that
+month's deletes. It never calls `recomputeTeamMonth` and never writes
+`monthlyWinners`, so no winner and no `hasSeenCelebration` changes. The impact report
+keeps reporting stored-vs-live winner drift, labelled as drift and informational only,
+so the owner can decide separately whether it deserves a look.
