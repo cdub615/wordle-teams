@@ -4,10 +4,11 @@ import { SYSTEM_FIELDS } from './lib/scoringSystem.ts'
 import { METHODS } from './lib/reminders.ts'
 import { attemptsFor } from './lib/board.ts'
 import { planCollapse } from './lib/duplicateScores.ts'
-import { addMonths, monthOf, monthRange, type PuzzleMonth } from './lib/puzzleDay.ts'
+import { isMonth } from './lib/monthWindow.ts'
+import { addMonths, monthOf, monthRange, toPuzzleDay, type PuzzleMonth } from './lib/puzzleDay.ts'
 import { monthTotal, winnerOf } from './lib/scoring.ts'
 import { aggregateTeamMonth, meanAttemptsOf, sameStats } from './lib/teamStats.ts'
-import { loadTeamMonthSystem } from './winners.ts'
+import { loadTeamMonthSystem, recomputeTeamMonth, type ReaderCtx } from './winners.ts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 
@@ -406,6 +407,11 @@ export const upsertDailyScores = internalMutation({
       // make the Phase 7 parity check report a difference it could not explain.
       // Copy faithfully; fix the duplicates as their own decision
       // (wordle-teams-rac).
+      //
+      // THIS INSERT IS THE ONLY PATH THAT CAN CREATE A DUPLICATE, and only from
+      // source data that already holds one: upsertBoardFor finds the
+      // (player, puzzleDay) row and patches it (pinned in scores.test.ts), so
+      // repairDuplicateScores below is a one-time repair, not a recurring one.
       const existing = await byLegacyId(ctx, 'dailyScores', rest.legacyId)
       if (existing) {
         await ctx.db.patch(existing._id, doc)
@@ -1118,7 +1124,7 @@ function rowSummary(row: Doc<'dailyScores'>) {
   }
 }
 
-async function scoresOf(ctx: QueryCtx, playerId: Id<'players'>, month?: PuzzleMonth) {
+async function scoresOf(ctx: ReaderCtx, playerId: Id<'players'>, month?: PuzzleMonth) {
   if (month === undefined) {
     return await ctx.db
       .query('dailyScores')
@@ -1345,5 +1351,94 @@ export const duplicateScoresImpact = internalQuery({
     for (const { team, month } of slice) entries.push(await monthImpact(ctx, team, month))
     const next = offset + slice.length
     return { entries, missing, pairs: pairs.length, nextOffset: next < pairs.length ? next : null }
+  },
+})
+
+/**
+ * REPAIR: collapse one player's duplicated days. DRY RUN UNLESS `dryRun: false`.
+ *
+ * Takes the player by legacy id, as the probe names them — a v2-born player
+ * cannot be named and cannot be repaired here, and cannot hold a duplicate
+ * either (see upsertDailyScores' comment). RE-READS AND RE-PLANS EVERY TIME, and
+ * takes no list of rows: whatever a dry run or the probe said is advice to the
+ * operator, never an instruction to this function, because a row can go between
+ * the two and a stale list would delete a player's only board for a day.
+ *
+ * Returns exactly what it deleted, or would, in the probe's id policy, and the
+ * (team, month) pairs it recomputed, or would. IDEMPOTENT: a second run plans no
+ * groups, deletes nothing and recomputes nothing.
+ *
+ * THEN, UNLESS dryRun, recomputeTeamMonth for every team the player is on and
+ * every month a deleted row was in, with the server's day as `today` (every day
+ * of a past month is due either way). That is the real recompute — winner row
+ * AND teamMonthStats — in the same transaction as the deletes, so no reader ever
+ * sees the boards gone and the standings not.
+ *
+ * WHAT A CHANGED WINNER DOES TO THE CELEBRATION, as the plan asked to be reported
+ * rather than changed: recomputeTeamMonth patches the existing row, keeping
+ * hasSeenCelebration when the winner is unchanged and resetting it to [] when it
+ * changes. The dialog only ever asks for the viewer's previous local month, so a
+ * reset on any older month is invisible; on the previous month, every member who
+ * already dismissed it sees it again, naming the new winner. Pinned in
+ * duplicateScores.test.ts.
+ *
+ * NOT GATED on SWEEPS_ENABLED or CHALLENGES_ENABLED, for backfillMonth's reason
+ * (teamStats.ts): this runs once, by hand, with the migration key, to repair data
+ * that is wrong now.
+ *
+ * `month` SCOPES ONE CALL TO ONE MONTH, AND THE RUNNER ALWAYS PASSES IT. Unscoped,
+ * the cost is the player's whole history plus every touched month's recompute —
+ * (teams the player is on) x (months) x (members x ~31 boards) — which a
+ * long-duplicated player on several big teams could push toward the 32,000-
+ * document limit. Scoped, it is one month of the player's boards, the `teams`
+ * scan, and per team one month of each member's boards: ~5 teams x 30 members x
+ * 36 = ~5,400 documents at the far end, plus at most a few writes per pair.
+ */
+export const repairDuplicateScores = internalMutation({
+  args: { player: v.string(), dryRun: v.optional(v.boolean()), month: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? true
+    if (args.month !== undefined && !isMonth(args.month)) {
+      throw new ConvexError('repairDuplicateScores: month must be YYYY-MM')
+    }
+
+    const player = await ctx.db
+      .query('players')
+      .withIndex('by_legacyId', (q) => q.eq('legacyId', args.player))
+      .unique()
+    if (!player) {
+      return { player: args.player, found: false as const, dryRun, groups: [], teamMonths: [] }
+    }
+
+    const groups = planCollapse(await scoresOf(ctx, player._id, args.month))
+    if (!dryRun) {
+      for (const group of groups) for (const row of group.drop) await ctx.db.delete(row._id)
+    }
+
+    const months = [...new Set(groups.map((group) => monthOf(group.puzzleDay)))].sort()
+    const teamMonths: Array<{ team: number | typeof V2_NATIVE; month: PuzzleMonth }> = []
+    if (months.length > 0) {
+      const today = toPuzzleDay(new Date())
+      for (const team of await ctx.db.query('teams').collect()) {
+        if (!team.playerIds.includes(player._id)) continue
+        for (const month of months) {
+          if (!dryRun) await recomputeTeamMonth(ctx, team, month, today)
+          teamMonths.push({ team: teamRef(team), month })
+        }
+      }
+    }
+
+    return {
+      player: args.player,
+      found: true as const,
+      dryRun,
+      groups: groups.map((group) => ({
+        puzzleDay: group.puzzleDay,
+        differing: group.differing,
+        kept: rowSummary(group.keep),
+        deleted: group.drop.map(rowSummary),
+      })),
+      teamMonths,
+    }
   },
 })
