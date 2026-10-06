@@ -644,6 +644,29 @@ async function loadSignIn() {
 }
 
 /**
+ * The What's new seen-key and current release, read from the app's own module
+ * (src/lib/whats-new.ts) the way loadSignIn reads e2e/sign-in.ts, so the shots
+ * never seed a copy that a release bump has left behind. Written where
+ * loadSignIn writes its bundle, so both follow one rule about where they go.
+ */
+async function loadWhatsNew() {
+  const esbuild = await import('esbuild')
+  const dir = await mkdtemp(path.join(ROOT, 'node_modules', '.wt-shots-'))
+  const outfile = path.join(dir, 'whats-new.mjs')
+  await esbuild.build({
+    entryPoints: [path.join(ROOT, 'src', 'lib', 'whats-new.ts')],
+    outfile,
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    logLevel: 'warning',
+  })
+  const mod = await import(outfile)
+  await rm(dir, { recursive: true, force: true })
+  return { WHATS_NEW_SEEN_KEY: mod.WHATS_NEW_SEEN_KEY, LATEST_RELEASE: mod.LATEST_RELEASE }
+}
+
+/**
  * Opens the app bar's one menu, and does not return until it is open.
  *
  * THE HEADER SERVER-RENDERS, so the trigger exists in the document before React
@@ -660,7 +683,9 @@ async function loadSignIn() {
  * gives.
  */
 async function openMainMenu(page) {
-  const trigger = page.getByRole('button', { name: 'Main menu' })
+  // Anchored regex, as in e2e/app-menu.ts: the name gains ", new updates" while
+  // the What's new dot is lit (wordle-teams-ued7).
+  const trigger = page.getByRole('button', { name: /^Main menu/ })
   await trigger.waitFor({ state: 'visible', timeout: READY_TIMEOUT })
   await until(
     async () => {
@@ -783,6 +808,7 @@ async function main() {
   const { api } = await import('../convex/_generated/api.js')
   const { chromium, expect } = await import('@playwright/test')
   const signIn = await loadSignIn()
+  const { WHATS_NEW_SEEN_KEY, LATEST_RELEASE } = await loadWhatsNew()
 
   /**
    * A FRESH PAIR OF ADDRESSES EVERY RUN, rather than the one fixed address the
@@ -927,6 +953,21 @@ async function main() {
       reducedMotion: 'reduce',
       baseURL: BASE,
     })
+    // NO WHAT'S NEW DOT IN A MARKETING SHOT (wordle-teams-ued7). A fresh,
+    // signed-in context is exactly the state that lights it, so record the
+    // current release as seen before any page loads. The key and value are the
+    // app's own (src/lib/whats-new.ts), so a release bump cannot leave the shots
+    // seeding a stale date.
+    await context.addInitScript(
+      ([key, value]) => {
+        try {
+          window.localStorage.setItem(key, value)
+        } catch {
+          // A blocked store shows no dot anyway (canRememberRelease).
+        }
+      },
+      [WHATS_NEW_SEEN_KEY, LATEST_RELEASE],
+    )
     const page = await context.newPage()
     await signIn(page, viewerEmail)
     await renameThrough(page, expect, VIEWER)

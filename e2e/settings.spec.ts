@@ -70,9 +70,10 @@ test('one Settings item opens the dialog on Profile, and the other tabs are a ta
 }) => {
   await signInWithPlayer(page)
 
-  // The trigger's only content is an icon, so `aria-label="Main menu"` is
-  // the whole of its accessible name — this locator fails outright if that
-  // attribute regresses to something decorative-only.
+  // The trigger's only content is an icon, so `aria-label="Main menu"` (or
+  // "Main menu, new updates" while a release is unread — which it is here, on
+  // fresh storage) is the whole of its accessible name — this locator fails
+  // outright if that attribute regresses to something decorative-only.
   await openAppMenu(page)
   const menu = page.getByRole('menu')
   await expect(menu.getByRole('menuitem', { name: 'Settings' })).toBeVisible()
