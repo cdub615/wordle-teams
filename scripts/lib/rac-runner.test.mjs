@@ -168,6 +168,20 @@ describe('outputPathAllowed — on the real filesystem, symlinks resolved', () =
     expect(allowed(path.join(tmp, 'out.jsonl'))).toBe(false)
   })
 
+  test('a DANGLING symlink at --out is refused: appending would write through it', () => {
+    // The target does not exist yet, so realpath throws and a parent-based
+    // fallback would pass it; appendFileSync would then create the file in the repo.
+    fs.symlinkSync(path.join(repo, 'not-yet.jsonl'), path.join(tmp, 'dangling.jsonl'))
+    expect(allowed(path.join(tmp, 'dangling.jsonl'))).toBe(false)
+  })
+
+  test('any symlink at --out is refused, even one pointing inside the temp dir', () => {
+    fs.writeFileSync(path.join(tmp, 'real.jsonl'), '')
+    fs.symlinkSync(path.join(tmp, 'real.jsonl'), path.join(tmp, 'alias.jsonl'))
+    expect(allowed(path.join(tmp, 'alias.jsonl'))).toBe(false)
+    expect(allowed(path.join(tmp, 'real.jsonl'))).toBe(true)
+  })
+
   test('a file in a directory that does not exist is refused rather than guessed at', () => {
     expect(allowed(path.join(tmp, 'missing', 'report.jsonl'))).toBe(false)
   })

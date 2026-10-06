@@ -112,10 +112,19 @@ export function decideRacTarget({ convexUrl, environments, local, apply, confirm
  * — the file itself when it exists, else its directory's real path plus its name —
  * and the temp dir and repository are compared by their real paths too. A
  * directory that does not exist is refused rather than guessed at.
+ *
+ * --out MUST NOT ITSELF BE A SYMLINK, dangling or not (lstat). A dangling link has
+ * no real path, so the directory fallback above would pass it, and appendFileSync
+ * would then create its target — wherever that is, the repository included.
  */
 export function outputPathAllowed(file, { tmpdir, repoRoot }) {
   const real = (p) => fs.realpathSync.native(p)
   const abs = path.resolve(file)
+  try {
+    if (fs.lstatSync(abs).isSymbolicLink()) return false
+  } catch {
+    // Nothing at that path yet: an ordinary new file.
+  }
   let resolved
   try {
     resolved = real(abs)
