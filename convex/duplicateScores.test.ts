@@ -285,7 +285,10 @@ describe('duplicateScoresImpact', () => {
         {
           team: 206,
           month: MONTH,
+          rowsRemoved: 1,
           statsChanged: true,
+          statsCreated: false,
+          rosterDrift: false,
           players: [
             // Before: 2 + 7 attempts over 2 boards. After: the first row alone.
             { player: uuid(1), boardsBefore: 2, boardsAfter: 1, avgBefore: 4.5, avgAfter: 2 },
@@ -329,7 +332,10 @@ describe('duplicateScoresImpact', () => {
       {
         team: 'v2-native',
         month: MONTH,
+        rowsRemoved: 1,
         statsChanged: true,
+        statsCreated: true,
+        rosterDrift: false,
         players: [{ player: uuid(1), boardsBefore: null, boardsAfter: 1, avgBefore: null, avgAfter: 3 }],
         hasWinnerRow: false,
         storedWinner: null,
@@ -345,7 +351,52 @@ describe('duplicateScoresImpact', () => {
     await seedBoard(t, ada, '2025-01-09', { legacyId: 1 })
     await storeMonth(t, await seedTeam(t, 206, [ada]))
     await seedBoard(t, ada, '2025-01-09', { legacyId: 2 })
-    expect((await impact(t)).entries[0]).toMatchObject({ statsChanged: false, winnerDrift: false })
+    expect((await impact(t)).entries[0]).toMatchObject({
+      statsChanged: false,
+      statsCreated: false,
+      rosterDrift: false,
+      rowsRemoved: 1,
+      winnerDrift: false,
+    })
+  })
+
+  test('rosterDrift: the stored stats were rolled up for a different roster', async () => {
+    const t = convexTest(schema, modules)
+    const ada = await seedPlayer(t, 1)
+    const bob = await seedPlayer(t, 2)
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 1 })
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 2 })
+    const team = await seedTeam(t, 206, [ada])
+    await storeMonth(t, team)
+    await t.run(async (ctx) => ctx.db.patch(team, { playerIds: [ada, bob] }))
+    expect((await impact(t)).entries[0]).toMatchObject({ rosterDrift: true, statsCreated: false, rowsRemoved: 1 })
+  })
+
+  test('rosterDrift also catches a reordered roster, which changes the stored document', async () => {
+    const t = convexTest(schema, modules)
+    const ada = await seedPlayer(t, 1)
+    const bob = await seedPlayer(t, 2)
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 1 })
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 2 })
+    const team = await seedTeam(t, 206, [ada, bob])
+    await storeMonth(t, team)
+    await t.run(async (ctx) => ctx.db.patch(team, { playerIds: [bob, ada] }))
+    expect((await impact(t)).entries[0].rosterDrift).toBe(true)
+  })
+
+  test('rowsRemoved counts every member’s deleted rows in the month, and no held ones', async () => {
+    const t = convexTest(schema, modules)
+    const ada = await seedPlayer(t, 1)
+    const bob = await seedPlayer(t, 2)
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 1 })
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 2 })
+    await seedBoard(t, ada, '2025-01-09', { legacyId: 3 })
+    await seedBoard(t, bob, '2025-01-10', { legacyId: 4 })
+    await seedBoard(t, bob, '2025-01-10', { legacyId: 5 })
+    await seedBoard(t, bob, '2025-01-11', { legacyId: 6, answer: 'SPEED' })
+    await seedBoard(t, bob, '2025-01-11', { legacyId: 7, answer: 'CRANE', guesses: ['CRANE'] })
+    await storeMonth(t, await seedTeam(t, 206, [ada, bob]))
+    expect((await impact(t)).entries[0].rowsRemoved).toBe(3)
   })
 
   test('reports every team the player is on and no other, including teammates’ duplicates', async () => {

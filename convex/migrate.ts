@@ -1261,7 +1261,14 @@ async function storedWinnerRow(ctx: ReaderCtx, team: Doc<'teams'>, month: Puzzle
  *
  * STATISTICS are the repair's whole effect (revision 3): aggregateTeamMonth over
  * every member's month of boards with the deleted rows removed, compared with the
- * stored teamMonthStats doc.
+ * stored teamMonthStats doc (`statsChanged`: the rollup will write). Split so the
+ * owner can tell the duplicate's own effect from what merely rides along:
+ *   rowsRemoved   the duplicate's own effect — rows this team's members lose.
+ *   statsCreated  no stats doc is stored yet; the rollup creates one (common for
+ *                 old months the aggregate predates).
+ *   rosterDrift   the stored doc was rolled up for a different roster (members
+ *                 or their order) than the team has now; the rollup rewrites it
+ *                 for today's roster whatever the duplicates.
  *
  * WINNER DRIFT IS NOT CHANGED BY THE REPAIR, which never writes monthlyWinners.
  * It is reported because the owner asked to see it: where a winner row exists,
@@ -1287,6 +1294,7 @@ async function monthImpact(
   const members: Doc<'players'>[] = []
   const after: Doc<'dailyScores'>[] = []
   const totalsLive = []
+  let rowsRemoved = 0
   for (const memberId of team.playerIds) {
     // recomputeTeamMonth's guard: a roster id with no player is not a candidate.
     const member = await ctx.db.get(memberId)
@@ -1296,6 +1304,7 @@ async function monthImpact(
     const rows = await scoresOf(ctx, memberId, month)
     const kept = rows.filter((row) => !deleted.has(row._id))
     after.push(...kept)
+    rowsRemoved += rows.length - kept.length
     totalsLive.push({ playerId: memberId, total: score(rows) })
   }
 
@@ -1315,9 +1324,14 @@ async function monthImpact(
   return {
     team: teamRef(team),
     month,
+    rowsRemoved,
     statsChanged:
       storedStats === null ||
       !sameStats({ members: storedStats.members, days: storedStats.days }, statsAfter),
+    statsCreated: storedStats === null,
+    rosterDrift:
+      storedStats !== null &&
+      storedStats.members.map((m) => m.playerId).join(',') !== team.playerIds.join(','),
     players: members.map((member) => {
       const before = storedStats?.members.find((m) => m.playerId === member._id)
       const now = statsAfter.members.find((m) => m.playerId === member._id)!

@@ -163,23 +163,32 @@ async function impact(months) {
     }
     const check = checkImpactPages(pages)
     const entries = pages.flatMap((p) => p.entries)
-    const statsChanges = entries.filter((e) => e.statsChanged).length
-    const drift = entries.filter((e) => e.winnerDrift).length
+    const count = (field) => entries.filter((e) => e[field]).length
+    const counts = {
+      // The duplicate's own effect...
+      teamsLosingRows: entries.filter((e) => e.rowsRemoved > 0).length,
+      rowsRemoved: entries.reduce((n, e) => n + e.rowsRemoved, 0),
+      // ...and what merely rides along with the rollup, counted apart so the
+      // owner's diff is not swamped by them:
+      statsCreated: count('statsCreated'),
+      rosterDrift: count('rosterDrift'),
+      // Informational: the repair never writes monthlyWinners (revision 3).
+      winnerDriftInformational: count('winnerDrift'),
+    }
     record({
       kind: 'impact-month',
       month,
       deletionKey: pages[0].deletionKey,
       pairs: pages[0].pairs,
       held: pages[0].held,
-      statsChanges,
-      // Counted apart from what the repair does, and labelled so: the repair never
-      // writes monthlyWinners (revision 3).
-      winnerDriftInformational: drift,
+      ...counts,
       ...check,
     })
     console.log(
-      `${month} [deletes ${pages[0].deletionKey}]: ${statsChanges} team stats change(s) by this repair; ` +
-        `${drift} winner drift (not changed by this repair); ${pages[0].held} held group(s)`,
+      `${month} [deletes ${pages[0].deletionKey}]: ${counts.teamsLosingRows} team(s) lose ` +
+        `${counts.rowsRemoved} duplicate row(s); also rolled up: ${counts.statsCreated} stats doc(s) ` +
+        `created, ${counts.rosterDrift} with roster drift; ${counts.winnerDriftInformational} winner ` +
+        `drift (not changed by this repair); ${pages[0].held} held group(s)`,
     )
     if (!check.ok) complete = false
   }
