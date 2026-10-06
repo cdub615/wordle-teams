@@ -15,6 +15,7 @@ import {
   LATEST_RELEASE,
   WHATS_NEW_SEEN_KEY,
   WHATS_NEW_URL,
+  canRememberRelease,
   hasUnreadRelease,
   markReleaseSeen,
   readSeenRelease,
@@ -158,6 +159,18 @@ describe('the seen-state in storage', () => {
     // nothing, for a browser setting unrelated to a dot.
     install('localStorage', fakeStorage(['setItem']))
     expect(() => markReleaseSeen()).not.toThrow()
+  })
+
+  // A BLOCKED STORE IS NO DOT (AC6). readSeenRelease answers null for "blocked"
+  // and "never seen" alike, and null is a dot for a signed-in player — one that
+  // markReleaseSeen could never clear. The menu asks this first.
+  test('canRememberRelease is true for a working store, false for a blocked one or none', () => {
+    expect(canRememberRelease()).toBe(true)
+    install('localStorage', fakeStorage(['getItem']))
+    expect(() => canRememberRelease()).not.toThrow()
+    expect(canRememberRelease()).toBe(false)
+    vi.stubGlobal('window', undefined)
+    expect(canRememberRelease()).toBe(false)
   })
 
   test('with no window at all (SSR) reads null and marking is a no-op', () => {
