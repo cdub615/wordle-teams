@@ -5,8 +5,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { environmentsFromWranglerConfig } from './copy-target.mjs'
+import { ConvexError } from 'convex/values'
 import {
   checkImpactPages,
+  classifyApplyError,
   classifyRefusals,
   decideRacTarget,
   fingerprintOf,
@@ -293,5 +295,16 @@ describe('classifyRefusals', () => {
   })
   test('only the server\'s exact wording defers: a reason merely mentioning "past" fails', () => {
     expect(classifyRefusals([{ month: '2025-12', reason: 'past the read limit' }]).failed).toEqual(['2025-12'])
+  })
+})
+
+describe('classifyApplyError', () => {
+  test('a ConvexError is the server REFUSING: it threw before writing', () => {
+    expect(classifyApplyError(new ConvexError('repairDuplicateScores: the plan changed'))).toBe('refused')
+  })
+  test('anything else is UNCONFIRMED: the mutation may have committed and the answer been lost', () => {
+    expect(classifyApplyError(new TypeError('fetch failed'))).toBe('unconfirmed')
+    expect(classifyApplyError(new Error('Server Error'))).toBe('unconfirmed')
+    expect(classifyApplyError(undefined)).toBe('unconfirmed')
   })
 })
