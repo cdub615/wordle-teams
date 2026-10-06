@@ -5594,8 +5594,10 @@ A creates a link from X. C has their own team only (`ensureTeamFor(C)`).
    the resume, end to end, which no unit test can render.
 3. C's only team is pre-selected; Accept; C lands on `/team?team=<C's team>` with a
    scoreboard showing "Not enough boards yet".
-4. Opening the same link again, signed in as C, shows "That challenge link is no
-   longer valid." and no buttons.
+4. Opening the same link again, signed in as C, shows the picker as for any link;
+   pressing Accept turns it into "That challenge link is no longer valid." with no
+   buttons. (Corrected 2026-10-05 from the implementer's report: the page cannot know
+   a link is dead before a claim — there is deliberately no lookup.)
 
 ### Robustness rules (each has cost time in this repo — see bd memories)
 - **Wait for data before clicking.** A click right after `goto` can land before
