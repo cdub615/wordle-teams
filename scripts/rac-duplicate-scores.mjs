@@ -168,6 +168,7 @@ async function impact(months) {
     record({
       kind: 'impact-month',
       month,
+      deletionKey: pages[0].deletionKey,
       pairs: pages[0].pairs,
       held: pages[0].held,
       statsChanges,
@@ -177,7 +178,7 @@ async function impact(months) {
       ...check,
     })
     console.log(
-      `${month}: ${statsChanges} team stats change(s) by this repair; ` +
+      `${month} [deletes ${pages[0].deletionKey}]: ${statsChanges} team stats change(s) by this repair; ` +
         `${drift} winner drift (not changed by this repair); ${pages[0].held} held group(s)`,
     )
     if (!check.ok) complete = false

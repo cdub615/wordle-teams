@@ -261,6 +261,13 @@ describe('checkImpactPages', () => {
     expect(checkImpactPages([page([1, 2], 3)]).ok).toBe(false)
     expect(checkImpactPages([page([1, 2], 2), page([2], 2)]).ok).toBe(false)
     expect(checkImpactPages([page([1, 2], 3), page([3, 4], 4)]).ok).toBe(false)
+    // The deletion key moved between pages: the plan changed mid-report.
+    expect(
+      checkImpactPages([
+        { ...page([1], 2), deletionKey: '2025-01:1' },
+        { ...page([2], 2), deletionKey: '2025-01:1,2' },
+      ]).ok,
+    ).toBe(false)
     // The entries add up to the FIRST page's total; only the moved total is wrong.
     expect(checkImpactPages([page([1, 2], 3), page([3], 4)]).ok).toBe(false)
   })
