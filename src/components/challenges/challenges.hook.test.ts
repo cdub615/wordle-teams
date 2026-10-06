@@ -266,6 +266,7 @@ function row(
   {
     viewerIsOwner = false,
     now = NOW,
+    teamAcceptsChallenges = true,
     onAccept = vi.fn(),
     onDecline = vi.fn(),
     onWithdraw = vi.fn(),
@@ -276,12 +277,15 @@ function row(
       challenge,
       viewerIsOwner,
       now,
+      teamAcceptsChallenges,
       onAccept,
       onDecline,
       onWithdraw,
     }),
   )
 }
+
+const REFUSING = "Your team isn't taking challenges right now."
 
 const buttonNames = () => screen.queryAllByRole('button').map((button) => button.textContent)
 
@@ -349,6 +353,34 @@ describe('PendingChallengeRow', () => {
     )
     expect(container.textContent).not.toContain('link')
     expect(screen.queryByText('Waiting for a team to answer')).not.toBeNull()
+  })
+
+  // A TEAM THAT HAS SWITCHED CHALLENGES OFF CANNOT ACCEPT (zic8.2.21 M8, owner
+  // decision): acceptChallengeFor refuses with CHALLENGES_REFUSED, so Accept is
+  // hidden rather than offered to fail. Decline still works and stays. The line
+  // says why; owners find the switch at the foot of the same card.
+  test('6. incoming on a team refusing challenges: Decline only, and one line saying why', () => {
+    const onDecline = vi.fn()
+    row(aPending({ challengeId: id('pending-3') }), { teamAcceptsChallenges: false, onDecline })
+    expect(buttonNames()).toEqual(['Decline'])
+    expect(screen.queryByText(REFUSING)).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /^Decline/ }))
+    expect(onDecline).toHaveBeenCalledExactlyOnceWith('pending-3')
+  })
+
+  test('6. (control) a team accepting challenges gets no such line', () => {
+    row(aPending(), { teamAcceptsChallenges: true })
+    expect(screen.queryByText(REFUSING)).toBeNull()
+  })
+
+  test('6. the refusal is about ANSWERING: an outgoing row, or an expired one, is unchanged', () => {
+    row(aPending({ direction: 'outgoing', proposedByViewer: true }), { teamAcceptsChallenges: false })
+    expect(buttonNames()).toEqual(['Withdraw'])
+    expect(screen.queryByText(REFUSING)).toBeNull()
+    cleanup()
+    row(aPending({ expiresAt: NOW }), { teamAcceptsChallenges: false })
+    expect(buttonNames()).toEqual([])
+    expect(screen.queryByText(REFUSING)).toBeNull()
   })
 
   test.each([
@@ -494,6 +526,22 @@ describe('ChallengesCard', () => {
   // WHILE THE SWITCH'S MUTATION IS IN FLIGHT it does not move (it reads
   // getMyTeams), so a second click would resend the same value and the user's
   // toggle-back would be silently lost.
+  // THE CARD HANDS THE ROW ITS TEAM'S SETTING (M8), so a refusing team's
+  // incoming row loses Accept. Absent means on.
+  test.each([
+    { acceptsChallenges: false, accept: false },
+    { acceptsChallenges: true, accept: true },
+    { acceptsChallenges: undefined, accept: true },
+  ])(
+    '6. acceptsChallenges=$acceptsChallenges: an incoming row offers Accept=$accept',
+    ({ acceptsChallenges, accept }) => {
+      card(enabled({ pending: [aPending()] }), { acceptsChallenges })
+      expect(screen.queryByRole('button', { name: /^Accept/ }) !== null).toBe(accept)
+      expect(screen.queryByRole('button', { name: /^Decline/ })).not.toBeNull()
+      expect(screen.queryByText(REFUSING) !== null).toBe(!accept)
+    },
+  )
+
   test('13. the switch is disabled while its change is in flight', () => {
     const onSetAcceptsChallenges = vi.fn()
     card(enabled(), { isOwner: true, acceptsPending: true, onSetAcceptsChallenges })

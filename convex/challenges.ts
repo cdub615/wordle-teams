@@ -1242,7 +1242,11 @@ export async function incomingChallengeFor(
   teamId: Id<'teams'>,
   now: number,
 ): Promise<boolean> {
-  await requireTeamMemberFor(ctx, playerId, teamId)
+  const team = await requireTeamMemberFor(ctx, playerId, teamId)
+  // A TEAM THAT HAS SWITCHED CHALLENGES OFF IS NOT NUDGED (zic8.2.21 M8):
+  // acceptChallengeFor refuses its Accept with CHALLENGES_REFUSED, so the nudge
+  // would lead to a button that cannot work. Absent means on, as everywhere.
+  if (team.acceptsChallenges === false) return false
   const pending = await ctx.db
     .query('teamChallenges')
     .withIndex('by_opponent_and_status', (q) =>

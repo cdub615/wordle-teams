@@ -127,6 +127,7 @@ export function ChallengesCard({
                     challenge={challenge}
                     viewerIsOwner={isOwner}
                     now={now}
+                    teamAcceptsChallenges={accepting}
                     busy={busyId === challenge.challengeId}
                     onAccept={onAccept}
                     onDecline={onDecline}

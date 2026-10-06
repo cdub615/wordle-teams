@@ -16,11 +16,17 @@ import type { ChallengeId, PendingChallenge } from './types.ts'
  * WHO MAY WITHDRAW mirrors withdrawChallengeFor exactly: the proposer, or the
  * challenging team's owner. On an outgoing row the viewing team IS the
  * challenging team, so `viewerIsOwner` is that owner.
+ *
+ * A TEAM THAT HAS SWITCHED CHALLENGES OFF IS NOT OFFERED ACCEPT (zic8.2.21 M8,
+ * owner decision): acceptChallengeFor would refuse it with CHALLENGES_REFUSED.
+ * Decline still works, so it stays, with one line saying why Accept is gone.
+ * Owners have the switch at the foot of the same card, so nothing more is said.
  */
 export function PendingChallengeRow({
   challenge,
   viewerIsOwner,
   now,
+  teamAcceptsChallenges = true,
   busy = false,
   onAccept,
   onDecline,
@@ -29,6 +35,8 @@ export function PendingChallengeRow({
   challenge: PendingChallenge
   viewerIsOwner: boolean
   now: number
+  /** The viewing team's setting, already resolved: absent-means-on is the card's job. */
+  teamAcceptsChallenges?: boolean
   busy?: boolean
   onAccept: (challengeId: ChallengeId) => void
   onDecline: (challengeId: ChallengeId) => void
@@ -37,18 +45,24 @@ export function PendingChallengeRow({
   const expired = challenge.expiresAt <= now
   const incoming = challenge.direction === 'incoming'
   const canWithdraw = !incoming && (challenge.proposedByViewer || viewerIsOwner)
+  const refusing = !expired && incoming && !teamAcceptsChallenges
 
   return (
     <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2">
       <div className="min-w-0">
         <p className="min-w-0 break-words">{describe(challenge)}</p>
         {expired && <p className="text-muted-foreground text-sm">Expired</p>}
+        {refusing && (
+          <p className="text-muted-foreground text-sm">Your team isn't taking challenges right now.</p>
+        )}
       </div>
       {!expired && incoming && (
         <div className="flex shrink-0 gap-2">
-          <Button size="sm" disabled={busy} onClick={() => onAccept(challenge.challengeId)}>
-            Accept
-          </Button>
+          {teamAcceptsChallenges && (
+            <Button size="sm" disabled={busy} onClick={() => onAccept(challenge.challengeId)}>
+              Accept
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"

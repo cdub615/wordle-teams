@@ -2019,6 +2019,29 @@ describe('incomingChallengeFor', () => {
     })
   })
 
+  // A TEAM THAT HAS SWITCHED CHALLENGES OFF IS NOT NUDGED (zic8.2.21 M8, owner
+  // decision): acceptChallengeFor would refuse its Accept with
+  // CHALLENGES_REFUSED, so a nudge would send its members to a button that
+  // cannot work. ABSENT MEANS ON, so `true` and a missing field both still nudge.
+  test.each([
+    { acceptsChallenges: false, expected: false },
+    { acceptsChallenges: true, expected: true },
+    { acceptsChallenges: undefined, expected: true },
+  ])(
+    'acceptsChallenges=$acceptsChallenges answers $expected for a live incoming row',
+    async ({ acceptsChallenges, expected }) => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+        const { accepterId, theirTeamId } = await seedAccepter(ctx)
+        await seedPending(ctx, challengerTeamId, theirTeamId, playerId)
+        await ctx.db.patch(theirTeamId, { acceptsChallenges })
+
+        expect(await incomingChallengeFor(ctx, accepterId, theirTeamId, now)).toBe(expected)
+      })
+    },
+  )
+
   test('a non-member is refused with NOT_A_MEMBER', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
