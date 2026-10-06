@@ -30,7 +30,15 @@ import { expect, type Page } from '@playwright/test'
  * rather than a close.
  */
 export async function openAppMenu(page: Page): Promise<void> {
-  const trigger = page.getByRole('button', { name: 'Main menu' })
+  /**
+   * A PREFIX, NOT THE WHOLE NAME (wordle-teams-ued7). While a release is unread
+   * the trigger is named "Main menu, new updates" — and every e2e run signs in
+   * with fresh storage, which is exactly the first-visit state that lights the
+   * dot. Playwright's string `name` is already a substring match, so 'Main
+   * menu' would happen to survive; the anchored regex says the intent, and
+   * stays right if anyone adds `exact: true` here later.
+   */
+  const trigger = page.getByRole('button', { name: /^Main menu/ })
 
   await expect(async () => {
     if ((await trigger.getAttribute('data-state')) !== 'open') {
