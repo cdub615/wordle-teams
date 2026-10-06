@@ -9,7 +9,7 @@
 // visible to lint, typecheck or build:
 //
 //   1. Either inventory grows an entry and this page goes on showing the old
-//      count — PRO_BENEFITS a sixth, or FREE_INCLUDES a seventh. The free half of
+//      count — PRO_BENEFITS a seventh, or FREE_INCLUDES a seventh. The free half of
 //      that matters more than it looks: /pricing is the only surface that shows
 //      the whole free list, so an entry missing from this column is a capability
 //      no reader meets anywhere.
@@ -65,7 +65,7 @@ describe('the Pro column', () => {
    * THE DRIFT GATE THIS PAGE EXISTS TO CARRY, and it is deliberately the same
    * assertion upgrade-dialog.hook.test.ts makes — pro-benefits.ts's header names
    * both of those surfaces among its consumers and says they "must not describe it
-   * twice". A sixth benefit now fails in two places until both name it.
+   * twice". A seventh benefit now fails in two places until both name it.
    *
    * TITLE AND BODY, BOTH, for the reason the dialog's own copy of this records:
    * asserting titles alone leaves the gate guarding half the copy, and five bare

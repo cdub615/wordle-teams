@@ -130,7 +130,7 @@ describe('the upgrade dialog', () => {
   })
 
   /**
-   * THE DRIFT GATE, AND THE REASON THIS WORK EXISTS. A sixth entry added to
+   * THE DRIFT GATE, AND THE REASON THIS WORK EXISTS. A seventh entry added to
    * PRO_BENEFITS fails here until the dialog names it, which is what stops the
    * product growing a feature its own paywall never mentions.
    *

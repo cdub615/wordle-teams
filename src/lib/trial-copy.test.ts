@@ -81,8 +81,9 @@ describe('the active-trial prompt', () => {
   test('names the trial as an INSIGHTS trial, not a month of Pro', () => {
     // The spec's section 3.2 decision, and the reason it is load-bearing: the
     // trial grants Layers 2 and 3 only, so "a free month of Pro" sends players
-    // hunting for import, custom scoring, a third team and the widened month
-    // window — four of the five PRO_BENEFITS entries it does NOT include.
+    // hunting for import, custom scoring, a third team, the widened month window
+    // and starting a challenge — five of the six PRO_BENEFITS entries it does NOT
+    // include.
     expect(TRIAL_ACTIVE_TITLE.toLowerCase()).toContain('insights trial')
   })
 

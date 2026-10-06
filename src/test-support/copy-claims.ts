@@ -88,7 +88,7 @@ export const longestSharedRun = (a: string[], b: string[]) => {
  * FOUR, AND BOTH SIDES OF THE CHOICE WERE MEASURED RATHER THAN GUESSED — the
  * argument is plans.test.ts's, where the number was first picked. Independent copy
  * tops out at TWO consecutive shared words where it has been measured: across all
- * ten distinct PRO_BENEFITS titles and bodies, the longest run between any two of
+ * twelve distinct PRO_BENEFITS titles and bodies, the longest run between any two of
  * them is 2 ("your own", `scoring`'s title against `insights`' body). So 3 is
  * where coincidence ends in general — but copy ABOUT a feature is not
  * independent of that feature's own entry, and legitimately shares its noun
