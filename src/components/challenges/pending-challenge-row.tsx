@@ -46,6 +46,7 @@ export function PendingChallengeRow({
   const incoming = challenge.direction === 'incoming'
   const canWithdraw = !incoming && (challenge.proposedByViewer || viewerIsOwner)
   const refusing = !expired && incoming && !teamAcceptsChallenges
+  const label = labelsFor(challenge)
 
   return (
     <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2">
@@ -59,13 +60,19 @@ export function PendingChallengeRow({
       {!expired && incoming && (
         <div className="flex shrink-0 gap-2">
           {teamAcceptsChallenges && (
-            <Button size="sm" disabled={busy} onClick={() => onAccept(challenge.challengeId)}>
+            <Button
+              size="sm"
+              aria-label={label.accept}
+              disabled={busy}
+              onClick={() => onAccept(challenge.challengeId)}
+            >
               Accept
             </Button>
           )}
           <Button
             size="sm"
             variant="outline"
+            aria-label={label.decline}
             disabled={busy}
             onClick={() => onDecline(challenge.challengeId)}
           >
@@ -78,6 +85,7 @@ export function PendingChallengeRow({
           size="sm"
           variant="outline"
           className="shrink-0"
+          aria-label={label.withdraw}
           disabled={busy}
           onClick={() => onWithdraw(challenge.challengeId)}
         >
@@ -86,6 +94,21 @@ export function PendingChallengeRow({
       )}
     </div>
   )
+}
+
+/**
+ * EACH VERB NAMES ITS TEAM (zic8.2.21 M9). Two proposals one above the other
+ * would otherwise be two buttons called "Accept", indistinguishable to anyone
+ * moving between controls rather than reading the row beside them. An
+ * unclaimed link has no team to name, so it is called what it is.
+ */
+function labelsFor(challenge: PendingChallenge) {
+  const other = challenge.otherTeamName ?? 'another team'
+  return {
+    accept: `Accept the challenge from ${other}`,
+    decline: `Decline the challenge from ${other}`,
+    withdraw: challenge.isLink ? 'Withdraw your challenge link' : `Withdraw the challenge to ${other}`,
+  }
 }
 
 function describe(challenge: PendingChallenge): string {

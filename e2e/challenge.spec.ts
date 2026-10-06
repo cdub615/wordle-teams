@@ -157,7 +157,7 @@ test('a direct challenge is proposed, nudged, accepted, and scored on both sides
     const incoming = challengesCard(pageB).getByText(`${SEEDED_TEAM} challenged your team`)
     await expect(incoming).toBeVisible(TIMEOUT)
     await challengesCard(pageB)
-      .getByRole('button', { name: 'Accept', exact: true })
+      .getByRole('button', { name: `Accept the challenge from ${SEEDED_TEAM}`, exact: true })
       .click({ timeout: 10_000 })
     await expect(pageB.getByText('Challenge accepted')).toBeVisible(TIMEOUT)
 

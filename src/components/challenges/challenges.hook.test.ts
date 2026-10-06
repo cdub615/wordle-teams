@@ -228,21 +228,26 @@ describe('ChallengeScoreboard', () => {
     expect(onUpgrade).toHaveBeenCalledTimes(1)
   })
 
-  test('5. Cancel renders only for the owner', () => {
+  // "END CHALLENGE", NOT "CANCEL" (zic8.2.21 M9): "Cancel" reads as "dismiss
+  // this", and the trigger now says what its confirm button does.
+  test('5. End challenge renders only for the owner, and nothing is called "Cancel"', () => {
     board(anActive(), { viewerIsOwner: false })
-    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'End challenge' })).toBeNull()
     cleanup()
     board(anActive(), { viewerIsOwner: true })
-    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'End challenge' })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
   })
 
-  test('5. Cancel, once confirmed, calls onCancel(challengeId)', () => {
+  test('5. End challenge, once confirmed, calls onCancel(challengeId)', () => {
     const onCancel = vi.fn()
     board(anActive({ challengeId: id('challenge-42') }), { viewerIsOwner: true, onCancel })
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'End challenge' }))
     // Not on the first click: cancelling freezes the contest for both rosters.
     expect(onCancel).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'End challenge' }))
+    // The trigger and the confirm share a name now, so the confirm is found
+    // inside the popover rather than by name alone.
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'End challenge' }))
     expect(onCancel).toHaveBeenCalledExactlyOnceWith('challenge-42')
   })
 })
@@ -302,9 +307,9 @@ describe('PendingChallengeRow', () => {
     expect(buttonNames()).toEqual(['Accept', 'Decline'])
     expect(container.textContent).not.toMatch(/\d/)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Accept' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Accept the challenge from Rivals' }))
     expect(onAccept).toHaveBeenCalledExactlyOnceWith('pending-7')
-    fireEvent.click(screen.getByRole('button', { name: 'Decline' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Decline the challenge from Rivals' }))
     expect(onDecline).toHaveBeenCalledExactlyOnceWith('pending-7')
   })
 
@@ -328,11 +333,42 @@ describe('PendingChallengeRow', () => {
       })
       expect(buttonNames()).toEqual(shown ? ['Withdraw'] : [])
       if (shown) {
-        fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Withdraw the challenge to Rivals' }))
         expect(onWithdraw).toHaveBeenCalledExactlyOnceWith('pending-9')
       }
     },
   )
+
+  // EACH VERB NAMES ITS TEAM (zic8.2.21 M9). Two proposals listed one above the
+  // other would otherwise be two buttons called "Accept", indistinguishable to
+  // anyone navigating by control.
+  test.each([
+    {
+      label: 'incoming',
+      challenge: { direction: 'incoming' as const },
+      names: ['Accept the challenge from Rivals', 'Decline the challenge from Rivals'],
+    },
+    {
+      label: 'incoming, its challenger since deleted',
+      challenge: { direction: 'incoming' as const, otherTeamName: null },
+      names: ['Accept the challenge from another team', 'Decline the challenge from another team'],
+    },
+    {
+      label: 'outgoing',
+      challenge: { direction: 'outgoing' as const, proposedByViewer: true },
+      names: ['Withdraw the challenge to Rivals'],
+    },
+    {
+      label: 'an unclaimed link',
+      challenge: { direction: 'outgoing' as const, proposedByViewer: true, otherTeamName: null, isLink: true },
+      names: ['Withdraw your challenge link'],
+    },
+  ])('9a. $label: each control is labelled with the other team', ({ challenge, names }) => {
+    row(aPending(challenge))
+    expect(
+      screen.queryAllByRole('button').map((button) => button.getAttribute('aria-label')),
+    ).toEqual(names)
+  })
 
   test('7. outgoing to a named team says who it is waiting for', () => {
     const { container } = row(aPending({ direction: 'outgoing', proposedByViewer: true }))
@@ -541,6 +577,71 @@ describe('ChallengesCard', () => {
       expect(screen.queryByText(REFUSING) !== null).toBe(!accept)
     },
   )
+
+  /**
+   * FOCUS AFTER A ROW GOES (zic8.2.21 M9). The control that was pressed is
+   * unmounted with its row once the subscription catches up, and focus would
+   * otherwise drop to <body> — the top of the page, for a keyboard user. The
+   * card's heading takes it instead.
+   *
+   * ONLY FOR THE VIEWER'S OWN ACTION, and only if focus was actually lost: a
+   * row that disappears because SOMEONE ELSE answered it must not pull a reader
+   * away from wherever they are.
+   */
+  describe('focus after an action removes its row', () => {
+    function live(view: ChallengesView, handlers: Partial<Record<'onAccept' | 'onCancel', () => void>> = {}) {
+      return createElement(ChallengesCard, {
+        view,
+        isOwner: true,
+        acceptsChallenges: true,
+        now: NOW,
+        onAccept: handlers.onAccept ?? vi.fn(),
+        onDecline: vi.fn(),
+        onWithdraw: vi.fn(),
+        onCancel: handlers.onCancel ?? vi.fn(),
+        onSetAcceptsChallenges: vi.fn(),
+        onChallenge: vi.fn(),
+        onUpgrade: vi.fn(),
+      })
+    }
+    const heading = () => screen.getByRole('heading', { name: 'Challenges' })
+
+    test('an accepted proposal leaves the list: focus moves to the Challenges heading', () => {
+      const pending = aPending({ challengeId: id('p-1') })
+      const { rerender } = render(live(enabled({ pending: [pending] })))
+      const accept = screen.getByRole('button', { name: 'Accept the challenge from Rivals' })
+      accept.focus()
+      fireEvent.click(accept)
+      // The subscription answers: the proposal is now a live scoreboard.
+      rerender(live(enabled({ active: [anActive({ challengeId: id('p-1') })] })))
+      expect(document.activeElement).toBe(heading())
+    })
+
+    test('an ended challenge leaves the list: focus moves to the Challenges heading', () => {
+      const { rerender } = render(live(enabled({ active: [anActive({ challengeId: id('a-1') })] })))
+      fireEvent.click(screen.getByRole('button', { name: 'End challenge' }))
+      const confirm = within(screen.getByRole('dialog')).getByRole('button', { name: 'End challenge' })
+      confirm.focus()
+      fireEvent.click(confirm)
+      rerender(live(enabled()))
+      expect(document.activeElement).toBe(heading())
+    })
+
+    test('a row someone ELSE answered does not take focus', () => {
+      const { rerender } = render(live(enabled({ pending: [aPending({ challengeId: id('p-1') })] })))
+      rerender(live(enabled()))
+      expect(document.activeElement).not.toBe(heading())
+    })
+
+    test('focus the viewer has already moved elsewhere is left where it is', () => {
+      const { rerender } = render(live(enabled({ pending: [aPending({ challengeId: id('p-1') })] })))
+      fireEvent.click(screen.getByRole('button', { name: 'Accept the challenge from Rivals' }))
+      const elsewhere = screen.getByRole('switch', { name: 'Accept challenges' })
+      elsewhere.focus()
+      rerender(live(enabled()))
+      expect(document.activeElement).toBe(elsewhere)
+    })
+  })
 
   test('13. the switch is disabled while its change is in flight', () => {
     const onSetAcceptsChallenges = vi.fn()

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
 import { cn } from '#/lib/utils.ts'
 import { Skeleton } from '#/components/ui/skeleton.tsx'
@@ -64,6 +65,40 @@ export function ChallengesCard({
   /** The switch's mutation is in flight: disabled, so a second click is not lost. */
   acceptsPending?: boolean
 }) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  // The challenge the VIEWER last acted on, and which list its control was in.
+  const actedOn = useRef<{ challengeId: ChallengeId; list: 'active' | 'pending' } | null>(null)
+  const acting =
+    (list: 'active' | 'pending', handler: (challengeId: ChallengeId) => void) =>
+    (challengeId: ChallengeId) => {
+      actedOn.current = { challengeId, list }
+      handler(challengeId)
+    }
+
+  /**
+   * FOCUS AFTER A ROW GOES (zic8.2.21 M9). When the viewer's own action
+   * succeeds, the subscription removes the row — and the control they pressed
+   * with it — so focus would fall to <body>, the top of the page. It moves to
+   * this card's heading instead.
+   *
+   * ONLY THEIR OWN ACTION, AND ONLY IF FOCUS WAS LOST. A row someone else
+   * answered must not pull a reader away from wherever they are, and nor may
+   * an action whose row goes after the viewer has already moved on. An accept
+   * counts as gone from `pending` even though the same challenge reappears in
+   * `active`: the row and its buttons are what unmounted.
+   */
+  useEffect(() => {
+    const acted = actedOn.current
+    if (acted === null || !view.enabled) return
+    const list = acted.list === 'active' ? view.active : view.pending
+    if (list.some((challenge) => challenge.challengeId === acted.challengeId)) return
+    actedOn.current = null
+    const focused = document.activeElement
+    if (focused === null || focused === document.body || !focused.isConnected) {
+      headingRef.current?.focus()
+    }
+  }, [view])
+
   if (!view.enabled) return null
 
   const { pro, active, pending, records } = view
@@ -75,7 +110,10 @@ export function ChallengesCard({
       <CardHeader>
         <CardTitle asChild>
           <div className="flex min-w-0 items-center justify-between gap-2">
-            <h2>Challenges</h2>
+            {/* tabIndex -1: focusable by the effect above, not a tab stop. */}
+            <h2 ref={headingRef} tabIndex={-1}>
+              Challenges
+            </h2>
             {/* "CHALLENGE A TEAM" (Task 12b), beside the heading the way
                 CurrentTeamCard's owner buttons sit. ONE LABEL FOR BOTH TIERS:
                 a free viewer gets the same words as an upgrade affordance
@@ -110,7 +148,7 @@ export function ChallengesCard({
             challenge={challenge}
             pro={pro}
             viewerIsOwner={isOwner}
-            onCancel={onCancel}
+            onCancel={acting('active', onCancel)}
             onUpgrade={onUpgrade}
             cancelPending={busyId === challenge.challengeId}
             today={toPuzzleDay(new Date(now))}
@@ -129,9 +167,9 @@ export function ChallengesCard({
                     now={now}
                     teamAcceptsChallenges={accepting}
                     busy={busyId === challenge.challengeId}
-                    onAccept={onAccept}
-                    onDecline={onDecline}
-                    onWithdraw={onWithdraw}
+                    onAccept={acting('pending', onAccept)}
+                    onDecline={acting('pending', onDecline)}
+                    onWithdraw={acting('pending', onWithdraw)}
                   />
                   {index < pending.length - 1 && <Separator className="mt-2" />}
                 </li>
