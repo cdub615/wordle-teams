@@ -47,6 +47,7 @@ import { internal } from '../convex/_generated/api.js'
 import { environmentsFromWranglerConfig } from './lib/copy-target.mjs'
 import {
   checkImpactPages,
+  classifyApplyError,
   classifyRefusals,
   decideRacTarget,
   fingerprintOf,
@@ -260,6 +261,7 @@ if (args.mode === 'repair') {
     console.error('Something changed since the dry run that was approved. Nothing was written.')
     exitCode = 1
   } else {
+    let unconfirmed = null
     for (const month of planned) {
       if (month.deletionKey.endsWith(':')) continue // nothing to delete in this month
       try {
@@ -270,12 +272,22 @@ if (args.mode === 'repair') {
         })
         record({ kind: 'applied', ...result })
       } catch (error) {
-        record({ kind: 'apply-refused', month: month.month, reason: messageOf(error) })
-        console.error(`STOPPED at ${month.month}: ${messageOf(error)}`)
         exitCode = 1
+        if (classifyApplyError(error) === 'refused') {
+          record({ kind: 'apply-refused', month: month.month, reason: messageOf(error) })
+          console.error(`STOPPED at ${month.month}, refused before writing: ${messageOf(error)}`)
+        } else {
+          // The answer was lost, not necessarily the write: the month may be done.
+          unconfirmed = month.month
+          record({ kind: 'apply-unconfirmed', month: month.month, reason: messageOf(error) })
+          console.error(`APPLY UNCONFIRMED for ${month.month}: the response was lost and the`)
+          console.error('repair may or may not have committed. Re-run `measure` (and a dry run) to')
+          console.error('see what is there BEFORE doing anything else. Nothing further was attempted.')
+        }
         break
       }
     }
+    if (unconfirmed !== null) process.exit(exitCode)
     // Only months the plan covered can be expected clean: a month the server
     // refused (not yet past) was never planned, and is reported, not failed.
     const covered = new Set(planned.map((p) => p.month))

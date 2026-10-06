@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { ConvexError } from 'convex/values'
 
 const MODES = ['measure', 'impact', 'repair']
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]'])
@@ -211,4 +212,18 @@ export function classifyRefusals(refusals) {
   const failed = []
   for (const { month, reason } of refusals) (NOT_PAST.test(reason) ? deferred : failed).push(month)
   return { deferred, failed }
+}
+
+/**
+ * WHAT AN APPLY ERROR MEANS FOR THE DATA.
+ *
+ * 'refused'      a ConvexError: the repair threw it on purpose, and a mutation
+ *                that throws writes nothing.
+ * 'unconfirmed'  anything else — a dropped connection, a timeout, a server error
+ *                whose cause the client cannot see. The mutation may have
+ *                committed and only its answer been lost, so the operator must
+ *                measure before doing anything else.
+ */
+export function classifyApplyError(error) {
+  return error instanceof ConvexError || error?.name === 'ConvexError' ? 'refused' : 'unconfirmed'
 }
