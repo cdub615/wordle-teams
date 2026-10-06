@@ -5555,20 +5555,73 @@ several, and the dead-link message.
 
 **bd:** `wordle-teams-zic8.2.14`.
 
-- **Seed with what exists** (the old "no Pro seed" finding was stale):
-  `e2eSeed.ensureTeamFor(A)`, then `ensureSharedTeamFor(A, B, name)` puts A on two
-  teams with B on one; `seedInsightsFor({ email: A, pro: true, boards: 0, … })` makes A
-  Pro. Read each function's args before calling it.
-- **The local e2e backend needs `CHALLENGES_ENABLED=true`.** Find how the e2e setup
-  sets `E2E_TEST_MODE` on the anonymous backend and set this beside it.
-- Happy path: A proposes from team X to team Y; B accepts from Y's page; the scoreboard
-  appears on both pages with both team names and **"not enough boards yet"** — NOT both
-  averages: the window starts the day after acceptance, so a just-accepted challenge
-  has zero boards.
-- Run in the background (~11 min); kill any stale server on :3000 first.
-- **Ship gate:** `wordle-teams-rac` closed in production before `CHALLENGES_ENABLED` is
-  set there. If it is not, the feature merges and deploys dark; report to the owner.
-- Close the issues; a bd-only commit aborts once — retry with `||`.
+**Files:**
+- Create: `e2e/challenge.spec.ts`
+- Modify: `.github/workflows/deploy-v2.yml` — `pnpm exec convex env set
+  CHALLENGES_ENABLED true` beside `E2E_TEST_MODE` (~line 229), with one comment line.
+  **Without it the spec passes locally and fails in CI**, because the feature is dark
+  everywhere the variable is unset. It touches only CI's LOCAL anonymous backend.
+
+**Seed with what exists** (read each function's args first, in `convex/e2eSeed.ts`):
+`ensureTeamFor({ email })` gives a player and a team named "E2E Team";
+`ensureSharedTeamFor({ emailA, emailB, name })` puts both on a team with that name;
+`seedInsightsFor({ email, boards: 0, lastDay: <today>, pro: true })` makes a player
+Pro. **Unique e2e emails per run** (`e2e+…-${Date.now()}@wordleteams.com`, as the
+other specs do): the backend is shared across runs and a team holds at most five live
+challenges.
+
+### Test 1 — a direct challenge, proposed and accepted
+
+A (Pro) is on X ("E2E Team", from `ensureTeamFor`) and Y (`ensureSharedTeamFor(A, B,
+'Rivals …')`); B is on Y only.
+1. A opens `/team?team=<X>`, opens "Challenge a team", picks Y. The toast says the
+   challenge was sent, and X's card lists an outgoing proposal to Y.
+2. B (a fresh context) opens `/app?team=<Y>`: the dashboard nudge "Your team has been
+   challenged" is visible. B follows it to `/team?team=<Y>` and presses Accept.
+3. Both X's page (as A) and Y's page (as B) show a scoreboard naming both teams and
+   **"Not enough boards yet"** — NOT averages: the window starts the day after
+   acceptance, so a just-accepted challenge has no boards.
+
+### Test 2 — a challenge link, opened while signed out
+
+A creates a link from X. C has their own team only (`ensureTeamFor(C)`).
+1. Grant the context `clipboard-read`/`clipboard-write`; headless Chromium has no
+   share sheet, so the dialog copies to the clipboard. Read the URL back with
+   `navigator.clipboard.readText()` and assert it is `/challenge/<token>`.
+2. A fresh, SIGNED-OUT context opens that URL and lands on `/login`. Sign C in with the
+   suite's `signIn` **in the same page** (the token rides in sessionStorage, which is
+   per tab): C must arrive back on `/challenge/<token>`, not stay on `/app`. This is
+   the resume, end to end, which no unit test can render.
+3. C's only team is pre-selected; Accept; C lands on `/team?team=<C's team>` with a
+   scoreboard showing "Not enough boards yet".
+4. Opening the same link again, signed in as C, shows "That challenge link is no
+   longer valid." and no buttons.
+
+### Robustness rules (each has cost time in this repo — see bd memories)
+- **Wait for data before clicking.** A click right after `goto` can land before
+  hydration and do nothing. Wait for a data-driven element first.
+- **Every click gets an explicit `{ timeout }`**: `actionTimeout` is 0 here, so a click
+  on an element that has gone hangs until the test times out.
+- **Never `waitForLoadState('networkidle')`**: Convex keeps a WebSocket open.
+- Assert on roles and visible text, as the other specs do; no CSS selectors.
+
+### Running it
+The CONTROLLER runs the backend: a local anonymous backend under Node 22 with
+`SITE_URL`, `E2E_TEST_MODE` and `CHALLENGES_ENABLED` set. The implementer runs ONLY
+the new spec: `pnpm exec playwright test e2e/challenge.spec.ts` (Playwright starts its
+own `pnpm dev` on :3000; nothing must already hold that port). The controller then
+runs the FULL suite in the background (~11 min; it exceeds the foreground cap).
+
+**Mutants to prove** (each RED in the new spec, then reverted): the resume's forward
+removed in `app.tsx` (Test 2.2 must fail); the claim route's `onClaimed` navigation
+removed (2.3); the nudge not rendered (1.2); `incomingChallenge` answering `false`
+always (1.2).
+
+### Then — the ship gate
+`bd show wordle-teams-rac`. If it is not closed, the feature merges and deploys DARK:
+`CHALLENGES_ENABLED` stays unset in production and on beta, and that is reported to
+the owner rather than decided. Close the issues; a bd-only commit aborts once — retry
+with `||`.
 
 ---
 
