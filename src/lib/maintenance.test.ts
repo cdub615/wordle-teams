@@ -162,6 +162,7 @@ describe('every route the app has, sorted into gated and not', () => {
       '/api/auth/$',
       '/api/funnel',
       '/app',
+      '/challenge/$token',
       '/chat',
       '/complete-profile',
       '/home',
@@ -179,7 +180,7 @@ describe('every route the app has, sorted into gated and not', () => {
     ])
   })
 
-  test('the split is exactly the nine app paths, and nothing else', () => {
+  test('the split is exactly the ten app paths, and nothing else', () => {
     // /maintenance is in the UNGATED list, where it has to be: it is what
     // src/server.ts redirects a gated request to, so gating it is a browser
     // following this Worker in a circle. /team joined the gated side in
@@ -193,6 +194,7 @@ describe('every route the app has, sorted into gated and not', () => {
     expect(paths.filter(isMaintenanceGated)).toEqual([
       '/',
       '/app',
+      '/challenge/$token',
       '/chat',
       '/complete-profile',
       '/insights',

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { resolveDashboardSearch, resolveTeamSettingsSearch } from './dashboard-search.ts'
+import { dashboardSearchSettled, resolveDashboardSearch, resolveTeamSettingsSearch } from './dashboard-search.ts'
 
 const teams = [{ id: 'a' }, { id: 'b' }]
 
@@ -126,5 +126,33 @@ describe('resolveTeamSettingsSearch', () => {
     const first = resolveTeamSettingsSearch({ teamParam: undefined, teams, storedTeam: null })
     expect(first).toBe('a')
     expect(resolveTeamSettingsSearch({ teamParam: first!, teams, storedTeam: null })).toBeNull()
+  })
+})
+
+describe('dashboardSearchSettled', () => {
+  const teams = [{ id: 'a' }, { id: 'b' }]
+  const base = { hydrated: true, teams, currentMonth: '2026-10' }
+
+  test('never before hydration, even with a correct URL', () => {
+    expect(dashboardSearchSettled({ ...base, hydrated: false, teamParam: 'a', monthParam: '2026-10' })).toBe(false)
+  })
+
+  test('a member team and a month: settled', () => {
+    expect(dashboardSearchSettled({ ...base, teamParam: 'b', monthParam: '2026-09' })).toBe(true)
+  })
+
+  test.each([
+    { name: 'no team', teamParam: undefined, monthParam: '2026-10' },
+    { name: 'a team the viewer is not on', teamParam: 'zzz', monthParam: '2026-10' },
+    { name: 'no month', teamParam: 'a', monthParam: undefined },
+  ])('$name: not settled — useSearchSync is about to navigate', ({ teamParam, monthParam }) => {
+    expect(dashboardSearchSettled({ ...base, teamParam, monthParam })).toBe(false)
+  })
+
+  // ZERO TEAMS: the sync has nothing to select and will never navigate, so a
+  // waiting forward must not wait forever (a /complete-profile arrival).
+  test('no teams at all: settled as soon as hydrated, whatever the URL says', () => {
+    expect(dashboardSearchSettled({ ...base, teams: [], teamParam: undefined, monthParam: undefined })).toBe(true)
+    expect(dashboardSearchSettled({ ...base, teams: [], teamParam: 'stale', monthParam: undefined })).toBe(true)
   })
 })

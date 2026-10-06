@@ -11,6 +11,7 @@ import {
   requireTeamMemberFor,
 } from './access'
 import { purgeChatHistoryFor, resetChatCursorFor } from './chat.ts'
+import { closeChallengesForDeletedTeam } from './challenges.ts'
 import { sendEmail } from './email.ts'
 import { teamInviteEmail } from './inviteEmails.ts'
 import { resolveAvatar } from './lib/avatar.ts'
@@ -136,6 +137,12 @@ export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
         isOwner: team.owner === playerId,
         playWeekends: team.playWeekends,
         showLetters: team.showLetters,
+        // THE OWNER'S "accept challenges" SWITCH (zic8.2.12), as a BOOLEAN.
+        // The schema field is optional and ABSENT MEANS YES — every team that
+        // predates challenges has none — so `!== false`, never `=== true` and
+        // never the raw field: the switch must read "on" for those teams, which
+        // is what proposeToTeamFor already assumes when it lets them be asked.
+        acceptsChallenges: team.acceptsChallenges !== false,
         // WHETHER AN INVITE IS OUTSTANDING, as a boolean.
         //
         // The onboarding card needs to know whether this player has got anyone
@@ -325,6 +332,15 @@ export const updateTeam = mutation({
  * the authorization-free read monthsWithWinners takes a bare id.
  */
 export async function cascadeDeleteTeam(ctx: SchedulingCtx, team: Doc<'teams'>): Promise<void> {
+  // CHALLENGES FIRST (wordle-teams-zic8.2.11), AND FIRST IS THE WHOLE POINT.
+  // Closing an active challenge freezes its result from teamMonthStats, and a
+  // missing month reads as ZERO boards rather than an error — so a close placed
+  // anywhere below the teamMonthStats deletes would freeze a silent 'void' and
+  // nothing would notice. "Before the team row" is not enough. This line covers
+  // all four callers: deleteTeamFor, leaveTeamFor's last-member branch,
+  // billing's downgrade and e2ePrune. teams.test.ts pins its position.
+  await closeChallengesForDeletedTeam(ctx, team._id)
+
   const winners = await ctx.db
     .query('monthlyWinners')
     .withIndex('by_team_year_month', (q) => q.eq('teamId', team._id))

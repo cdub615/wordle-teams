@@ -96,6 +96,28 @@ export function resolveDashboardSearch({
 }
 
 /**
+ * Whether the dashboard's own search correction (useSearchSync) has nothing
+ * left to do — the moment another navigation can no longer be superseded by it.
+ *
+ * WHY IT EXISTS (wordle-teams-zic8.2, found by the Task 14 e2e). The challenge
+ * resume forwards to /challenge/<token> from the dashboard. Fired before this
+ * is true, its navigation was still pending when useSearchSync's post-
+ * hydration correction navigated back to /app, and the forward was lost.
+ *
+ * NEVER TRUE BEFORE HYDRATION, because useSearchSync does nothing until then and
+ * will navigate the moment it hydrates. `storedTeam` is not an input: it
+ * changes WHICH team the resolver picks, never WHETHER it returns null, so
+ * this needs no localStorage read during render.
+ */
+export function dashboardSearchSettled({
+  hydrated,
+  ...search
+}: Omit<DashboardSearchInput, 'storedTeam'> & { hydrated: boolean }): boolean {
+  if (!hydrated) return false
+  return resolveDashboardSearch({ ...search, storedTeam: null }) === null
+}
+
+/**
  * The team id `/team` should navigate to, or null when the current `?team=`
  * is already one of the caller's teams — there is nothing to do.
  *

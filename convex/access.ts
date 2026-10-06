@@ -1,7 +1,7 @@
 import { ConvexError } from 'convex/values'
 import { authComponent } from './auth'
 import { insightsAccess } from './lib/insightsAccess.ts'
-import { isPlausiblePuzzleDay, isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
+import { isPlausiblePuzzleDay, isPlausibleToday, isPuzzleDay, toPuzzleDay } from './lib/puzzleDay.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { GenericDatabaseReader } from 'convex/server'
@@ -127,6 +127,25 @@ export type AccessCode =
   | 'INVALID_AVATAR'
   | 'AVATAR_RATE_LIMITED'
   | 'INVALID_PUZZLE_DAY'
+  // wordle-teams-zic8.2. CHALLENGES_REFUSED is the owner's acceptsChallenges
+  // switch; CHALLENGE_LIMIT_REACHED is MAX_ACTIVE_CHALLENGES; CHALLENGE_EXISTS
+  // is the one-live-challenge-per-pair rule; PRO_REQUIRED gates INITIATING a
+  // challenge and never accepting one. CHALLENGE_NOT_PENDING is thrown for a
+  // non-'pending' status AND for a passed expiresAt: one code, two conditions,
+  // deliberately. CHALLENGE_LINK_INVALID is the single answer for an unknown,
+  // non-pending, expired or absent token, following INVITE_LINK_INVALID (see its
+  // paragraph above) so a probe cannot enumerate live tokens.
+  // CHALLENGE_NOT_ACTIVE is a scoreboard asked of a challenge that is not running.
+  // CHALLENGES_DISABLED is the CHALLENGES_ENABLED deployment switch being off
+  // (lib/challenge.ts challengesEnabled); only starting or activating refuses.
+  | 'CHALLENGES_REFUSED'
+  | 'CHALLENGE_LIMIT_REACHED'
+  | 'CHALLENGE_EXISTS'
+  | 'PRO_REQUIRED'
+  | 'CHALLENGE_NOT_PENDING'
+  | 'CHALLENGE_LINK_INVALID'
+  | 'CHALLENGE_NOT_ACTIVE'
+  | 'CHALLENGES_DISABLED'
 
 /**
  * Throws a ConvexError carrying `{ code }`.
@@ -257,9 +276,19 @@ export async function requireTeamOwnerFor(
  * The bound itself — isPlausibleToday — is shared across every mutation that
  * feeds a client-supplied `today` into winner recomputation: updateTeam,
  * removeMember, leaveTeam and invitePlayer in teams.ts, setScoringSystem in
- * scoringSystems.ts, and upsertBoard in scores.ts. All SIX reach it through
- * THIS function, and need it for the identical reason: see the doc comment on
- * isPlausibleToday in lib/puzzleDay.ts.
+ * scoringSystems.ts, upsertBoard in scores.ts, and consumeLink in
+ * inviteLinks.ts. All SEVEN reach it through THIS function, and need it for the
+ * identical reason: see the doc comment on isPlausibleToday in lib/puzzleDay.ts.
+ * (This said SIX until wordle-teams-gl00: consumeLink called it and recomputes
+ * the joined team's winners, and was missing from the list.)
+ *
+ * SHAPE FIRST, THEN THE BOUND (wordle-teams-gl00). isPlausibleToday is a
+ * LEXICOGRAPHIC range test, so '2026-10-039', '2026-10-04x' and
+ * '2026-10-04T00:00:00Z' all sit inside it. The first is the dangerous one: it
+ * does not look malformed, and windowFor turns it into a challenge window 36
+ * days out that is WRITTEN to teamChallenges and silently resolves 'void'.
+ * isPuzzleDay is the strict check requirePlausiblePuzzleDay already applies via
+ * isPlausiblePuzzleDay, so this makes the two siblings agree.
  *
  * ONE DOCUMENTED EXCEPTION, and it is not an omission: completeProfileFor
  * (players.ts) applies isPlausibleToday directly and falls back to the server's
@@ -267,21 +296,29 @@ export async function requireTeamOwnerFor(
  * PLAYER ROW, and every route guard bounces a playerless account back to
  * /complete-profile, so a wrong device clock would lock the account out of the
  * product rather than blocking one action. It is still a clock-bounded surface;
- * it is not a requirePlausibleToday call site.
+ * it is not a requirePlausibleToday call site — and so, like insights.ts's
+ * teamMonth, it does NOT get the shape check below (wordle-teams-435s).
  *
  * KEEP THIS LIST WHOLE — wordle-teams-04r's pre-cutover check is "every
  * clock-bounded surface", and this is where a reader goes to enumerate them.
  * See wordle-teams-04r: that Convex's clock is UTC is currently an inference,
  * and confirming it is a pre-cutover task.
  *
- * A SEVENTH CLOCK-BOUNDED SURFACE SITS DIRECTLY BELOW and is NOT one of the six:
- * requirePlausiblePuzzleDay bounds the day a board is FOR, which is a different
- * question with a much wider answer. Counted separately so the six above stay
- * the answer to "who feeds a client `today` into winner recomputation".
+ * - challenges.ts's acceptChallenge and claimChallengeLink, which resolve the
+ *   challenge WINDOW from the accepter's own day (wordle-teams-zic8.2). These do
+ *   not feed winner recomputation, so the "seven" above is unchanged as the
+ *   answer to that narrower question; they are listed because the broader
+ *   question is "every clock-bounded surface".
+ *
+ * ONE MORE CLOCK-BOUNDED SURFACE SITS DIRECTLY BELOW and is NOT one of the
+ * seven: requirePlausiblePuzzleDay bounds the day a board is FOR, which is a
+ * different question with a much wider answer. Counted separately so the seven
+ * above stay the answer to "who feeds a client `today` into winner
+ * recomputation".
  */
 export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
   const serverToday = toPuzzleDay(new Date())
-  if (!isPlausibleToday(today, serverToday)) {
+  if (!isPuzzleDay(today) || !isPlausibleToday(today, serverToday)) {
     // NOT INVALID_TEAM, NOT INVALID_BOARD, NOT INVALID_SYSTEM — one per calling
     // module. A clock this far off is not a naming problem, a board-shape
     // problem or an out-of-range points problem, and every one of those

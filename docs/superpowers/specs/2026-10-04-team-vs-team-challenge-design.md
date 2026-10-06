@@ -181,6 +181,8 @@ teamChallenges: defineTable({
   .index('by_token', ['token'])
   .index('by_challenger_and_status', ['challengerTeamId', 'status'])
   .index('by_opponent_and_status', ['opponentTeamId', 'status'])
+  .index('by_status_and_endDay', ['status', 'endDay'])        // the daily close (§9)
+  .index('by_status_and_expiresAt', ['status', 'expiresAt'])  // the daily expiry (§9)
 ```
 
 **Two indexes rather than one**, because a team sits on either side of a challenge and
@@ -211,8 +213,12 @@ execute.** Everything decidable goes here as a pure function:
 
 - `windowFor(acceptedOnPuzzleDay)` → `{ startDay, endDay }`, including the short-window
   rule (§7.4)
-- `teamTotalsOver(stats, startDay, endDay)` → `{ boards, attempts, members }`, summing
-  `days[].entries` within the window
+- `teamTotalsOver(days, startDay, endDay)` → `{ boards, attempts, members }`, summing
+  `days[].entries` within the window. It takes `days` rather than a whole stats
+  document so a caller can concatenate two months for the short-window rule of §7.4,
+  and it is generic over the player id so the schema's `Id<'players'>` flows through
+  without this module importing the generated data model — the idiom
+  `lib/teamStats.ts` already uses for the same reason.
 
 **The window projection reads `days[]`, never `members[]`.** `members[]` holds
 whole-month totals, and a challenge window is almost never a whole month, so using it
@@ -293,10 +299,13 @@ drift apart, and a test written against a literal passes straight through the dr
    late-month challenge is born guaranteed-`void`, which is a bad first experience of the
    feature. This is the only case where a window crosses a month boundary, costing two
    `teamMonthStats` documents per team instead of one.
-5. **One active challenge per unordered team pair** — enforced, not a constant. Two
+5. **One LIVE challenge per unordered team pair** — live meaning `pending` OR `active` — enforced, not a constant. Two
    simultaneous challenges between the same two teams would render two scoreboards over
    near-identical data. Checked by querying `by_challenger_and_status` and
-   `by_opponent_and_status` for `active` and matching the other team in both directions.
+   `by_opponent_and_status` for BOTH live statuses and matching the other team in both
+   directions. **This wording previously said `active` only, and the code is stricter
+   than that — deliberately: a pending proposal must block the pair, or the same two
+   teams could stack proposals. The code is right; this sentence was stale.**
 
 ## 8. Server surface — `convex/challenges.ts`
 
@@ -374,14 +383,46 @@ window combined with concurrency, and it is correct rather than a defect.
 
 `crons.daily('team month aggregates', { hourUTC: 0, minuteUTC: 45 }, internal.teamStats.sweep, {})`
 already runs just after midnight UTC. Closing due challenges joins that sweep. **No new
-cron lane** — `crons.ts` records at length why lanes are kept apart and why run count
-rather than data volume is what grew the bill, so adding a lane for this would be the
-wrong trade when an existing daily pass is already in the right place at the right time.
+cron lane** — `crons.ts` records at length why lanes are kept apart and that the bill
+grew with the DATA each run read rather than with traffic, so adding a lane for this would
+be the wrong trade when an existing daily pass is already in the right place at the right
+time.
+
+**The sweep schedules the closes; it does not perform them** (owner decision D5,
+2026-10-05). Every window ends on a month's last day, so every challenge comes due on the
+same day, and closing them all inside the sweep's own transaction — beside the team
+rollups, against one execution's read and scheduling limits — would roll the whole sweep
+back once past those limits, rollups included, and again every day. Instead the sweep
+expires stale proposals inline (one small patch per row, no push) and schedules one
+`internal.teamStats.closeChallenge` job per due challenge, the idiom it already uses for
+`rollupOne`. Both reads go through status indexes (`by_status_and_expiresAt`,
+`by_status_and_endDay`), so the sweep touches only live rows. A close that throws fails
+its own job and nothing else.
 
 Closing a challenge computes both sides from `teamMonthStats`, writes `result`, sets
 `status: 'closed'`, and schedules push to both rosters. The close must be **idempotent**:
-a challenge already holding a `result` is skipped, so a re-run cannot restate a frozen
-record or double-notify.
+the job re-reads the row and does nothing unless it is still `active`, so a retried,
+duplicated or already-cancelled job cannot restate a frozen record or double-notify. The
+status check IS the guard; a separate `result !== undefined` check after it could never
+fire. The job does not re-check the date: the sweep decided that, and deciding it twice
+would put the rule in two places.
+
+**A challenge closes on `endDay + 2` (server day), not `endDay + 1`.** The sweep runs at
+00:45 UTC. On `endDay + 1` a player at UTC-7 is still in the evening of `endDay`, and one
+at UTC-12 has until 12:00 UTC to play `endDay`'s puzzle; closing then would freeze the
+result without their last-day boards, permanently. Two days covers every timezone, and
+the cost is that results arrive one day later.
+
+The close is NOT ordered after the sweep's rollups in any useful sense: those are
+scheduled, run later, and cover only the current month. A just-ended window's month is
+kept current by the incremental write path in `winners.ts`, which is what the close
+relies on. It is gated by `SWEEPS_ENABLED` only, never by `CHALLENGES_ENABLED` — switching
+the feature off must not strand a running challenge. The scheduled close job is gated on
+neither: the sweep that schedules it already is, and a job already scheduled must finish.
+
+Team deletion is the exception that closes synchronously (Task 11): the deleted team's
+aggregate is about to be removed, so the freeze must read it inside the deletion's own
+transaction.
 
 The sweep must honour `sweepsEnabled(process.env.SWEEPS_ENABLED)` as its **first
 statement**, the rule `chatNotify.ts` and `lib/sweeps.ts` already carry, and for the same
@@ -407,7 +448,16 @@ Reuses the Phase 6 delivery path **wholesale**, adding nothing to the plumbing:
   it. This matters beyond tidiness — turning the switch off deletes only the current
   browser's subscription row, so a second device's row can outlive the consent.
 - Every notification **names its opponent**, because concurrency means "your challenge
-  finished" has no referent.
+  finished" has no referent. Bodies: `Challenge accepted: X`, `Challenge finished: X` for
+  the natural close (and the team-deletion close), and `Challenge cancelled: X` when an
+  owner ends it early (owner decision D7).
+- **One push per person** (owner decision D6). A direct challenge always has a member on
+  both teams — the proposer — so recipients are de-duplicated by player across the
+  rosters being notified. A member of one team is told the other team's name and linked
+  to their own team page; a member of both gets ONE push naming both teams, challenger
+  first (`Challengers vs Theirs`), linked to the challenging team's page. Each name is
+  clamped on its own, so neither can be cut away. On a team-deletion close only the
+  survivor's roster is notified (owner decision D4), so nobody is "on both".
 
 **Known risk, not this feature's to fix but stated so a missing notification is not
 debugged here:** three push defects are open against production —
@@ -430,17 +480,38 @@ worse, and this feature must not grow a workaround for them.
   their teams accepts.
 - **Per-member rows** render for Pro only. The free view shows the full result and board
   counts — it is not a teaser that hides who is winning, only who is carrying it.
+- **What crosses the team boundary** in a member row is a display label — a first name,
+  plus a last initial when two players on that team's roster share a first name — and
+  only to Pro members (owner decision D3, 2026-10-05). A row whose player has left the
+  roster is labelled `Former member`. `days[]` still never crosses (AC11).
 
 ## 12. Read cost per refresh
 
 A team with *k* active challenges:
 
-- *k* `teamChallenges` documents (two point queries on the status indexes)
-- 1 `teamMonthStats` document for its own current month
+- its live `teamChallenges` documents (four index queries: two statuses × two sides)
+- *k* reads of its **own** month's `teamMonthStats` document — once per active
+  challenge, not once in total. Each scoreboard is projected independently and the
+  query does not memoise across them. (This line previously said 1; corrected
+  2026-10-05 by the zic8.2.16 review. At `MAX_ACTIVE_CHALLENGES = 5` the redundancy
+  is at most four reads and was judged not worth a cache.)
 - *k* `teamMonthStats` documents, one per opponent
 - 2 per team instead of 1 only for a challenge under the §7.4 short-window rule
+- one `teams` document per pending proposal with a known other team, for its name
+- one `players` document per roster member per side, every time a scoreboard is
+  computed, for the member rows' display names — including for free viewers, whose
+  rows are then stripped. Bounded by roster size (single digits). Added 2026-10-05 by
+  owner decision D3.
+- every **closed** `teamChallenges` row the team has ever had, for the head-to-head
+  record — unbounded over the team's lifetime, though slow-growing
 
 Closed challenges read **zero** `teamMonthStats` documents — the snapshot is the record.
+
+The daily sweep is not a refresh, but its cost belongs here: it reads only the pending
+rows past their TTL and the active rows past their window, through the two status
+indexes, never the whole table. Each due challenge's scoreboard reads happen in its own
+scheduled close job (§9), not in the sweep.
+
 Nothing is ever re-derived from `dailyScores`, and no new aggregate is introduced. With
 `MAX_ACTIVE_CHALLENGES = 5` the worst case is a bounded handful of document reads.
 
@@ -470,6 +541,20 @@ that aggregate rather than building a second one.
 - **`TZ=UTC`.** Every window boundary is a `puzzleDay` string comparison through
   `lib/puzzleDay.ts`, and a date test that passes only on the host timezone passes
   locally and fails in CI.
+- **`result` present ⟺ `status === 'closed'`** is load-bearing in two places and
+  expressible in neither the schema nor a schema test: the close path's idempotency
+  guard is the `status !== 'active'` check (a closed row is skipped; there is no separate
+  `result` check, which could never fire after it), and `headToHeadFor` uses
+  `result === undefined` to skip rows it has already filtered to `'closed'`. So a
+  `'closed'` row with no `result` is silently dropped from the head-to-head record.
+  Pin the pairing behaviourally in the close tests.
+- **`ChallengeOutcome` is declared twice** — a TS union in `lib/challenge.ts` and four
+  `v.literal`s in `schema.ts`. Convex cannot build a validator from a TS type and
+  `lib/challenge.ts` must stay import-free, so the duplication is unavoidable; the drift
+  is not. A type-equality assertion between `ChallengeOutcome` and
+  `NonNullable<Doc<'teamChallenges'>['result']>['outcome']` fails if either side moves.
+  `teamLimits.ts`'s banner is the precedent — a duplicated value drifts, and a test
+  written against a literal passes straight through the drift.
 - **Idempotent close** is pinned by running the sweep twice and asserting the result and
   the notification count are unchanged.
 - **The sweep's disabled path** is pinned by a disabled run followed by an enabled one,

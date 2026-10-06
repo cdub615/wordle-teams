@@ -1,8 +1,14 @@
 import { convexTest } from 'convex-test'
 import { ConvexError } from 'convex/values'
-import { describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
-import { isProFor, playerForEmail, requireTeamOwnerFor, requireTeamMemberFor } from './access'
+import {
+  isProFor,
+  playerForEmail,
+  requirePlausibleToday,
+  requireTeamOwnerFor,
+  requireTeamMemberFor,
+} from './access'
 import { aPlayer, aTeam } from './fixtures.ts'
 
 const modules = import.meta.glob('./**/*.ts')
@@ -150,4 +156,40 @@ describe('isProFor', () => {
       })
     }
   })
+})
+
+describe('requirePlausibleToday', () => {
+  // FROZEN at midday UTC on 2026-10-04, so the +-1 day bound is 10-03..10-05
+  // and these tests cannot start failing by themselves on a later date.
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-04T12:00:00Z'))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  test.each(['2026-10-03', '2026-10-04', '2026-10-05'])('%s is within a day and is returned', (today) => {
+    expect(requirePlausibleToday(today)).toBe(today)
+  })
+
+  test.each(['2026-10-02', '2026-10-06'])('%s is two days off and is refused', (today) => {
+    expect(() => requirePlausibleToday(today)).toThrow(
+      expect.objectContaining({ data: { code: 'INVALID_DATE' } }),
+    )
+  })
+
+  // wordle-teams-gl00. EVERY ONE OF THESE SITS INSIDE THE LEXICOGRAPHIC BOUND —
+  // '2026-10-03' < each < '2026-10-05' as strings — so the range test alone
+  // accepted them all. The first is the dangerous one: it does not look
+  // malformed, and windowFor turns it into a window 36 days out that silently
+  // resolves 'void'. The other two produce a 'NaN-NaN-NaN' window.
+  test.each(['2026-10-039', '2026-10-04x', '2026-10-04T00:00:00Z'])(
+    '%s is inside the string bound but not a day, and is refused',
+    (today) => {
+      expect(() => requirePlausibleToday(today)).toThrow(
+        expect.objectContaining({ data: { code: 'INVALID_DATE' } }),
+      )
+    },
+  )
 })

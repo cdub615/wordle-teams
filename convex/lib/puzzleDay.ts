@@ -47,6 +47,8 @@ export function monthOf(day: PuzzleDay): PuzzleMonth {
  * `end` is '<month>-31' even in February. It is a lexicographic bound, not a
  * date: no real day string in the month can exceed it, and no day of the next
  * month can fall under it.
+ *
+ * For a real calendar day, use `lastDayOf` in lib/challenge.ts.
  */
 export function monthRange(month: PuzzleMonth): { start: PuzzleDay; end: PuzzleDay } {
   return { start: `${month}-01`, end: `${month}-31` }
