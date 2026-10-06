@@ -77,10 +77,28 @@ export function readSeenRelease(): string | null {
     const seen = window.localStorage.getItem(WHATS_NEW_SEEN_KEY)
     return seen !== null && ISO_DATE.test(seen) ? seen : null
   } catch {
-    // Blocked store, or no window at all on the server: "nothing seen". For a
-    // signed-in player that is a dot, which is the honest answer when we
-    // cannot remember — and the click handler cannot fail either.
+    // Blocked store, or no window at all on the server: "nothing seen". That
+    // is NOT a dot on its own — the menu asks canRememberRelease first, and a
+    // store it cannot read gets no dot at all (AC6).
     return null
+  }
+}
+
+/**
+ * Whether this browser can remember a release at all. The menu asks this BEFORE
+ * readSeenRelease, because that answers null for "blocked" and "never seen"
+ * alike, and null is a dot for a signed-in player.
+ *
+ * A BLOCKED STORE IS NO DOT (AC6). markReleaseSeen cannot write to a store that
+ * refuses reads, so a dot there could never be cleared — it would be lit on
+ * every visit, for a browser setting. No dot, and the link still works.
+ */
+export function canRememberRelease(): boolean {
+  try {
+    window.localStorage.getItem(WHATS_NEW_SEEN_KEY)
+    return true
+  } catch {
+    return false
   }
 }
 

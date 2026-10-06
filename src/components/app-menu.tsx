@@ -55,11 +55,11 @@ import { useReducedMotion } from '#/lib/use-reduced-motion.ts'
 import { useThemeMode, type ThemeMode } from '#/lib/theme.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import {
+  canRememberRelease,
   hasUnreadRelease,
   LATEST_RELEASE,
   markReleaseSeen,
   readSeenRelease,
-  WHATS_NEW_SEEN_KEY,
   WHATS_NEW_URL,
 } from '#/lib/whats-new.ts'
 
@@ -137,7 +137,7 @@ export function AppMenu() {
   const whatsNewUnread =
     hydrated &&
     !whatsNewOpened &&
-    seenStoreReadable() &&
+    canRememberRelease() &&
     hasUnreadRelease({
       seen: readSeenRelease(),
       latest: LATEST_RELEASE,
@@ -601,25 +601,6 @@ export function AppMenu() {
       {isAuthenticated && <SettingsDialog email={user?.email} displayName={displayName} />}
     </Dialog>
   )
-}
-
-/**
- * Whether the What's new store can be read at all.
- *
- * A BLOCKED STORE IS NO DOT (AC6), which readSeenRelease alone cannot say: it
- * answers null for "blocked" and for "never seen" alike, and null is a dot for a
- * signed-in player. Here that would be a dot that can never be cleared —
- * markReleaseSeen cannot write to a store that refuses reads — lit on every
- * visit for a browser setting. Checked separately rather than by changing what
- * readSeenRelease returns, whose contract lib/whats-new.test.ts pins.
- */
-function seenStoreReadable(): boolean {
-  try {
-    window.localStorage.getItem(WHATS_NEW_SEEN_KEY)
-    return true
-  } catch {
-    return false
-  }
 }
 
 /**
