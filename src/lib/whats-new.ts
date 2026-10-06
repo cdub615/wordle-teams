@@ -58,6 +58,9 @@ export const WHATS_NEW_URL = 'https://feedback.wordleteams.com/changelog'
 /** The localStorage key holding the last release this browser opened. */
 export const WHATS_NEW_SEEN_KEY = 'wt.whatsNew.seen'
 
+/** Written and removed at once by canRememberRelease to prove the store takes writes. */
+export const WHATS_NEW_PROBE_KEY = 'wt.whatsNew.probe'
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 /**
@@ -89,13 +92,19 @@ export function readSeenRelease(): string | null {
  * readSeenRelease, because that answers null for "blocked" and "never seen"
  * alike, and null is a dot for a signed-in player.
  *
- * A BLOCKED STORE IS NO DOT (AC6). markReleaseSeen cannot write to a store that
- * refuses reads, so a dot there could never be cleared — it would be lit on
- * every visit, for a browser setting. No dot, and the link still works.
+ * A BLOCKED STORE IS NO DOT (AC6) — blocked for reads OR writes. markReleaseSeen
+ * cannot record anything in either, so a dot there could never be cleared — it
+ * would be lit on every visit, for a browser setting. No dot, and the link
+ * still works.
  */
 export function canRememberRelease(): boolean {
   try {
     window.localStorage.getItem(WHATS_NEW_SEEN_KEY)
+    // READS ARE NOT ENOUGH. Quota exceeded, and old Safari private mode, read
+    // fine and throw on write — a dot there could never be cleared either. A
+    // throwaway key, so the seen value itself is never touched by the probe.
+    window.localStorage.setItem(WHATS_NEW_PROBE_KEY, '1')
+    window.localStorage.removeItem(WHATS_NEW_PROBE_KEY)
     return true
   } catch {
     return false

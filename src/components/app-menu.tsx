@@ -136,6 +136,7 @@ export function AppMenu() {
   const [whatsNewOpened, setWhatsNewOpened] = useState(false)
   const whatsNewUnread =
     hydrated &&
+    isAuthenticated &&
     !whatsNewOpened &&
     canRememberRelease() &&
     hasUnreadRelease({
