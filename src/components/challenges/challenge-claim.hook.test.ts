@@ -105,6 +105,29 @@ describe('1. signed out', () => {
   })
 })
 
+// A FAILED LOOKUP IS NOT A SLOW ONE (zic8.2.21 M12). If getMyTeams or
+// needsProfile errors, the route used to leave the page on "One moment…" for
+// ever. It says so instead, and offers nothing: there is no action here that
+// would succeed where the subscription failed, and a refresh is the retry.
+describe('1a. the team lookup failed', () => {
+  test('one message, nothing to press, and not the loading copy', () => {
+    const { container } = page({ state: 'error', teams: [] })
+    expect(screen.getByRole('heading').textContent).toBe(
+      'Something went wrong loading your teams. Refresh to try again.',
+    )
+    expect(container.textContent).not.toContain('One moment…')
+    expect(container.textContent).not.toContain('You need a team')
+    expect(screen.queryAllByRole('button')).toEqual([])
+    expect(screen.queryAllByRole('link')).toEqual([])
+  })
+
+  test('even with teams already listed, nothing can be claimed from it', () => {
+    page({ state: 'error', teams: [ALPHAS, BRAVOS] })
+    expect(radios()).toEqual([])
+    expect(screen.queryAllByRole('button')).toEqual([])
+  })
+})
+
 describe('2. signed in with a player row', () => {
   test("says they've been challenged, how accepting works, and lists their teams", () => {
     const { container } = page({ teams: [ALPHAS, BRAVOS] })

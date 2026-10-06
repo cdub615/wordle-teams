@@ -2307,6 +2307,30 @@ describe('the challenge routes are wired the way their components are tested', (
     expect(nudge, 'routes/app.tsx does not query api.challenges.incomingChallenge').toHaveLength(1)
     expect(nudge[0].args[1]).toBe('monthWindowArgs')
   })
+
+  test('/challenge/<token> shows a failed team lookup as an error, not as loading (M12)', () => {
+    // challenge-claim.hook.test.ts proves what the 'error' state renders; this
+    // proves the route ever asks for it. Without the error arm, a failed
+    // getMyTeams or needsProfile leaves `teams` undefined and the page on
+    // "One moment…" for ever. PINNED WHOLE: the arm's POSITION is the property
+    // — after 'signed-out' (a signed-out page looks nothing up, so it has no
+    // error to show) and before 'loading' (which a failure also satisfies).
+    const CLAIM = './routes/challenge.$token.tsx'
+    const initializer = (identifier: string) => initializerOf(CLAIM, read(CLAIM), identifier)
+    expect(initializer('claimState')).toBe(
+      "! isAuthenticated ? 'signed-out' : needsProfileError || teamsError ? 'error' : needsProfile !== false || ! teams ? 'loading' : 'ready'",
+    )
+    expect(jsxProps(CLAIM, 'ChallengeClaim').get('state')).toBe('claimState')
+
+    // EACH ERROR IS ITS OWN QUERY'S. Read off the destructuring that binds it,
+    // so swapping one for a constant or for the other query's is a failure.
+    expect(initializer('{ data: needsProfile, error: needsProfileError }')).toMatch(
+      /^useQuery \( convexQuery \( api \. players \. needsProfile ,/,
+    )
+    expect(initializer('{ data: teams, error: teamsError }')).toMatch(
+      /^useQuery \( convexQuery \( api \. teams \. getMyTeams ,/,
+    )
+  })
 })
 
 /**
