@@ -26,7 +26,8 @@ import type { ChallengeId, PendingChallenge } from './types.ts'
  * proposer is a member of both teams, so their proposal also lands on the
  * opponent's card as INCOMING — and acceptChallengeFor refuses them with
  * CHALLENGE_OWN_PROPOSAL, because one person is not the other team's consent.
- * Decline stays, as above, and one line says who has to accept instead.
+ * Decline stays, as above, and one line says who has to accept instead —
+ * unless the team is refusing challenges, when the refusal line alone is shown.
  */
 export function PendingChallengeRow({
   challenge,
@@ -52,7 +53,9 @@ export function PendingChallengeRow({
   const incoming = challenge.direction === 'incoming'
   const canWithdraw = !incoming && (challenge.proposedByViewer || viewerIsOwner)
   const refusing = !expired && incoming && !teamAcceptsChallenges
-  const ownProposal = !expired && incoming && challenge.proposedByViewer
+  // ONE REASON AT A TIME: on a refusing team nobody can accept, so the refusal
+  // line is the whole story and "waiting for someone else" would be untrue.
+  const ownProposal = !expired && incoming && teamAcceptsChallenges && challenge.proposedByViewer
   const canAccept = teamAcceptsChallenges && !challenge.proposedByViewer
   const label = labelsFor(challenge)
 

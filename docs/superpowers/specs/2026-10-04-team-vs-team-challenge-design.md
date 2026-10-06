@@ -583,8 +583,8 @@ that aggregate rather than building a second one.
 2. A Pro member can propose a challenge to another team they are a member of, and can
    generate a challenge link; a non-Pro member can do neither and is shown the upgrade
    path rather than a dead control.
-3. Any member of the challenged team can accept, with no Pro requirement, and nothing
-   numeric about either team renders before acceptance.
+3. Any member of the challenged team other than the proposer can accept, with no Pro
+   requirement, and nothing numeric about either team renders before acceptance.
 4. Either team's owner can withdraw or cancel, and can set their team to refuse incoming
    challenges.
 5. A pending proposal expires after `PROPOSAL_TTL_DAYS` and renders as expired.

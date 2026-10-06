@@ -19,6 +19,12 @@ type TeamId = Id<'teams'>
  * each on purpose. Nothing here may tell them apart again: a holder of a
  * guessed token would learn which tokens were once real.
  *
+ * CHALLENGE_OWN_PROPOSAL IS NEITHER (wordle-teams-zic8.2.23). It is about the
+ * VIEWER — the link's own minter — so every team they could pick is refused the
+ * same way, yet the link itself is still good for anyone else. It ends the page
+ * for this viewer only: see OWN_LINK below. It is not one of these, because
+ * TERMINAL_REFUSALS means "this link is dead", and the route's `outcome` says so.
+ *
  * Everything else (CHALLENGE_LIMIT_REACHED, CHALLENGE_EXISTS,
  * CHALLENGES_REFUSED, INVALID_TEAM, INVALID_DATE, and anything untyped) is a
  * refusal OF THAT TEAM or of that moment, and another team may still accept —
@@ -29,6 +35,14 @@ export type TerminalRefusal = (typeof TERMINAL_REFUSALS)[number]
 
 const isTerminal = (code: string | null): code is TerminalRefusal =>
   (TERMINAL_REFUSALS as ReadonlyArray<string | null>).includes(code)
+
+/**
+ * What the page says once CHALLENGE_OWN_PROPOSAL has come back. Its own copy,
+ * not typedCodeMessage's: that one is written for the team page's Accept
+ * ("someone else on your team"), and here the move belongs to another team.
+ */
+const OWN_LINK =
+  'This is your own challenge link. Share it with another team — someone there has to accept it.'
 
 /**
  * The body of /challenge/<token> (zic8.2.13, Task 13).
@@ -69,6 +83,10 @@ export function ChallengeClaim({
   const groupLabelId = useId()
   const [selected, setSelected] = useState<TeamId | null>(null)
   const [pending, setPending] = useState(false)
+  // LOCAL, NOT THE ROUTE'S `outcome`: that one means the link is dead, and this
+  // is only about who is holding it. The component stays mounted for the
+  // route's life, so it holds as long as `outcome` would.
+  const [ownLink, setOwnLink] = useState(false)
 
   // DERIVED, NOT INITIAL STATE. `teams` is a subscription that can arrive or
   // change after mount; a lone team is the choice whenever it is the only one,
@@ -110,6 +128,18 @@ export function ChallengeClaim({
     )
   }
 
+  if (ownLink) {
+    // ONE MESSAGE AND A WAY OUT, no picker: every team here would be refused.
+    return (
+      <main className="page-wrap flex min-h-[50vh] flex-col items-center justify-center gap-4 text-center">
+        <h1 className="text-lg font-semibold">{OWN_LINK}</h1>
+        <Button asChild variant="outline">
+          <Link to="/team">Go to your team</Link>
+        </Button>
+      </main>
+    )
+  }
+
   if (teams.length === 0) {
     return (
       <main className="page-wrap flex min-h-[50vh] flex-col items-center justify-center gap-4 text-center">
@@ -134,6 +164,10 @@ export function ChallengeClaim({
       if (isTerminal(code)) {
         forgetPendingChallenge()
         onTerminal(code)
+      } else if (code === 'CHALLENGE_OWN_PROPOSAL') {
+        // NO forgetPendingChallenge: useChallengeArrival already cleared the
+        // stash when this signed-in player arrived, and the link is not dead.
+        setOwnLink(true)
       } else {
         toast.error(mutationErrorMessage(error, 'Could not accept that challenge'))
       }

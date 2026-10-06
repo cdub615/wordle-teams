@@ -1263,9 +1263,9 @@ export async function incomingChallengeFor(
   now: number,
 ): Promise<boolean> {
   const team = await requireTeamMemberFor(ctx, playerId, teamId)
-  // A TEAM THAT HAS SWITCHED CHALLENGES OFF IS NOT NUDGED (zic8.2.21 M8):
-  // acceptChallengeFor refuses its Accept with CHALLENGES_REFUSED, so the nudge
-  // would lead to a button that cannot work. Absent means on, as everywhere.
+  // NO NUDGE TOWARD A BUTTON THAT CANNOT WORK. A TEAM THAT HAS SWITCHED
+  // CHALLENGES OFF IS NOT NUDGED (zic8.2.21 M8): acceptChallengeFor refuses its
+  // Accept with CHALLENGES_REFUSED. Absent means on, as everywhere.
   if (team.acceptsChallenges === false) return false
   const pending = await ctx.db
     .query('teamChallenges')
@@ -1273,7 +1273,14 @@ export async function incomingChallengeFor(
       q.eq('opponentTeamId', teamId).eq('status', 'pending'),
     )
     .collect()
-  return pending.some((challenge) => challenge.expiresAt > now)
+  // NOR IS A PROPOSER NUDGED TOWARD THEIR OWN PROPOSAL (wordle-teams-zic8.2.23),
+  // by the same rule: a direct proposer is a member of both teams, so their row
+  // is incoming here too, but acceptChallengeFor refuses them with
+  // CHALLENGE_OWN_PROPOSAL and the row hides their Accept. Another member of
+  // this team is still nudged by the same row.
+  return pending.some(
+    (challenge) => challenge.expiresAt > now && challenge.proposedBy !== playerId,
+  )
 }
 
 export const incomingChallenge = query({
