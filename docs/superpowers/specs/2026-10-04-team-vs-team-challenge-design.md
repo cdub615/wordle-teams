@@ -319,8 +319,8 @@ redacted in production. Plain `Error` messages **are** redacted in prod while
 | --- | --- | --- | --- |
 | `proposeToTeam` | mutation | Pro + member of challenger | Names an opponent team the caller is also a member of. Checks §7.2 and §7.5 and the opponent's `acceptsChallenges` |
 | `proposeByLink` | mutation | Pro + member of challenger | Creates a `pending` challenge with a token and no `opponentTeamId` |
-| `acceptChallenge` | mutation | Member of opponent team | Sets `active`, `acceptedBy`, `startDay`, `endDay`. Schedules push to both rosters |
-| `claimChallengeLink` | mutation | Member of the team they nominate | Resolves a token, binds `opponentTeamId`, then as `acceptChallenge` |
+| `acceptChallenge` | mutation | Member of opponent team, not the proposer (zic8.2.23) | Sets `active`, `acceptedBy`, `startDay`, `endDay`. Schedules push to both rosters |
+| `claimChallengeLink` | mutation | Member of the team they nominate, not the link's minter (zic8.2.23) | Resolves a token, binds `opponentTeamId`, then as `acceptChallenge` |
 | `declineChallenge` | mutation | Member of opponent team | → `declined` |
 | `withdrawChallenge` | mutation | Proposer, or challenger's owner | `pending` → `withdrawn` |
 | `cancelChallenge` | mutation | Either team's owner | `active` → `closed` with the result as computed at that moment |
