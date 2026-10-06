@@ -80,9 +80,10 @@ function describe(challenge: PendingChallenge): string {
     // set at proposal time. The fallback covers only a team deleted under it.
     return `${challenge.otherTeamName ?? 'A team'} challenged your team`
   }
-  // A LINK PROPOSAL NOBODY HAS CLAIMED HAS NO OTHER TEAM YET (otherTeamName is
-  // null). The link itself is not re-shown: the token reaches only the person
-  // who made it, once.
-  if (challenge.otherTeamName === null) return 'Waiting for a team to claim your link'
-  return `Waiting for ${challenge.otherTeamName} to answer`
+  // A LINK PROPOSAL NOBODY HAS CLAIMED HAS NO OTHER TEAM YET. KEYED ON `isLink`,
+  // NOT ON A NULL NAME (zic8.2.21 M10): a direct proposal whose opponent was
+  // deleted under it has a null name too, and was never a link. The link itself
+  // is not re-shown: the token reaches only the person who made it, once.
+  if (challenge.isLink) return 'Waiting for a team to claim your link'
+  return `Waiting for ${challenge.otherTeamName ?? 'a team'} to answer`
 }

@@ -340,6 +340,17 @@ describe('PendingChallengeRow', () => {
     expect(screen.queryByText('Waiting for a team to claim your link')).not.toBeNull()
   })
 
+  // THE LINK COPY KEYS ON `isLink`, NOT ON A MISSING NAME (wordle-teams-zic8.2.21
+  // M10). A direct proposal whose opponent was deleted under it also has a null
+  // name, and telling its proposer to wait for a link they never made is wrong.
+  test('8. a DIRECT proposal with no name left is not called a link', () => {
+    const { container } = row(
+      aPending({ direction: 'outgoing', otherTeamName: null, isLink: false, proposedByViewer: true }),
+    )
+    expect(container.textContent).not.toContain('link')
+    expect(screen.queryByText('Waiting for a team to answer')).not.toBeNull()
+  })
+
   test.each([
     { label: 'incoming', direction: 'incoming' as const },
     { label: 'outgoing (proposer and owner)', direction: 'outgoing' as const },
