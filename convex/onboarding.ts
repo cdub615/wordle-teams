@@ -1,5 +1,6 @@
 import { mutation, query } from './_generated/server'
 import { currentPlayer, requirePlayer } from './access'
+import { leaguesEnabled } from './lib/league.ts'
 
 /**
  * The two onboarding facts the client cannot already derive.
@@ -66,7 +67,18 @@ export const getStatus = query({
       }
     }
 
-    return { enteredBoard, dismissed: player.onboardingDismissedAt !== undefined }
+    // PUBLIC LEAGUES (zic8.3): whether to offer "Pick your opener". Keyed to the
+    // caller's own id like everything else here, so nobody else's activity can
+    // invalidate it. Reported as in-league while the feature is dark, so the
+    // step never offers something that would refuse.
+    const inLeague =
+      !leaguesEnabled(process.env.LEAGUES_ENABLED) ||
+      (await ctx.db
+        .query('leagueMemberships')
+        .withIndex('by_player_and_league', (q) => q.eq('playerId', player._id))
+        .first()) !== null
+
+    return { enteredBoard, dismissed: player.onboardingDismissedAt !== undefined, inLeague }
   },
 })
 

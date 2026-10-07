@@ -1,11 +1,11 @@
 import { v } from 'convex/values'
 import { internal } from './_generated/api'
 import { internalMutation, mutation, query } from './_generated/server'
-import { accessError, requirePlausibleToday, requirePlayer } from './access.ts'
+import { accessError, isProFor, requirePlausibleToday, requirePlayer } from './access.ts'
 import { isMonth } from './lib/monthWindow.ts'
 import { attemptsFor } from './lib/board.ts'
 import { addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
-import { groupDelta, leaguesEnabled, memberTotalsFor, monthToClose, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
+import { contributionOf, groupDelta, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
 import type { MembershipPlan, Standing } from './lib/league.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
@@ -440,6 +440,80 @@ export const closeLeagueMonth = internalMutation({
     } catch (error) {
       console.error(`leagues.closeLeagueMonth: ${leagueId} ${month} did not close`)
       throw error
+    }
+  },
+})
+
+/** The home card and the standings header: one row per league the caller is in. */
+export async function myLeaguesFor(ctx: ReaderCtx, playerId: Id<'players'>, today: PuzzleDay) {
+  const rows = await ctx.db
+    .query('leagueMemberships')
+    .withIndex('by_player_and_league', (q) => q.eq('playerId', playerId))
+    .collect()
+  const out = []
+  for (const leagueId of new Set(rows.map((r) => r.leagueId))) {
+    const intervals = rows.filter((r) => r.leagueId === leagueId).sort((a, b) => a.fromDay.localeCompare(b.fromDay))
+    const membership = membershipOf(intervals, today)
+    const league = await ctx.db.get(leagueId)
+    if (!membership || !league) continue
+    const groups = await groupsOf(ctx, leagueId)
+    const nameOf = (id: GroupId) => ({ _id: id, name: groups.find((g) => g._id === id)?.name ?? '' })
+    const standing = (await currentStandings(ctx, leagueId, groups, monthOf(today))).find((s) => s.groupId === membership.groupId)
+    out.push({
+      league: { slug: league.slug, name: league.name },
+      leagueId,
+      group: nameOf(membership.groupId),
+      since: membership.since,
+      pending: membership.pendingGroupId ? { group: nameOf(membership.pendingGroupId), from: membership.pendingFrom! } : null,
+      rank: standing?.rank ?? null,
+      average: standing?.average ?? null,
+      boards: standing?.boards ?? 0,
+    })
+  }
+  return out
+}
+
+/**
+ * Pro view: the caller's month against their group's. Null if they have no
+ * boards counted this month. Only the caller's own numbers and group totals
+ * leave here (§3.2).
+ */
+export async function myContributionFor(ctx: ReaderCtx, playerId: Id<'players'>, slug: string, today: PuzzleDay) {
+  const league = await ctx.db.query('leagues').withIndex('by_slug', (q) => q.eq('slug', slug)).unique()
+  if (!league) return null
+  const { year, month } = yearMonthOf(monthOf(today))
+  const mine = await ctx.db
+    .query('leagueMemberMonth')
+    .withIndex('by_player_league_year_month', (q) => q.eq('playerId', playerId).eq('leagueId', league._id).eq('year', year).eq('month', month))
+    .unique()
+  if (!mine) return null
+  const group = await ctx.db
+    .query('leagueGroupMonth')
+    .withIndex('by_group_year_month', (q) => q.eq('groupId', mine.groupId).eq('year', year).eq('month', month))
+    .unique()
+  return contributionOf(mine, group ?? mine)
+}
+
+export const myLeagues = query({
+  args: { today: v.string() },
+  handler: async (ctx, { today }) => {
+    if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }
+    const player = await requirePlayer(ctx)
+    return { enabled: true as const, leagues: await myLeaguesFor(ctx, player._id, readToday(today)) }
+  },
+})
+
+/** Free callers get `locked: true` rather than an error, so the page can render the teaser. */
+export const myContribution = query({
+  args: { slug: v.string(), today: v.string() },
+  handler: async (ctx, { slug, today }) => {
+    if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }
+    const player = await requirePlayer(ctx)
+    if (!(await isProFor(ctx, player._id))) return { enabled: true as const, locked: true as const }
+    return {
+      enabled: true as const,
+      locked: false as const,
+      contribution: await myContributionFor(ctx, player._id, slug, readToday(today)),
     }
   },
 })

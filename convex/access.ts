@@ -333,10 +333,11 @@ export async function requireTeamOwnerFor(
  *   not feed winner recomputation, so the "seven" above is unchanged as the
  *   answer to that narrower question; they are listed because the broader
  *   question is "every clock-bounded surface".
- * - leagues.ts's `standings` (readToday), which falls back to the server's day
- *   rather than refusing: it is a reactive READ that re-runs on every league
- *   board write, so a tab left open past midnight would otherwise throw with
- *   no user action. It feeds no winner recomputation.
+ * - leagues.ts's `standings`, `myLeagues` and `myContribution` (all via
+ *   readToday), which fall back to the server's day rather than refusing: they
+ *   are reactive READS that re-run on every league board write, so a tab left
+ *   open past midnight would otherwise throw with no user action. None feeds
+ *   winner recomputation.
  *
  * ONE MORE CLOCK-BOUNDED SURFACE SITS DIRECTLY BELOW and is NOT one of the
  * seven: requirePlausiblePuzzleDay bounds the day a board is FOR, which is a
