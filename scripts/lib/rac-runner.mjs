@@ -22,9 +22,18 @@ const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]'])
  * `--aply` must not quietly become a dry run that the operator believes wrote.
  */
 export function parseRacArgs(argv) {
+  return parseRunnerArgs(argv, MODES)
+}
+
+/**
+ * parseRacArgs over any set of modes that includes `repair` — shared with the
+ * re-date runner (lib/redate-runner.mjs, wordle-teams-c442.3), whose flags and
+ * refusals are exactly these.
+ */
+export function parseRunnerArgs(argv, modes) {
   const [mode, ...flags] = argv
-  if (!MODES.includes(mode)) {
-    return { error: `First argument must be one of: ${MODES.join(', ')}.` }
+  if (!modes.includes(mode)) {
+    return { error: `First argument must be one of: ${modes.join(', ')}.` }
   }
   let apply = false
   let dryRun = false
