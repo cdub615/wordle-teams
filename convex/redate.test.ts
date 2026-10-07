@@ -393,6 +393,81 @@ describe('repairMisdatedBoards', () => {
     expect((await t.run(async (ctx) => ctx.db.query('monthlyWinners').collect())).find((w) => w.month === 1)?.playerId).toBe(ada)
   })
 
+  // OCCUPANCY ACROSS A MONTH EDGE. The repair reads each player's boards from two
+  // days before the source month to two days after it, so a target just over the
+  // edge is seen as occupied. Narrowing that read to the month itself would plan
+  // these moves onto a day the player already has.
+  const EDGE_DAYS = { '2025-01-30': 'OMEGA', '2025-01-31': 'ZESTY', '2025-02-01': 'FROTH', '2025-02-02': 'GRIME' }
+
+  test('a target occupied in the PREVIOUS month is held target-occupied, and nothing is written', async () => {
+    const t = convexTest(schema, modules)
+    await seedCrowd(t, EDGE_DAYS)
+    const ada = await seedPlayer(t, 1)
+    await seedBoard(t, ada, '2025-02-01', 'FROTH', { legacyId: 1 })
+    await seedBoard(t, ada, '2025-02-01', 'ZESTY', { legacyId: 2 })
+    // ZESTY belongs on 2025-01-31, where Ada already has a board.
+    await seedBoard(t, ada, '2025-01-31', 'ZESTY', { legacyId: 3 })
+    await seedTeam(t, 206, [ada])
+    const before = await snapshotAll(t)
+
+    const { dry } = await dryThenApply(t, '2025-02')
+    expect(dry).toMatchObject({
+      redateKey: '2025-02:',
+      moves: [],
+      holds: [{ puzzleDay: '2025-02-01', reason: 'target-occupied', targets: ['2025-01-31'] }],
+      teamMonths: [],
+    })
+    expect(await snapshotAll(t)).toEqual(before)
+  })
+
+  test('a target occupied in the NEXT month is held target-occupied, and nothing is written', async () => {
+    const t = convexTest(schema, modules)
+    await seedCrowd(t, EDGE_DAYS)
+    const ada = await seedPlayer(t, 1)
+    await seedBoard(t, ada, '2025-01-31', 'ZESTY', { legacyId: 1 })
+    await seedBoard(t, ada, '2025-01-31', 'FROTH', { legacyId: 2 })
+    // FROTH belongs on 2025-02-01, where Ada already has a board.
+    await seedBoard(t, ada, '2025-02-01', 'FROTH', { legacyId: 3 })
+    await seedTeam(t, 206, [ada])
+    const before = await snapshotAll(t)
+
+    const { dry } = await dryThenApply(t, '2025-01')
+    expect(dry).toMatchObject({
+      redateKey: '2025-01:',
+      moves: [],
+      holds: [{ puzzleDay: '2025-01-31', reason: 'target-occupied', targets: ['2025-02-01'] }],
+      teamMonths: [],
+    })
+    expect(await snapshotAll(t)).toEqual(before)
+  })
+
+  test('STALE OCCUPANCY: a target filled after the dry run refuses the apply, and nothing is written', async () => {
+    const t = convexTest(schema, modules)
+    await seedCrowd(t, EDGE_DAYS)
+    const ada = await seedPlayer(t, 1)
+    await seedBoard(t, ada, '2025-02-01', 'FROTH', { legacyId: 1 })
+    await seedBoard(t, ada, '2025-02-01', 'ZESTY', { legacyId: 2 })
+    const team = await seedTeam(t, 206, [ada])
+    await t.run(async (ctx) => {
+      const doc = (await ctx.db.get(team))!
+      await recomputeTeamMonth(ctx, doc, '2025-01', toPuzzleDay(new Date()))
+      await recomputeTeamMonth(ctx, doc, '2025-02', toPuzzleDay(new Date()))
+    })
+
+    const dry = await repair(t, { month: '2025-02' })
+    expect(dry.redateKey).toBe('2025-02:2:2025-02-01>2025-01-31')
+    // Between the dry run and the apply, Ada gets a board on the target day.
+    await seedBoard(t, ada, '2025-01-31', 'ZESTY', { legacyId: 3 })
+    const before = await snapshotAll(t)
+    expect(before.winners.length).toBeGreaterThan(0)
+    expect(before.stats.length).toBeGreaterThan(0)
+
+    await expect(repair(t, { month: '2025-02', dryRun: false, expect: dry.redateKey })).rejects.toThrow(
+      /plan changed.*found 2025-02:$/,
+    )
+    expect(await snapshotAll(t)).toEqual(before)
+  })
+
   test("rolls up only teams holding a moved player, and only that player's months", async () => {
     const t = convexTest(schema, modules)
     const { ada } = await seedMisdated(t)
