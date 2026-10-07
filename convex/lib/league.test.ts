@@ -412,3 +412,46 @@ describe('planLeave', () => {
     })
   })
 })
+
+describe('leaving ends membership the same day', () => {
+  const today = '2026-10-07'
+  const left = [{ groupId: 'crane', fromDay: '2026-09-01', toDay: today }]
+  test('membershipOf is null right after planLeave', () => {
+    expect(membershipOf(left, today)).toBeNull()
+  })
+  test('rejoining the SAME group the same day opens tomorrow', () => {
+    expect(planJoin(left, today, 'crane')).toEqual({
+      ops: [{ op: 'insert', groupId: 'crane', fromDay: '2026-10-08' }],
+      countFrom: null,
+      countTo: 'crane',
+    })
+  })
+  test('joining a DIFFERENT group the same day opens on the 1st of next month', () => {
+    expect(planJoin(left, today, 'slate')).toMatchObject({
+      ops: [{ op: 'insert', groupId: 'slate', fromDay: '2026-11-01' }],
+    })
+  })
+  test('leaving twice is refused', () => {
+    expect(planLeave(left, today)).toEqual({ refused: 'NOT_IN_LEAGUE' })
+  })
+  test('a switch stays live on the last day of the month', () => {
+    const state = [
+      { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-31' },
+      { groupId: 'slate', fromDay: '2026-11-01' },
+    ]
+    expect(membershipOf(state, '2026-10-31')).toEqual({
+      groupId: 'crane',
+      since: '2026-09-01',
+      pendingGroupId: 'slate',
+      pendingFrom: '2026-11-01',
+    })
+  })
+  test('a board played on the leave day still counts', () => {
+    const interval = [{ groupId: 'crane', fromDay: '2026-10-01', toDay: '2026-10-07' }]
+    expect(memberTotalsFor([{ puzzleDay: '2026-10-07', attempts: 3 }], interval, '2026-10')).toEqual({
+      groupId: 'crane',
+      boards: 1,
+      attempts: 3,
+    })
+  })
+})

@@ -234,13 +234,21 @@ export type MembershipPlan<G extends string = string> =
 
 type Live<G extends string> = { started: number | null; pending: number | null; groupOf: (i: number) => G }
 
-/** Index of the started and the pending interval, if any. */
+/**
+ * Index of the started and the pending interval, if any. An interval carrying a
+ * toDay is live ONLY while a pending successor exists (a switch: closed at month
+ * end, successor from the 1st). With no successor it has been LEFT, whatever the
+ * date, so leaving ends membership the same day.
+ */
 function liveOf<G extends string>(intervals: readonly Interval<G>[], today: PuzzleDay): Live<G> {
   let started: number | null = null
   let pending: number | null = null
   intervals.forEach((interval, i) => {
     if (interval.fromDay > today) pending = i
-    else if (interval.toDay === undefined || interval.toDay >= today) started = i
+  })
+  intervals.forEach((interval, i) => {
+    if (interval.fromDay > today) return
+    if (interval.toDay === undefined || (pending !== null && interval.toDay >= today)) started = i
   })
   return { started, pending, groupOf: (i) => intervals[i].groupId }
 }
