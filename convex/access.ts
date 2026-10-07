@@ -158,6 +158,11 @@ export type AccessCode =
   | 'CHALLENGES_DISABLED'
   | 'CHALLENGE_OWN_PROPOSAL'
   | 'CHALLENGE_NO_ACCEPTER'
+  | 'LEAGUES_DISABLED'
+  | 'UNKNOWN_LEAGUE'
+  | 'UNKNOWN_GROUP'
+  | 'ALREADY_IN_LEAGUE'
+  | 'NOT_IN_LEAGUE'
 
 /**
  * Throws a ConvexError carrying `{ code }`.

@@ -203,3 +203,17 @@ test('CHALLENGE_NO_ACCEPTER says nobody else on that team can accept', () => {
     mutationErrorMessage(new ConvexError({ code: 'CHALLENGE_NO_ACCEPTER' }), 'fallback'),
   ).toBe('Nobody else is on that team to accept a challenge.')
 })
+
+/**
+ * PUBLIC LEAGUES (wordle-teams-zic8.3), END TO END THROUGH THE PARSE: a code
+ * missing from convexErrorCode's chain would surface as the fallback.
+ */
+test.each([
+  ['LEAGUES_DISABLED', "Leagues aren't available yet."],
+  ['UNKNOWN_LEAGUE', "That league doesn't exist."],
+  ['UNKNOWN_GROUP', "That group isn't part of this league."],
+  ['ALREADY_IN_LEAGUE', "You're already in this league. Use Switch group to change."],
+  ['NOT_IN_LEAGUE', "You're not in this league."],
+])('%s has its own copy', (code, copy) => {
+  expect(mutationErrorMessage(new ConvexError({ code }), 'fallback')).toBe(copy)
+})

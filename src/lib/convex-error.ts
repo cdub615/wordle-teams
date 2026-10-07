@@ -65,7 +65,12 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'CHALLENGE_NOT_ACTIVE' ||
     code === 'CHALLENGES_DISABLED' ||
     code === 'CHALLENGE_OWN_PROPOSAL' ||
-    code === 'CHALLENGE_NO_ACCEPTER'
+    code === 'CHALLENGE_NO_ACCEPTER' ||
+    code === 'LEAGUES_DISABLED' ||
+    code === 'UNKNOWN_LEAGUE' ||
+    code === 'UNKNOWN_GROUP' ||
+    code === 'ALREADY_IN_LEAGUE' ||
+    code === 'NOT_IN_LEAGUE'
   ) {
     return code
   }
@@ -298,6 +303,18 @@ export function typedCodeMessage(code: AccessCode): string {
       // proposer, who cannot accept their own challenge. "That team" because
       // the proposer is on it: it is the roster, not them, that is the problem.
       return 'Nobody else is on that team to accept a challenge.'
+    case 'LEAGUES_DISABLED':
+      // The LEAGUES_ENABLED deployment switch is off.
+      return "Leagues aren't available yet."
+    case 'UNKNOWN_LEAGUE':
+      return "That league doesn't exist."
+    case 'UNKNOWN_GROUP':
+      return "That group isn't part of this league."
+    case 'ALREADY_IN_LEAGUE':
+      // joinGroup while already in. Points at the control that does work.
+      return "You're already in this league. Use Switch group to change."
+    case 'NOT_IN_LEAGUE':
+      return "You're not in this league."
     default: {
       const _exhaustive: never = code
       return _exhaustive

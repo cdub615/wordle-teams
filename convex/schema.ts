@@ -847,6 +847,86 @@ export default defineSchema({
     .index('by_status_and_endDay', ['status', 'endDay'])
     .index('by_status_and_expiresAt', ['status', 'expiresAt']),
 
+  // PUBLIC LEAGUES (wordle-teams-zic8.3). Spec:
+  // docs/superpowers/specs/2026-10-07-public-leagues-design.md §4. Rules live in
+  // lib/league.ts. Nothing here is ever shown to another player with a name
+  // attached: strangers see group totals only (§3.2).
+  leagues: defineTable({
+    slug: v.string(),
+    name: v.string(),
+    // The league onboarding and the empty home card offer. Starting Words today.
+    featured: v.boolean(),
+    createdAt: v.number(),
+  }).index('by_slug', ['slug']),
+
+  leagueGroups: defineTable({
+    leagueId: v.id('leagues'),
+    slug: v.string(),
+    name: v.string(),
+    order: v.number(),
+    // MAINTAINED at join/switch/leave from lib/league.ts's countFrom/countTo,
+    // never counted on read. A pending switcher counts for their NEW group.
+    memberCount: v.number(),
+  }).index('by_league', ['leagueId']),
+
+  // ONE ROW PER INTERVAL, both bounds inclusive. toDay ABSENT MEANS OPEN.
+  // Switches only ever land on a month boundary, so a player is in exactly one
+  // group per league per month (§4.1) — leagueMemberMonth relies on that.
+  leagueMemberships: defineTable({
+    playerId: v.id('players'),
+    leagueId: v.id('leagues'),
+    groupId: v.id('leagueGroups'),
+    fromDay: v.string(),
+    toDay: v.optional(v.string()),
+  })
+    .index('by_player_and_league', ['playerId', 'leagueId'])
+    .index('by_group', ['groupId']),
+
+  // DERIVED. Rebuilt from the player's own boards on every board write.
+  leagueMemberMonth: defineTable({
+    playerId: v.id('players'),
+    leagueId: v.id('leagues'),
+    groupId: v.id('leagueGroups'),
+    year: v.number(),
+    month: v.number(), // 1-12, matching teamMonthStats
+    boards: v.number(),
+    attempts: v.number(),
+  }).index('by_player_league_year_month', ['playerId', 'leagueId', 'year', 'month']),
+
+  // DERIVED BY DELTA from leagueMemberMonth (lib/league.ts groupDelta), so a
+  // board write costs O(1) however large the group is.
+  leagueGroupMonth: defineTable({
+    leagueId: v.id('leagues'),
+    groupId: v.id('leagueGroups'),
+    year: v.number(),
+    month: v.number(),
+    boards: v.number(),
+    attempts: v.number(),
+    contributors: v.number(),
+  })
+    .index('by_league_year_month', ['leagueId', 'year', 'month'])
+    .index('by_group_year_month', ['groupId', 'year', 'month']),
+
+  // THE FROZEN SNAPSHOT, and authoritative for every closed month. Never
+  // rewritten: a board backfilled into a closed month must not restate who won
+  // (§4.1, the zic8.2 §6 reason).
+  leagueMonthResults: defineTable({
+    leagueId: v.id('leagues'),
+    year: v.number(),
+    month: v.number(),
+    standings: v.array(
+      v.object({
+        groupId: v.id('leagueGroups'),
+        boards: v.number(),
+        attempts: v.number(),
+        average: v.union(v.number(), v.null()),
+        contributors: v.number(),
+      }),
+    ),
+    winnerGroupId: v.union(v.id('leagueGroups'), v.null()),
+    closedAt: v.number(),
+  }).index('by_league_year_month', ['leagueId', 'year', 'month']),
+
   statusMessages: defineTable({
     message: v.string(),
   }),
