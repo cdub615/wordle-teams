@@ -1,10 +1,10 @@
 import { v } from 'convex/values'
-import { internalMutation, query } from './_generated/server'
-import { accessError, requirePlayer } from './access.ts'
+import { internalMutation, mutation, query } from './_generated/server'
+import { accessError, requirePlausibleToday, requirePlayer } from './access.ts'
 import { addMonths, isPlausibleToday, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
-import { leaguesEnabled, standingsOf, yearMonthOf } from './lib/league.ts'
+import { leaguesEnabled, planJoin, planLeave, planSwitch, standingsOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
-import type { Standing } from './lib/league.ts'
+import type { MembershipPlan, Standing } from './lib/league.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
 
@@ -169,5 +169,111 @@ export const standings = query({
     if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }
     await requirePlayer(ctx)
     return { enabled: true as const, view: await standingsFor(ctx, slug, readToday(today)) }
+  },
+})
+
+type GroupId = Id<'leagueGroups'>
+
+/** One player's intervals for one league, OLDEST FIRST — plan indexes refer to this order. */
+async function intervalsOf(ctx: ReaderCtx, playerId: Id<'players'>, leagueId: Id<'leagues'>) {
+  const rows = await ctx.db
+    .query('leagueMemberships')
+    .withIndex('by_player_and_league', (q) => q.eq('playerId', playerId).eq('leagueId', leagueId))
+    .collect()
+  return rows.sort((a, b) => a.fromDay.localeCompare(b.fromDay))
+}
+
+async function bumpCount(ctx: WriterCtx, groupId: GroupId | null, by: 1 | -1) {
+  if (groupId === null) return
+  const group = await ctx.db.get(groupId)
+  if (group) await ctx.db.patch(groupId, { memberCount: Math.max(0, group.memberCount + by) })
+}
+
+/**
+ * Apply a plan's ops against `rows`, then move memberCount. `rows` is captured
+ * before any write and never re-read or spliced: every plan index refers to it.
+ */
+async function applyPlan(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  leagueId: Id<'leagues'>,
+  rows: Doc<'leagueMemberships'>[],
+  plan: MembershipPlan<GroupId>,
+) {
+  if ('refused' in plan) throw accessError(plan.refused)
+  for (const op of plan.ops) {
+    if (op.op === 'insert') await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: op.groupId, fromDay: op.fromDay })
+    else if (op.op === 'patch') await ctx.db.patch(rows[op.index]._id, { toDay: op.toDay })
+    else if (op.op === 'reopen') await ctx.db.patch(rows[op.index]._id, { toDay: undefined })
+    else if (op.op === 'retarget') await ctx.db.patch(rows[op.index]._id, { groupId: op.groupId })
+    else await ctx.db.delete(rows[op.index]._id)
+  }
+  await bumpCount(ctx, plan.countFrom, -1)
+  await bumpCount(ctx, plan.countTo, 1)
+}
+
+async function requireGroup(ctx: ReaderCtx, groupId: GroupId) {
+  const group = await ctx.db.get(groupId)
+  if (!group) throw accessError('UNKNOWN_GROUP')
+  return group
+}
+
+export async function joinGroupFor(ctx: WriterCtx, playerId: Id<'players'>, args: { groupId: GroupId; today: string }) {
+  const today = requirePlausibleToday(args.today as PuzzleDay)
+  const group = await requireGroup(ctx, args.groupId)
+  const rows = await intervalsOf(ctx, playerId, group.leagueId)
+  await applyPlan(ctx, playerId, group.leagueId, rows, planJoin(rows, today, group._id))
+  await recomputeLeagueMonthFor(ctx, playerId, monthOf(today))
+}
+
+export async function switchGroupFor(ctx: WriterCtx, playerId: Id<'players'>, args: { groupId: GroupId; today: string }) {
+  const today = requirePlausibleToday(args.today as PuzzleDay)
+  const group = await requireGroup(ctx, args.groupId)
+  const rows = await intervalsOf(ctx, playerId, group.leagueId)
+  await applyPlan(ctx, playerId, group.leagueId, rows, planSwitch(rows, today, group._id))
+  await recomputeLeagueMonthFor(ctx, playerId, monthOf(today))
+}
+
+export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, args: { leagueId: Id<'leagues'>; today: string }) {
+  const today = requirePlausibleToday(args.today as PuzzleDay)
+  if (!(await ctx.db.get(args.leagueId))) throw accessError('UNKNOWN_LEAGUE')
+  const rows = await intervalsOf(ctx, playerId, args.leagueId)
+  await applyPlan(ctx, playerId, args.leagueId, rows, planLeave(rows, today))
+  await recomputeLeagueMonthFor(ctx, playerId, monthOf(today))
+}
+
+/** A no-op STUB until Task 6 fills it; the signature is the contract. */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+export async function recomputeLeagueMonthFor(_ctx: WriterCtx, _playerId: Id<'players'>, _month: PuzzleMonth): Promise<void> {}
+/* eslint-enable @typescript-eslint/no-unused-vars */
+
+const gate = () => {
+  if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) throw accessError('LEAGUES_DISABLED')
+}
+
+export const joinGroup = mutation({
+  args: { groupId: v.id('leagueGroups'), today: v.string() },
+  handler: async (ctx, args) => {
+    gate()
+    const player = await requirePlayer(ctx)
+    await joinGroupFor(ctx, player._id, args)
+  },
+})
+
+export const switchGroup = mutation({
+  args: { groupId: v.id('leagueGroups'), today: v.string() },
+  handler: async (ctx, args) => {
+    gate()
+    const player = await requirePlayer(ctx)
+    await switchGroupFor(ctx, player._id, args)
+  },
+})
+
+export const leaveLeague = mutation({
+  args: { leagueId: v.id('leagues'), today: v.string() },
+  handler: async (ctx, args) => {
+    gate()
+    const player = await requirePlayer(ctx)
+    await leaveLeagueFor(ctx, player._id, args)
   },
 })
