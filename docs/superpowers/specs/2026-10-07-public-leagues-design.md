@@ -192,10 +192,10 @@ leagueMonthResults: defineTable({
 - **`average` is stored in the snapshot** even though it is derivable, because the
   rounding is display-coupled.
 
-## 5. Rules live in `convex/lib/league.ts`, with no imports
+## 5. Rules live in `convex/lib/league.ts`, importing only browser-safe siblings
 
-No imports, for the reason `challenge.ts`, `chatLimits.ts` and `globalThreshold.ts` have
-none: the client needs these rules, and reaching them through `../access.ts` drags the
+It imports only `./puzzleDay.ts` and `./teamStats.ts`, as `challenge.ts` does, and never
+`../access.ts` or `../auth.ts`: the client needs these rules, and reaching them through `../access.ts` drags the
 Better Auth server surface into the client chunk. And because wordle-teams-obw means no
 test can drive an authed Convex wrapper, **a rule left inside a mutation is a rule no
 test can execute.**
@@ -205,7 +205,7 @@ Pure functions:
 - `joinFromDay(todayPuzzleDay)` → the day after.
 - `switchDays(todayPuzzleDay)` → `{ closeOn: lastDayOfMonth, openOn: firstOfNextMonth }`.
 - `intervalCovers(interval, puzzleDay)` → boolean.
-- `memberTotalsFor(boards, intervals, year, month)` → `{ groupId, boards, attempts } | null`.
+- `memberTotalsFor(boards, intervals, month)` (a `'YYYY-MM'` month; callers convert to the stored numeric year/month) → `{ groupId, boards, attempts } | null`.
   Sums `attemptsFor` over boards in the month that fall inside an interval. Generic over
   the id types, using the `lib/teamStats.ts` idiom.
 - `groupDelta(oldRow | null, newRow | null)` → `{ boards, attempts, contributors }`.
