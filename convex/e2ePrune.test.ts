@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import { internal } from './_generated/api'
 import { aPlayer, aTeam } from './fixtures.ts'
+import { STARTING_WORDS, seedLeagueFor } from './leagues.ts'
 import type { PruneBatchReport } from './e2ePrune.ts'
 import type { Id } from './_generated/dataModel'
 
@@ -702,5 +703,96 @@ describe('paging', () => {
       expect(left.teams).toHaveLength(0)
       expect(left.pushSubscriptions).toHaveLength(0)
     }
+  })
+})
+
+describe('public leagues (zic8.3)', () => {
+  // Seeded inline: test files must not import each other's helpers.
+  async function seedLeague(t: ReturnType<typeof convexTest>) {
+    return await t.run(async (ctx) => {
+      const leagueId = await seedLeagueFor(ctx, STARTING_WORDS, 0)
+      const groups = await ctx.db
+        .query('leagueGroups')
+        .withIndex('by_league', (q) => q.eq('leagueId', leagueId))
+        .collect()
+      const idOf = (slug: string) => groups.find((g) => g.slug === slug)!._id
+      return { leagueId, crane: idOf('crane'), slate: idOf('slate') }
+    })
+  }
+
+  test('a pruned player leaves no league rows and their group totals drop out', async () => {
+    const t = convexTest(schema, modules)
+    const { leagueId, crane } = await seedLeague(t)
+    await t.run(async (ctx) => {
+      const e2e = await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS, legacyId: undefined }))
+      const real = await ctx.db.insert('players', aPlayer({ email: REAL_ADDRESS, legacyId: undefined }))
+      for (const [p, boards, attempts] of [
+        [e2e, 3, 9],
+        [real, 2, 8],
+      ] as const) {
+        await ctx.db.insert('leagueMemberships', { playerId: p, leagueId, groupId: crane, fromDay: '2026-10-01' })
+        await ctx.db.insert('leagueMemberMonth', { playerId: p, leagueId, groupId: crane, year: 2026, month: 10, boards, attempts })
+      }
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: crane, year: 2026, month: 10, boards: 5, attempts: 17, contributors: 2 })
+      await ctx.db.patch(crane, { memberCount: 2 })
+    })
+
+    const totals = await prune(t, true)
+
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query('leagueMemberships').collect()).toHaveLength(1)
+      expect(await ctx.db.query('leagueMemberMonth').collect()).toHaveLength(1)
+      expect((await ctx.db.query('leagueGroupMonth').collect())[0]).toMatchObject({ boards: 2, attempts: 8, contributors: 1 })
+      expect((await ctx.db.get(crane))!.memberCount).toBe(1)
+    })
+    expect(totals.leagueRowsDeleted).toBe(2)
+  })
+
+  test('a player mid-switch is uncounted from the group that counts them, the pending one', async () => {
+    const t = convexTest(schema, modules)
+    const { leagueId, crane, slate } = await seedLeague(t)
+    await t.run(async (ctx) => {
+      const e2e = await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS, legacyId: undefined }))
+      // Started in CRANE, switch to SLATE pending far in the future.
+      await ctx.db.insert('leagueMemberships', { playerId: e2e, leagueId, groupId: crane, fromDay: '2026-10-01', toDay: '2998-12-31' })
+      await ctx.db.insert('leagueMemberships', { playerId: e2e, leagueId, groupId: slate, fromDay: '2999-01-01' })
+      await ctx.db.insert('leagueMemberMonth', { playerId: e2e, leagueId, groupId: crane, year: 2026, month: 10, boards: 1, attempts: 4 })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: crane, year: 2026, month: 10, boards: 1, attempts: 4, contributors: 1 })
+      // memberCount counts the pending group, not the one they are still in.
+      await ctx.db.patch(crane, { memberCount: 0 })
+      await ctx.db.patch(slate, { memberCount: 1 })
+    })
+
+    const totals = await prune(t, true)
+
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(slate))!.memberCount).toBe(0)
+      expect((await ctx.db.get(crane))!.memberCount).toBe(0)
+      expect(await ctx.db.query('leagueMemberships').collect()).toHaveLength(0)
+      expect((await ctx.db.query('leagueGroupMonth').collect())[0]).toMatchObject({ boards: 0, attempts: 0, contributors: 0 })
+    })
+    expect(totals.leagueRowsDeleted).toBe(3)
+  })
+
+  test('a dry run counts the league rows and changes none of them', async () => {
+    const t = convexTest(schema, modules)
+    const { leagueId, crane } = await seedLeague(t)
+    await t.run(async (ctx) => {
+      const e2e = await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS, legacyId: undefined }))
+      await ctx.db.insert('leagueMemberships', { playerId: e2e, leagueId, groupId: crane, fromDay: '2026-10-01' })
+      await ctx.db.insert('leagueMemberMonth', { playerId: e2e, leagueId, groupId: crane, year: 2026, month: 10, boards: 3, attempts: 9 })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: crane, year: 2026, month: 10, boards: 3, attempts: 9, contributors: 1 })
+      await ctx.db.patch(crane, { memberCount: 1 })
+    })
+
+    const totals = await prune(t, false)
+
+    expect(totals.leagueRowsDeleted).toBe(2)
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query('leagueMemberships').collect()).toHaveLength(1)
+      expect(await ctx.db.query('leagueMemberMonth').collect()).toHaveLength(1)
+      expect((await ctx.db.query('leagueGroupMonth').collect())[0]).toMatchObject({ boards: 3, attempts: 9, contributors: 1 })
+      expect((await ctx.db.get(crane))!.memberCount).toBe(1)
+    })
   })
 })
