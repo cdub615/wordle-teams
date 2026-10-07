@@ -158,10 +158,15 @@ export type AccessCode =
   | 'CHALLENGES_DISABLED'
   | 'CHALLENGE_OWN_PROPOSAL'
   | 'CHALLENGE_NO_ACCEPTER'
+  // Every public league function when the LEAGUES_ENABLED switch is off.
   | 'LEAGUES_DISABLED'
+  // convex/leagues.ts joinGroup, switchGroup, leaveLeague, seedLeague: no such league.
   | 'UNKNOWN_LEAGUE'
+  // convex/leagues.ts joinGroup and switchGroup: the group is not in that league.
   | 'UNKNOWN_GROUP'
+  // convex/leagues.ts joinGroup: the caller already holds a live membership.
   | 'ALREADY_IN_LEAGUE'
+  // convex/leagues.ts switchGroup and leaveLeague: the caller has no live membership.
   | 'NOT_IN_LEAGUE'
 
 /**

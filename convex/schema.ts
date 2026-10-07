@@ -872,6 +872,9 @@ export default defineSchema({
   // ONE ROW PER INTERVAL, both bounds inclusive. toDay ABSENT MEANS OPEN.
   // Switches only ever land on a month boundary, so a player is in exactly one
   // group per league per month (§4.1) — leagueMemberMonth relies on that.
+  // A player is a LIVE member exactly when they hold an OPEN row (no toDay), and
+  // that row's group is where leagueGroups.memberCount counts them. Finer state
+  // (a pending switch's successor rule) is lib/league.ts liveOf.
   leagueMemberships: defineTable({
     playerId: v.id('players'),
     leagueId: v.id('leagues'),
@@ -879,8 +882,7 @@ export default defineSchema({
     fromDay: v.string(),
     toDay: v.optional(v.string()),
   })
-    .index('by_player_and_league', ['playerId', 'leagueId'])
-    .index('by_group', ['groupId']),
+    .index('by_player_and_league', ['playerId', 'leagueId']),
 
   // DERIVED. Rebuilt from the player's own boards on every board write.
   leagueMemberMonth: defineTable({
@@ -902,6 +904,7 @@ export default defineSchema({
     month: v.number(),
     boards: v.number(),
     attempts: v.number(),
+    // Members with boards > 0 this month.
     contributors: v.number(),
   })
     .index('by_league_year_month', ['leagueId', 'year', 'month'])
@@ -919,10 +922,12 @@ export default defineSchema({
         groupId: v.id('leagueGroups'),
         boards: v.number(),
         attempts: v.number(),
+        // null below MIN_LEAGUE_BOARDS (lib/league.ts).
         average: v.union(v.number(), v.null()),
         contributors: v.number(),
       }),
     ),
+    // null = no group qualified OR an exact tie.
     winnerGroupId: v.union(v.id('leagueGroups'), v.null()),
     closedAt: v.number(),
   }).index('by_league_year_month', ['leagueId', 'year', 'month']),

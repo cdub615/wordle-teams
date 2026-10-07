@@ -304,7 +304,8 @@ export function typedCodeMessage(code: AccessCode): string {
       // the proposer is on it: it is the roster, not them, that is the problem.
       return 'Nobody else is on that team to accept a challenge.'
     case 'LEAGUES_DISABLED':
-      // The LEAGUES_ENABLED deployment switch is off.
+      // The LEAGUES_ENABLED deployment switch is off. "yet" is deliberate
+      // pre-launch copy; it could also show if the switch is turned off after launch.
       return "Leagues aren't available yet."
     case 'UNKNOWN_LEAGUE':
       return "That league doesn't exist."
