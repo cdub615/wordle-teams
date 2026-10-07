@@ -1022,7 +1022,7 @@ and in the `typedCodeMessage` switch, after the `CHALLENGE_NO_ACCEPTER` case:
     case 'UNKNOWN_LEAGUE':
       return "That league doesn't exist."
     case 'UNKNOWN_GROUP':
-      return "That group isn't part of this league."
+      return "That group doesn't exist."
     case 'ALREADY_IN_LEAGUE':
       // joinGroup while already in. Points at the control that does work.
       return "You're already in this league. Use Switch group to change."
