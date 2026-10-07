@@ -167,14 +167,21 @@ describe('winnerOf', () => {
 
 describe('contributionOf', () => {
   test('shift is the group average with the member minus without them', () => {
-    // group 40/10 = 4.0; without the member 30/6 = 5.0 -> member pulls it down by 1.0
-    expect(contributionOf({ boards: 4, attempts: 10 }, { boards: 10, attempts: 40 })).toEqual({
+    // group 56/14 = 4.0; without the member 46/10 = 4.6 (exactly at the floor)
+    // -> the member pulls the group's average down by 0.6
+    expect(contributionOf({ boards: 4, attempts: 10 }, { boards: 14, attempts: 56 })).toEqual({
       mine: 2.5,
       group: 4,
-      shift: -1,
+      shift: -0.6,
     })
   })
+  test('shift is positive when the member drags the group average up', () => {
+    // group 60/14 = 4.3; without the member 40/10 = 4.0
+    expect(contributionOf({ boards: 4, attempts: 20 }, { boards: 14, attempts: 60 }).shift).toBe(0.3)
+  })
   test('shift is null when the group without the member is below the floor', () => {
+    // 13 - 4 = 9 boards left: one under the floor. 14 - 4 = 10 is the case above.
+    expect(contributionOf({ boards: 4, attempts: 10 }, { boards: 13, attempts: 52 }).shift).toBeNull()
     expect(contributionOf({ boards: 4, attempts: 10 }, { boards: 12, attempts: 40 }).shift).toBeNull()
   })
 })
