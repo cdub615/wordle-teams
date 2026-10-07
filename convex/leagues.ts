@@ -255,8 +255,9 @@ export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, ar
  * move each group row by the difference. Called on every board write
  * (scores.ts) and after every membership change.
  *
- * COST: for a player in no league, one index read and nothing else — which is
- * almost everyone. For a member, their month's boards plus one group row per
+ * COST: for a player who has NEVER joined a league, one index read and nothing
+ * else — which is almost everyone. A FORMER member still pays the member cost,
+ * because membership rows survive a leave. For a member, their month's boards plus one group row per
  * league. Never O(group size): the group row moves by delta (§7).
  *
  * WRITES NOTHING WHEN NOTHING CHANGED, so a board edit that does not move the
@@ -318,6 +319,8 @@ export async function moveGroup(
   month: number,
   d: { boards: number; attempts: number; contributors: number },
 ) {
+  // recomputeLeagueMonthFor never reaches this (equal totals `continue` first),
+  // but Task 9's prune and any other caller may.
   if (d.boards === 0 && d.attempts === 0 && d.contributors === 0) return
   const row = await ctx.db
     .query('leagueGroupMonth')

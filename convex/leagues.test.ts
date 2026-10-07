@@ -611,6 +611,42 @@ describe('recomputeLeagueMonthFor', () => {
     })
   })
 
+  test('a member whose row sits in the wrong group is repaired: old group loses them, new gains them', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-10-01' })
+      await board(ctx, playerId, '2026-10-02', 3)
+      // Stale derived rows: the member row (and its group total) claim SLATE.
+      await ctx.db.insert('leagueMemberMonth', { playerId, leagueId, groupId: group.slate, year: 2026, month: 10, boards: 1, attempts: 3 })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.slate, year: 2026, month: 10, boards: 1, attempts: 3, contributors: 1 })
+      await recomputeLeagueMonthFor(ctx, playerId, '2026-10')
+      const rows = await ctx.db.query('leagueGroupMonth').collect()
+      expect(rows.find((r) => r.groupId === group.slate)).toMatchObject({ boards: 0, attempts: 0, contributors: 0 })
+      expect(rows.find((r) => r.groupId === group.crane)).toMatchObject({ boards: 1, attempts: 3, contributors: 1 })
+      expect(await ctx.db.query('leagueMemberMonth').collect()).toEqual([
+        expect.objectContaining({ playerId, groupId: group.crane, boards: 1, attempts: 3 }),
+      ])
+      await expectGroupRowsAreSums(ctx)
+    })
+  })
+
+  test('upsertBoardFor delete path removes the member row and decrements the group', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.slate, fromDay: '2026-10-01' })
+      await upsertBoardFor(ctx, playerId, { puzzleDay: today, answer: 'crane', guesses: ['slate', 'crane', '', '', '', ''], today })
+      expect(await ctx.db.query('leagueMemberMonth').collect()).toHaveLength(1)
+      await upsertBoardFor(ctx, playerId, { puzzleDay: today, answer: '', guesses: ['', '', '', '', '', ''], today })
+      expect(await ctx.db.query('leagueMemberMonth').collect()).toEqual([])
+      expect((await ctx.db.query('leagueGroupMonth').collect())[0]).toMatchObject({ groupId: group.slate, boards: 0, attempts: 0, contributors: 0 })
+      await expectGroupRowsAreSums(ctx)
+    })
+  })
+
   test('upsertBoardFor drives it: a member submitting a board moves their group', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
