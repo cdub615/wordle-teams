@@ -345,6 +345,24 @@ export async function moveGroup(
 }
 
 /**
+ * Take a member-month row's totals back out of its group-month row. Only ever
+ * SUBTRACTS: a missing group row is drift to report, never to create (moveGroup
+ * would insert a negative row).
+ */
+async function subtractGroup(ctx: WriterCtx, row: Doc<'leagueMemberMonth'>) {
+  const group = await ctx.db
+    .query('leagueGroupMonth')
+    .withIndex('by_group_year_month', (q) => q.eq('groupId', row.groupId).eq('year', row.year).eq('month', row.month))
+    .unique()
+  if (!group) {
+    console.error(`leagues: no group-month row to subtract from, group ${row.groupId} ${row.year}-${row.month} (member row ${row._id})`)
+    return
+  }
+  const d = groupDelta(row, null)
+  await ctx.db.patch(group._id, { boards: group.boards + d.boards, attempts: group.attempts + d.attempts, contributors: group.contributors + d.contributors })
+}
+
+/**
  * Remove every league row for a player being deleted, keeping group totals and
  * member counts exact. The only caller today is e2ePrune — the app has no
  * account deletion (spec §7). Whoever builds that must call this too.
@@ -358,7 +376,7 @@ export async function pruneLeagueRowsFor(
   ctx: WriterCtx,
   playerId: Id<'players'>,
   today: PuzzleDay,
-  execute = true,
+  execute: boolean,
 ): Promise<number> {
   const memberships = await ctx.db
     .query('leagueMemberships')
@@ -370,12 +388,12 @@ export async function pruneLeagueRowsFor(
     .collect()
   if (execute) {
     for (const leagueId of new Set(memberships.map((r) => r.leagueId))) {
-      const rows = memberships.filter((r) => r.leagueId === leagueId).sort((a, b) => a.fromDay.localeCompare(b.fromDay))
+      const rows = memberships.filter((r) => r.leagueId === leagueId)
       const plan = planLeave(rows, today)
       if (!('refused' in plan)) await bumpCount(ctx, plan.countFrom, -1)
     }
     for (const row of monthRows) {
-      await moveGroup(ctx, row.leagueId, row.groupId, row.year, row.month, groupDelta(row, null))
+      await subtractGroup(ctx, row)
       await ctx.db.delete(row._id)
     }
     for (const row of memberships) await ctx.db.delete(row._id)

@@ -59,6 +59,11 @@ import type { MutationCtx } from './_generated/server'
 // is the one of the four with no measured bound of its own, and — until Task
 // 11's upsert lands — no dedupe either: an e2e run driving N browser contexts
 // leaves N rows per player, not one.
+//
+// UPDATED, NOT RECALCULATED, FOR THE LEAGUE BLOCK. It adds per player two small
+// indexed collects plus one group-month read/write per member-month row and one
+// group read/patch per league: a handful of documents against ~31 dailyScores,
+// so the 100-player page still fits.
 const DEFAULT_PAGE_SIZE = 100
 
 /** What one batch touched, or — on a dry run — would have touched. */

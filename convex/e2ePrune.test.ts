@@ -796,4 +796,44 @@ describe('public leagues (zic8.3)', () => {
       expect((await ctx.db.get(crane))!.memberCount).toBe(1)
     })
   })
+
+  test('a missing group-month row is never created by the prune; the member row still goes', async () => {
+    const t = newTest()
+    const { leagueId, crane } = await seedLeague(t)
+    await t.run(async (ctx) => {
+      const e2e = await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS, legacyId: undefined }))
+      await ctx.db.insert('leagueMemberships', { playerId: e2e, leagueId, groupId: crane, fromDay: '2026-10-01' })
+      await ctx.db.insert('leagueMemberMonth', { playerId: e2e, leagueId, groupId: crane, year: 2026, month: 10, boards: 3, attempts: 9 })
+      await ctx.db.patch(crane, { memberCount: 1 })
+    })
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await prune(t, true)
+      expect(spy).toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query('leagueGroupMonth').collect()).toHaveLength(0)
+      expect(await ctx.db.query('leagueMemberMonth').collect()).toHaveLength(0)
+    })
+  })
+
+  test('a player who already left decrements nothing, and their rows still go', async () => {
+    const t = newTest()
+    const { leagueId, crane } = await seedLeague(t)
+    await t.run(async (ctx) => {
+      const e2e = await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS, legacyId: undefined }))
+      const real = await ctx.db.insert('players', aPlayer({ email: REAL_ADDRESS, legacyId: undefined }))
+      await ctx.db.insert('leagueMemberships', { playerId: e2e, leagueId, groupId: crane, fromDay: '2026-09-01', toDay: '2026-09-15' })
+      await ctx.db.insert('leagueMemberships', { playerId: real, leagueId, groupId: crane, fromDay: '2026-09-01' })
+      await ctx.db.patch(crane, { memberCount: 1 })
+    })
+    const totals = await prune(t, true)
+    await t.run(async (ctx) => {
+      expect((await ctx.db.get(crane))!.memberCount).toBe(1)
+      expect(await ctx.db.query('leagueMemberships').collect()).toHaveLength(1)
+    })
+    expect(totals.leagueRowsDeleted).toBe(1)
+  })
 })
