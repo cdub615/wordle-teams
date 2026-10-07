@@ -25,6 +25,7 @@ import type * as http from "../http.js";
 import type * as insights from "../insights.js";
 import type * as inviteEmails from "../inviteEmails.js";
 import type * as inviteLinks from "../inviteLinks.js";
+import type * as leagues from "../leagues.js";
 import type * as lib_avatar from "../lib/avatar.js";
 import type * as lib_board from "../lib/board.js";
 import type * as lib_challenge from "../lib/challenge.js";
@@ -97,6 +98,7 @@ declare const fullApi: ApiFromModules<{
   insights: typeof insights;
   inviteEmails: typeof inviteEmails;
   inviteLinks: typeof inviteLinks;
+  leagues: typeof leagues;
   "lib/avatar": typeof lib_avatar;
   "lib/board": typeof lib_board;
   "lib/challenge": typeof lib_challenge;
