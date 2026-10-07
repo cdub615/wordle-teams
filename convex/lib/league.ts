@@ -71,6 +71,11 @@ export type Totals = { boards: number; attempts: number }
  * spec's one-group-per-month invariant (§4.1) means every covering interval
  * names the same group; the first covering interval's group is taken.
  *
+ * CALLERS MUST PASS ONE LEAGUE'S INTERVALS: Interval carries no leagueId, so
+ * intervals from two leagues would be mixed. The group pick relies on the
+ * one-group-per-league-per-month invariant above; if it were broken this would
+ * mis-attribute silently (to the first covered board's group) rather than fail.
+ *
  * NULL WHEN NOTHING COUNTS, which the caller turns into "no member row" — a
  * member with no boards is not a contributor.
  */
@@ -149,6 +154,8 @@ export function standingsOf<G extends string>(rows: readonly GroupMonthRow<G>[])
  * The month's winner: the top ranked group, or null when none qualified OR the
  * top two are tied on BOTH the 1dp average and boards — an exact tie names no
  * single winner.
+ *
+ * EXPECTS standingsOf's OUTPUT ORDER (best first); it does not sort.
  */
 export function winnerOf<G extends string>(standings: readonly Standing<G>[]): G | null {
   const [first, second] = standings
@@ -187,6 +194,10 @@ export function contributionOf(
  *
  * NEVER A MONTH BEFORE THE LEAGUE EXISTED — otherwise launch day snapshots an
  * empty "no winner" month nobody could have played.
+ *
+ * RETURNS LAST MONTH ON EVERY DAY FROM THE 2ND ONWARD, so the close MUST be
+ * idempotent (it is: the caller skips a month that already has a snapshot).
+ * A sweep outage longer than a month never closes the skipped month.
  */
 export function monthToClose(today: PuzzleDay, leagueCreatedDay: PuzzleDay): PuzzleMonth | null {
   if (Number(today.slice(8, 10)) < 2) return null

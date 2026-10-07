@@ -44,6 +44,7 @@ describe('lastDayOfMonth', () => {
     expect(lastDayOfMonth('2026-02-11')).toBe('2026-02-28')
     expect(lastDayOfMonth('2026-09-30')).toBe('2026-09-30')
     expect(lastDayOfMonth('2026-10-07')).toBe('2026-10-31')
+    expect(lastDayOfMonth('2028-02-10')).toBe('2028-02-29') // leap year
   })
 })
 
@@ -79,6 +80,17 @@ describe('memberTotalsFor', () => {
       { puzzleDay: '2026-10-12', attempts: 2 },
     ]
     expect(memberTotalsFor(boards, [a, b], '2026-10')).toEqual({ groupId: 'crane', boards: 2, attempts: 6 })
+  })
+  test('the group is the one covering the first in-month board, whatever the interval order', () => {
+    // DELIBERATELY BREAKS the one-group-per-month invariant (spec 4.1) so that
+    // "first covered board", "last covered board" and "intervals[0]" all differ.
+    const slate = { groupId: 'slate', fromDay: '2026-10-15' }
+    const craneEarly = { groupId: 'crane', fromDay: '2026-10-01', toDay: '2026-10-14' }
+    const boards = [
+      { puzzleDay: '2026-10-05', attempts: 3 },
+      { puzzleDay: '2026-10-20', attempts: 4 },
+    ]
+    expect(memberTotalsFor(boards, [slate, craneEarly], '2026-10')?.groupId).toBe('crane')
   })
   test('null when nothing counts', () => {
     expect(memberTotalsFor([{ puzzleDay: '2026-10-01', attempts: 3 }], [crane], '2026-10')).toBeNull()
@@ -132,6 +144,13 @@ describe('standingsOf', () => {
     const out = standingsOf([row('crane', 0, 10, 38), row('slate', 1, 12, 46)])
     expect(out.map((s) => s.groupId)).toEqual(['slate', 'crane'])
   })
+  test('a full tie on average and boards falls back to display order', () => {
+    const out = standingsOf([row('slate', 1, 10, 38), row('crane', 0, 10, 38)])
+    expect(out.map((s) => [s.groupId, s.rank])).toEqual([
+      ['crane', 1],
+      ['slate', 2],
+    ])
+  })
   test('unranked groups follow, by boards then order, with progress', () => {
     const out = standingsOf([row('adieu', 2, 6, 24), row('orate', 4, 0, 0, 0), row('crane', 0, 10, 38), row('stare', 3, 6, 30)])
     expect(out.map((s) => [s.groupId, s.rank])).toEqual([
@@ -159,6 +178,9 @@ describe('winnerOf', () => {
   })
   test('null when nobody qualified', () => {
     expect(winnerOf([s('crane', null, null, 4)])).toBeNull()
+  })
+  test('a tie on average but not boards still names the one with more boards', () => {
+    expect(winnerOf([s('crane', 1, 3.8, 12), s('slate', 2, 3.8, 10)])).toBe('crane')
   })
   test('null on an exact tie of average AND boards', () => {
     expect(winnerOf([s('crane', 1, 3.8, 10), s('slate', 2, 3.8, 10)])).toBeNull()
