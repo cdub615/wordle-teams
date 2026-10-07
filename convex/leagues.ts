@@ -1,8 +1,9 @@
 import { v } from 'convex/values'
 import { internalMutation, mutation, query } from './_generated/server'
 import { accessError, requirePlausibleToday, requirePlayer } from './access.ts'
-import { addMonths, isPlausibleToday, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
-import { leaguesEnabled, planJoin, planLeave, planSwitch, standingsOf, yearMonthOf } from './lib/league.ts'
+import { attemptsFor } from './lib/board.ts'
+import { addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
+import { groupDelta, leaguesEnabled, memberTotalsFor, planJoin, planLeave, planSwitch, standingsOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
 import type { MembershipPlan, Standing } from './lib/league.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
@@ -249,9 +250,85 @@ export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, ar
   await recomputeLeagueMonthFor(ctx, playerId, monthOf(today))
 }
 
-/** A no-op STUB until Task 6 fills it; the signature is the contract. */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function recomputeLeagueMonthFor(_ctx: WriterCtx, _playerId: Id<'players'>, _month: PuzzleMonth): Promise<void> {}
+/**
+ * Rebuild ONE player's league rows for ONE month from their own boards, and
+ * move each group row by the difference. Called on every board write
+ * (scores.ts) and after every membership change.
+ *
+ * COST: for a player in no league, one index read and nothing else — which is
+ * almost everyone. For a member, their month's boards plus one group row per
+ * league. Never O(group size): the group row moves by delta (§7).
+ *
+ * WRITES NOTHING WHEN NOTHING CHANGED, so a board edit that does not move the
+ * totals does not invalidate every standings subscription.
+ */
+export async function recomputeLeagueMonthFor(ctx: WriterCtx, playerId: Id<'players'>, month: PuzzleMonth): Promise<void> {
+  const memberships = await ctx.db
+    .query('leagueMemberships')
+    .withIndex('by_player_and_league', (q) => q.eq('playerId', playerId))
+    .collect()
+  const { year, month: m } = yearMonthOf(month)
+  // MEMBERSHIP ROWS ARE NEVER DELETED outside pruneLeagueRowsFor (leave patches,
+  // it does not delete), so every league this player has a member-month row in
+  // is already named here — and a point read per league keeps this write's read
+  // set to ONE month rather than the player's whole history.
+  const leagueIds = new Set(memberships.map((r) => r.leagueId))
+  if (leagueIds.size === 0) return
+  const existing: Doc<'leagueMemberMonth'>[] = []
+  for (const leagueId of leagueIds) {
+    const row = await ctx.db
+      .query('leagueMemberMonth')
+      .withIndex('by_player_league_year_month', (q) => q.eq('playerId', playerId).eq('leagueId', leagueId).eq('year', year).eq('month', m))
+      .unique()
+    if (row) existing.push(row)
+  }
+
+  const { start, end } = monthRange(month)
+  const boards = (
+    await ctx.db
+      .query('dailyScores')
+      .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', playerId).gte('puzzleDay', start).lte('puzzleDay', end))
+      .collect()
+  ).map((b) => ({ puzzleDay: b.puzzleDay, attempts: attemptsFor(b.guesses, b.answer ?? '') }))
+
+  for (const leagueId of leagueIds) {
+    const after = memberTotalsFor(boards, memberships.filter((r) => r.leagueId === leagueId), month)
+    const before = existing.find((r) => r.leagueId === leagueId) ?? null
+    if (before && after && before.groupId === after.groupId && before.boards === after.boards && before.attempts === after.attempts) continue
+
+    if (before && after && before.groupId === after.groupId) {
+      await moveGroup(ctx, leagueId, after.groupId, year, m, groupDelta(before, after))
+    } else {
+      if (before) await moveGroup(ctx, leagueId, before.groupId, year, m, groupDelta(before, null))
+      if (after) await moveGroup(ctx, leagueId, after.groupId, year, m, groupDelta(null, after))
+    }
+
+    if (before && after) await ctx.db.patch(before._id, { groupId: after.groupId, boards: after.boards, attempts: after.attempts })
+    else if (after) await ctx.db.insert('leagueMemberMonth', { playerId, leagueId, groupId: after.groupId, year, month: m, boards: after.boards, attempts: after.attempts })
+    else if (before) await ctx.db.delete(before._id)
+  }
+}
+
+/** Add a delta to one group-month row, creating it on first contribution. */
+export async function moveGroup(
+  ctx: WriterCtx,
+  leagueId: Id<'leagues'>,
+  groupId: GroupId,
+  year: number,
+  month: number,
+  d: { boards: number; attempts: number; contributors: number },
+) {
+  if (d.boards === 0 && d.attempts === 0 && d.contributors === 0) return
+  const row = await ctx.db
+    .query('leagueGroupMonth')
+    .withIndex('by_group_year_month', (q) => q.eq('groupId', groupId).eq('year', year).eq('month', month))
+    .unique()
+  if (row) {
+    await ctx.db.patch(row._id, { boards: row.boards + d.boards, attempts: row.attempts + d.attempts, contributors: row.contributors + d.contributors })
+  } else {
+    await ctx.db.insert('leagueGroupMonth', { leagueId, groupId, year, month, ...d })
+  }
+}
 
 const gate = () => {
   if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) throw accessError('LEAGUES_DISABLED')

@@ -14,6 +14,7 @@ import { LAUNCH_AT, shouldStartTrial, trialEndsAtFor } from './lib/insightsAcces
 import { isMonth, serverFloorFor } from './lib/monthWindow.ts'
 import { monthOf, monthRange, toPuzzleDay, type PuzzleMonth } from './lib/puzzleDay.ts'
 import { effectiveFromOf, systemFor } from './lib/scoringSystem.ts'
+import { recomputeLeagueMonthFor } from './leagues.ts'
 import { recomputePlayerMonth } from './winners.ts'
 import type { Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
@@ -687,6 +688,10 @@ export async function upsertBoardFor(
   await stampTrialIfDue(ctx, playerId, Date.now(), action)
 
   await recomputePlayerMonth(ctx, playerId, monthOf(puzzleDay), today)
+  // PUBLIC LEAGUES (zic8.3): every board counts for the player's group too. NOT
+  // gated on LEAGUES_ENABLED — the aggregate must already be right on the day
+  // the flag flips, and for a non-member this is one index read.
+  await recomputeLeagueMonthFor(ctx, playerId, monthOf(puzzleDay))
   return { action }
 }
 
