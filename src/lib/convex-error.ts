@@ -64,7 +64,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'CHALLENGE_LINK_INVALID' ||
     code === 'CHALLENGE_NOT_ACTIVE' ||
     code === 'CHALLENGES_DISABLED' ||
-    code === 'CHALLENGE_OWN_PROPOSAL'
+    code === 'CHALLENGE_OWN_PROPOSAL' ||
+    code === 'CHALLENGE_NO_ACCEPTER'
   ) {
     return code
   }
@@ -292,6 +293,11 @@ export function typedCodeMessage(code: AccessCode): string {
       // rather than only what does not, since the proposer is usually on both
       // teams and would otherwise not see why the button they pressed refused.
       return 'Someone else on your team has to accept a challenge you sent.'
+    case 'CHALLENGE_NO_ACCEPTER':
+      // Thrown by proposeToTeamFor when the opponent's only member is the
+      // proposer, who cannot accept their own challenge. "That team" because
+      // the proposer is on it: it is the roster, not them, that is the problem.
+      return 'Nobody else is on that team to accept a challenge.'
     default: {
       const _exhaustive: never = code
       return _exhaustive

@@ -89,7 +89,7 @@ describe('proposeToTeamFor', () => {
   test('a Pro member on both teams creates a pending challenge', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       const id = await proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId)
       const doc = await ctx.db.get(id)
       expect(doc?.status).toBe('pending')
@@ -111,10 +111,15 @@ describe('proposeToTeamFor', () => {
     })
   })
 
+  // A TEAMMATE ON THE CHALLENGER, which is also the "opponent" here: alone on
+  // it, the proposer would hear CHALLENGE_NO_ACCEPTER first, and this would no
+  // longer be about naming your own team.
   test('a team cannot challenge itself', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const teammateId = await ctx.db.insert('players', aPlayer({ email: 'teammate@example.com' }))
+      await ctx.db.patch(challengerTeamId, { playerIds: [playerId, teammateId] })
       await expect(
         proposeToTeamFor(ctx, playerId, challengerTeamId, challengerTeamId),
       ).rejects.toMatchObject({ data: { code: 'INVALID_TEAM' } })
@@ -137,7 +142,7 @@ describe('proposeToTeamFor', () => {
   test('a second active challenge against the SAME opponent is refused', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       const id = await proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId)
       await ctx.db.patch(id, { status: 'active', startDay: '2026-10-05', endDay: '2026-10-31' })
       await expect(
@@ -149,7 +154,7 @@ describe('proposeToTeamFor', () => {
   test('the pair rule also catches the REVERSE direction', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       await ctx.db.insert('teamChallenges', {
         challengerTeamId: opponentTeamId,
         opponentTeamId: challengerTeamId,
@@ -169,7 +174,7 @@ describe('proposeToTeamFor', () => {
   test('at MAX_ACTIVE_CHALLENGES the challenger is refused', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       for (let i = 0; i < MAX_ACTIVE_CHALLENGES; i++) {
         const otherId = await ctx.db.insert(
           'teams',
@@ -195,7 +200,7 @@ describe('proposeToTeamFor', () => {
   test('one BELOW the cap is allowed — the boundary tested in both directions', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       for (let i = 0; i < MAX_ACTIVE_CHALLENGES - 1; i++) {
         const otherId = await ctx.db.insert(
           'teams',
@@ -240,7 +245,7 @@ describe('proposeToTeamFor', () => {
   test('a closed challenge does not count toward the cap', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       const id = await proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId)
       await ctx.db.patch(id, { status: 'closed' })
       expect(await liveChallengeCountFor(ctx, challengerTeamId)).toBe(0)
@@ -250,7 +255,7 @@ describe('proposeToTeamFor', () => {
   test('an opponent at the cap is refused, though the challenger has room', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       for (let i = 0; i < MAX_ACTIVE_CHALLENGES; i++) {
         const otherId = await ctx.db.insert(
           'teams',
@@ -278,7 +283,7 @@ describe('proposeToTeamFor', () => {
   test('an opponent ONE BELOW the cap is allowed', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       for (let i = 0; i < MAX_ACTIVE_CHALLENGES - 1; i++) {
         const otherId = await ctx.db.insert(
           'teams',
@@ -321,7 +326,7 @@ describe('proposeToTeamFor', () => {
   test('declined, withdrawn, expired and closed challenges occupy no slot', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       for (const status of ['declined', 'withdrawn', 'expired', 'closed'] as const) {
         await ctx.db.insert('teamChallenges', {
           challengerTeamId,
@@ -343,7 +348,7 @@ describe('proposeToTeamFor', () => {
   test('a pending LINK proposal (no opponent yet) blocks no pair and lists once', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       await ctx.db.insert('teamChallenges', {
         challengerTeamId,
         proposedBy: playerId,

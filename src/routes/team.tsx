@@ -248,6 +248,7 @@ function TeamSettingsPage() {
               teamId={selectedTeam.id}
               teamName={selectedTeam.name}
               teams={teams}
+              viewerId={myPlayerId}
               isOwner={selectedTeam.isOwner}
               acceptsChallenges={selectedTeam.acceptsChallenges}
             />
@@ -341,17 +342,22 @@ function TeamSettingsPage() {
  * THE PROPOSE DIALOG (Task 12b) IS MOUNTED HERE, beside the card rather than
  * inside it, so the card stays plain props: it only reports the tap. `teams` is
  * the page's own getMyTeams answer; the dialog leaves the current team out.
+ * `viewerId` is the page's getMyPlayerId answer, already loaded for
+ * CurrentTeamCard: the dialog needs it to tell a team only the viewer is on.
  */
 function TeamChallenges({
   teamId,
   teamName,
   teams,
+  viewerId,
   isOwner,
   acceptsChallenges,
 }: {
   teamId: Id<'teams'>
   teamName: string
-  teams: ReadonlyArray<{ id: Id<'teams'>; name: string }>
+  teams: ReadonlyArray<{ id: Id<'teams'>; name: string; members: ReadonlyArray<{ id: Id<'players'> }> }>
+  /** getMyPlayerId, for the propose dialog's "Only you are on this team". */
+  viewerId: Id<'players'> | null
   isOwner: boolean
   acceptsChallenges: boolean
 }) {
@@ -451,6 +457,7 @@ function TeamChallenges({
         teamId={teamId}
         teamName={teamName}
         teams={teams}
+        viewerId={viewerId}
         proposeToTeam={proposeToTeam.mutateAsync}
         proposeByLink={proposeByLink.mutateAsync}
       />
