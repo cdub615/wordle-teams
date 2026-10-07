@@ -1,5 +1,5 @@
 // convex/lib/league.ts
-import { addMonths, daysOfMonth, monthOf } from './puzzleDay.ts'
+import { addDays, addMonths, daysOfMonth, monthOf, monthRange } from './puzzleDay.ts'
 import type { PuzzleDay, PuzzleMonth } from './puzzleDay.ts'
 import { meanAttemptsOf } from './teamStats.ts'
 
@@ -203,4 +203,127 @@ export function monthToClose(today: PuzzleDay, leagueCreatedDay: PuzzleDay): Puz
   if (Number(today.slice(8, 10)) < 2) return null
   const month = addMonths(monthOf(today), -1)
   return month < monthOf(leagueCreatedDay) ? null : month
+}
+
+/**
+ * ONE STEP OF A MEMBERSHIP CHANGE, against the player's intervals for ONE
+ * league, by index into the array the planner was given. The handler maps
+ * indexes to document ids and applies the ops in order.
+ *
+ *   insert   — a new interval
+ *   patch    — set an interval's toDay
+ *   reopen   — clear an interval's toDay
+ *   retarget — change a not-yet-started interval's group
+ *   delete   — remove an interval
+ */
+export type IntervalOp<G extends string = string> =
+  | { op: 'insert'; groupId: G; fromDay: PuzzleDay }
+  | { op: 'patch'; index: number; toDay: PuzzleDay }
+  | { op: 'reopen'; index: number }
+  | { op: 'retarget'; index: number; groupId: G }
+  | { op: 'delete'; index: number }
+
+/**
+ * `countFrom`/`countTo` move leagueGroups.memberCount. memberCount counts a
+ * member under their LATEST live group, so a pending switcher counts for the
+ * group they are switching to.
+ */
+export type MembershipPlan<G extends string = string> =
+  | { ops: IntervalOp<G>[]; countFrom: G | null; countTo: G | null }
+  | { refused: 'ALREADY_IN_LEAGUE' | 'NOT_IN_LEAGUE' }
+
+type Live<G extends string> = { started: number | null; pending: number | null; groupOf: (i: number) => G }
+
+/** Index of the started and the pending interval, if any. */
+function liveOf<G extends string>(intervals: readonly Interval<G>[], today: PuzzleDay): Live<G> {
+  let started: number | null = null
+  let pending: number | null = null
+  intervals.forEach((interval, i) => {
+    if (interval.fromDay > today) pending = i
+    else if (interval.toDay === undefined || interval.toDay >= today) started = i
+  })
+  return { started, pending, groupOf: (i) => intervals[i].groupId }
+}
+
+function firstOfNextMonth(today: PuzzleDay): PuzzleDay {
+  return monthRange(addMonths(monthOf(today), 1)).start
+}
+
+/**
+ * Join. From TOMORROW (spec §3: non-retroactive), unless the player already
+ * counted for a DIFFERENT group earlier this month, in which case from the 1st —
+ * one group per league per month (§4.1, §10).
+ */
+export function planJoin<G extends string>(
+  intervals: readonly Interval<G>[],
+  today: PuzzleDay,
+  groupId: G,
+): MembershipPlan<G> {
+  const live = liveOf(intervals, today)
+  if (live.started !== null || live.pending !== null) return { refused: 'ALREADY_IN_LEAGUE' }
+  const monthStart = monthRange(monthOf(today)).start
+  const otherGroupThisMonth = intervals.some(
+    (i) => i.groupId !== groupId && (i.toDay === undefined || i.toDay >= monthStart),
+  )
+  const fromDay = otherGroupThisMonth ? firstOfNextMonth(today) : addDays(today, 1)
+  return { ops: [{ op: 'insert', groupId, fromDay }], countFrom: null, countTo: groupId }
+}
+
+/** Switch. Takes effect on the 1st; see the state table in the plan's Task 2. */
+export function planSwitch<G extends string>(
+  intervals: readonly Interval<G>[],
+  today: PuzzleDay,
+  groupId: G,
+): MembershipPlan<G> {
+  const { started, pending, groupOf } = liveOf(intervals, today)
+  if (started === null && pending === null) return { refused: 'NOT_IN_LEAGUE' }
+
+  if (pending !== null) {
+    const pendingGroup = groupOf(pending)
+    if (started !== null && groupOf(started) === groupId) {
+      return {
+        ops: [{ op: 'delete', index: pending }, { op: 'reopen', index: started }],
+        countFrom: pendingGroup,
+        countTo: groupId,
+      }
+    }
+    if (pendingGroup === groupId) return { ops: [], countFrom: null, countTo: null }
+    return { ops: [{ op: 'retarget', index: pending, groupId }], countFrom: pendingGroup, countTo: groupId }
+  }
+
+  const current = groupOf(started!)
+  if (current === groupId) return { ops: [], countFrom: null, countTo: null }
+  return {
+    ops: [
+      { op: 'patch', index: started!, toDay: lastDayOfMonth(today) },
+      { op: 'insert', groupId, fromDay: firstOfNextMonth(today) },
+    ],
+    countFrom: current,
+    countTo: groupId,
+  }
+}
+
+/** Leave. Effective today; boards already counted stay counted (§3). */
+export function planLeave<G extends string>(intervals: readonly Interval<G>[], today: PuzzleDay): MembershipPlan<G> {
+  const { started, pending, groupOf } = liveOf(intervals, today)
+  if (started === null && pending === null) return { refused: 'NOT_IN_LEAGUE' }
+  const ops: IntervalOp<G>[] = []
+  if (started !== null) ops.push({ op: 'patch', index: started, toDay: today })
+  if (pending !== null) ops.push({ op: 'delete', index: pending })
+  return { ops, countFrom: groupOf(pending ?? started!), countTo: null }
+}
+/** What a player's membership looks like today, for myLeagues. Null if not a member. */
+export function membershipOf<G extends string>(
+  intervals: readonly Interval<G>[],
+  today: PuzzleDay,
+): { groupId: G; since: PuzzleDay; pendingGroupId: G | null; pendingFrom: PuzzleDay | null } | null {
+  const { started, pending } = liveOf(intervals, today)
+  if (started === null && pending === null) return null
+  if (started === null) {
+    const p = intervals[pending!]
+    return { groupId: p.groupId, since: p.fromDay, pendingGroupId: null, pendingFrom: null }
+  }
+  const s = intervals[started]
+  const p = pending === null ? null : intervals[pending]
+  return { groupId: s.groupId, since: s.fromDay, pendingGroupId: p?.groupId ?? null, pendingFrom: p?.fromDay ?? null }
 }
