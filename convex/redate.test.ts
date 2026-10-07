@@ -203,9 +203,9 @@ describe('misdatedBoardsProbe', () => {
       [uuid(2), 'hold', '2025-01-12', 'not-a-pair', []],
     ])
     const triple = plans[5]
-    expect('boards' in triple && triple.boards.map((b) => b.legacyId)).toEqual([11, 12, 13])
+    expect(triple.kind === 'hold' && triple.boards.map((b) => b.legacyId)).toEqual([11, 12, 13])
     const v2 = plans[3]
-    expect('boards' in v2 && v2.boards.map((b) => b.legacyId)).toEqual([8, null])
+    expect(v2.kind === 'hold' && v2.boards.map((b) => b.legacyId)).toEqual([8, null])
   })
 
   test("the player's own boards never vote: two strangers alone are too thin, though the pair would tip it", async () => {
