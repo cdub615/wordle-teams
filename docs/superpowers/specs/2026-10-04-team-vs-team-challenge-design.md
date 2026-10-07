@@ -317,7 +317,7 @@ redacted in production. Plain `Error` messages **are** redacted in prod while
 
 | Function | Kind | Authorisation | Does |
 | --- | --- | --- | --- |
-| `proposeToTeam` | mutation | Pro + member of challenger | Names an opponent team the caller is also a member of. Checks §7.2 and §7.5 and the opponent's `acceptsChallenges` |
+| `proposeToTeam` | mutation | Pro + member of challenger | Names an opponent team the caller is also a member of, with at least one OTHER member to accept it (zic8.2.24). Checks §7.2 and §7.5 and the opponent's `acceptsChallenges` |
 | `proposeByLink` | mutation | Pro + member of challenger | Creates a `pending` challenge with a token and no `opponentTeamId` |
 | `acceptChallenge` | mutation | Member of opponent team, not the proposer (zic8.2.23) | Sets `active`, `acceptedBy`, `startDay`, `endDay`. Schedules push to both rosters |
 | `claimChallengeLink` | mutation | Member of the team they nominate, not the link's minter (zic8.2.23) | Resolves a token, binds `opponentTeamId`, then as `acceptChallenge` |
@@ -341,6 +341,7 @@ wrong is how a link becomes a bypass for a limit the owner set.
 | Opponent under `MAX_ACTIVE_CHALLENGES` | only for `proposeToTeam` | **yes, always** |
 | Opponent's `acceptsChallenges` | only for `proposeToTeam` | **yes, always** |
 | One active challenge per pair | only for `proposeToTeam` | **yes, always** |
+| Opponent has a member other than the proposer (zic8.2.24) | only for `proposeToTeam` | n/a — the accepter or claimer is that member |
 
 **`acceptsChallenges: false` blocks a link claim too**, even though the claimant is
 consenting on their own team's behalf. It is the owner's setting, and a member routing

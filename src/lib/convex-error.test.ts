@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
-import { typedCodeMessage } from './convex-error.ts'
+import { ConvexError } from 'convex/values'
+import { mutationErrorMessage, typedCodeMessage } from './convex-error.ts'
 import type { AccessCode } from '../../convex/access'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -189,4 +190,16 @@ describe('typedCodeMessage, the two ownership codes', () => {
     expect(message.length).toBeGreaterThan(20)
     expect(message.trimEnd()).toMatch(/[.!?]$/)
   })
+})
+
+/**
+ * CHALLENGE_NO_ACCEPTER (wordle-teams-zic8.2.24), END TO END THROUGH THE PARSE.
+ * Through mutationErrorMessage rather than typedCodeMessage alone, so a code
+ * missing from convexErrorCode's chain shows up here as the fallback, not only
+ * in the textual guard above.
+ */
+test('CHALLENGE_NO_ACCEPTER says nobody else on that team can accept', () => {
+  expect(
+    mutationErrorMessage(new ConvexError({ code: 'CHALLENGE_NO_ACCEPTER' }), 'fallback'),
+  ).toBe('Nobody else is on that team to accept a challenge.')
 })

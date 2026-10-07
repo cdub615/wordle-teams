@@ -16,6 +16,7 @@ import { useVisualViewport } from '#/lib/use-visual-viewport.ts'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 type TeamId = Id<'teams'>
+type PlayerId = Id<'players'>
 
 /**
  * "Challenge a team" (zic8.2.19, Task 12b; AC2). Two ways in: one of the
@@ -28,7 +29,7 @@ type TeamId = Id<'teams'>
  *
  * A REFUSAL LEAVES THE DIALOG OPEN. Every refusal the server has for a
  * proposal (PRO_REQUIRED, CHALLENGE_LIMIT_REACHED, CHALLENGE_EXISTS,
- * CHALLENGES_REFUSED, CHALLENGES_DISABLED) has its own copy in
+ * CHALLENGES_REFUSED, CHALLENGES_DISABLED, CHALLENGE_NO_ACCEPTER) has its own copy in
  * typedCodeMessage, and the likeliest next step after "That team is not taking
  * challenges right now" is picking another team — closing would make the user
  * reopen it. Only a successful direct proposal closes it.
@@ -37,6 +38,16 @@ type TeamId = Id<'teams'>
  * team button and the link button together: a second tap on another team while
  * the first is in flight would race two proposals against the same cap, and a
  * double-tapped link button would mint two links.
+ *
+ * A TEAM ONLY THE VIEWER IS ON IS SHOWN, DISABLED (wordle-teams-zic8.2.24).
+ * The viewer cannot accept their own challenge, so with nobody else on the
+ * opponent nobody ever could, and proposeToTeam refuses it
+ * CHALLENGE_NO_ACCEPTER. Shown rather than hidden: a team the viewer knows they
+ * are on, missing from "Your other teams", would read as a bug. The reason line
+ * is the button's aria-describedby, so a screen reader hears WHY it is
+ * disabled, not only that it is. Counted over getMyTeams' members, which drops
+ * a roster id with no player row — the server counts ids, so for that rare
+ * state the dialog is the stricter of the two.
  *
  * THE LINK IS SHOWN ONCE. challengesForTeam never returns a token (it is a
  * capability, see convex/challenges.ts newToken), so a link that is dismissed
@@ -54,6 +65,7 @@ export function ProposeChallengeDialog({
   teamId,
   teamName,
   teams,
+  viewerId,
   proposeToTeam,
   proposeByLink,
 }: {
@@ -63,7 +75,14 @@ export function ProposeChallengeDialog({
   teamId: TeamId
   teamName: string
   /** Every team the viewer is on (getMyTeams), the current one included. */
-  teams: ReadonlyArray<{ id: TeamId; name: string }>
+  teams: ReadonlyArray<{ id: TeamId; name: string; members: ReadonlyArray<{ id: PlayerId }> }>
+  /**
+   * The viewer's own player id (getMyPlayerId), to tell a team with somebody
+   * else on it from one with only them. Null counts every member as somebody
+   * else — the server still refuses — and the route's guard means a signed-in
+   * page always has one.
+   */
+  viewerId: PlayerId | null
   proposeToTeam: (args: { challengerTeamId: TeamId; opponentTeamId: TeamId }) => Promise<unknown>
   proposeByLink: (args: { challengerTeamId: TeamId }) => Promise<string>
 }) {
@@ -171,27 +190,39 @@ export function ProposeChallengeDialog({
             </p>
           ) : (
             <ul aria-labelledby={listLabelId} className="flex flex-col gap-2">
-              {otherTeams.map((team) => (
-                <li key={team.id}>
-                  {/* WRAPS, NEVER TRUNCATES. `whitespace-normal` undoes
-                      ui/button.tsx's nowrap so the inherited
-                      `[overflow-wrap:anywhere]` on <body> can break a long
-                      name; a `truncate` would make the grid column take the
-                      whole unwrapped name as min-content — see the long note
-                      on invite-player-dialog.tsx's title. */}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-auto min-h-10 w-full justify-start whitespace-normal text-left"
-                    disabled={busy}
-                    aria-disabled={busy}
-                    onClick={() => propose(team)}
-                  >
-                    {pending === team.id && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {team.name}
-                  </Button>
-                </li>
-              ))}
+              {otherTeams.map((team) => {
+                const onlyYou = !team.members.some((member) => member.id !== viewerId)
+                // Derived from the list label's useId: a hook cannot run per
+                // row, and a Convex id is a safe id fragment.
+                const reasonId = `${listLabelId}-${team.id}-only-you`
+                return (
+                  <li key={team.id} className="space-y-1">
+                    {/* WRAPS, NEVER TRUNCATES. `whitespace-normal` undoes
+                        ui/button.tsx's nowrap so the inherited
+                        `[overflow-wrap:anywhere]` on <body> can break a long
+                        name; a `truncate` would make the grid column take the
+                        whole unwrapped name as min-content — see the long note
+                        on invite-player-dialog.tsx's title. */}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-auto min-h-10 w-full justify-start whitespace-normal text-left"
+                      disabled={busy || onlyYou}
+                      aria-disabled={busy || onlyYou}
+                      aria-describedby={onlyYou ? reasonId : undefined}
+                      onClick={() => propose(team)}
+                    >
+                      {pending === team.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {team.name}
+                    </Button>
+                    {onlyYou && (
+                      <p id={reasonId} className="text-muted-foreground text-sm">
+                        Only you are on this team
+                      </p>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           )}
         </div>
