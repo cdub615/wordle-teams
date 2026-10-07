@@ -391,6 +391,7 @@ the sweep schedules closes and never performs them inline.
 | No group reaches 10 boards | Snapshot with `winnerGroupId: null` |
 | Top two groups tie on BOTH the 1dp average and boards | No single winner: `winnerGroupId: null` |
 | Board edited in a closed month | Live rows update; snapshot never does |
+| Board for the month's last day entered after the day-2 close | Counts for the player's teams; not for that month's league result (the snapshot is final) |
 | Player pruned by `e2ePrune` | Intervals and member rows deleted; group rows get the negative delta (§7) |
 
 ## 11. Testing
