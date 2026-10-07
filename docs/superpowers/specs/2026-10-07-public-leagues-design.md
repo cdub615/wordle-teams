@@ -339,7 +339,7 @@ sheet above that. Used by the standings page, the home card and onboarding.
   league's picker: "Pick your opener". Built on `myLeagues` + `standings`, both keyed so
   that team changes do not invalidate them. This respects `onboarding.ts`'s rule against
   adding a second full-team-scan subscription.
-- **Onboarding** (`next-step-card`): a new step for a **teamless** player, "No team yet?
+- **Onboarding** (`next-step-card`): a new step for a **teamless** player who has never joined a league (a player who left is not re-offered it: they chose to leave), "No team yet?
   Pick your opener and play for a group today", offering the featured league. Joining
   completes the step. Players with a team keep their current flow.
 - **App menu**: a "Leagues" entry linking to `/leagues`.
