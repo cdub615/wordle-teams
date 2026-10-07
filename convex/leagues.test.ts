@@ -396,6 +396,75 @@ describe('membership', () => {
     })
   })
 
+  test('a pending-only switch retargets the pending row', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await joinGroupFor(ctx, playerId, { groupId: group.crane, today })
+      await switchGroupFor(ctx, playerId, { groupId: group.slate, today })
+      const rows = await ctx.db.query('leagueMemberships').collect()
+      expect(rows.map((r) => [r.groupId, r.fromDay, r.toDay])).toEqual([[group.slate, '2026-10-08', undefined]])
+      expect((await ctx.db.get(group.crane))!.memberCount).toBe(0)
+      expect((await ctx.db.get(group.slate))!.memberCount).toBe(1)
+    })
+  })
+
+  test('a pending-only switch that changes the opening day deletes and re-inserts', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-10-01', toDay: '2026-10-05' })
+      await joinGroupFor(ctx, playerId, { groupId: group.slate, today })
+      expect((await ctx.db.query('leagueMemberships').collect()).map((r) => r.fromDay).sort()).toEqual(['2026-10-01', '2026-11-01'])
+      await switchGroupFor(ctx, playerId, { groupId: group.crane, today })
+      const rows = (await ctx.db.query('leagueMemberships').collect()).sort((a, b) => a.fromDay.localeCompare(b.fromDay))
+      expect(rows.map((r) => [r.groupId, r.fromDay, r.toDay])).toEqual([
+        [group.crane, '2026-10-01', '2026-10-05'],
+        [group.crane, '2026-10-08', undefined],
+      ])
+      expect((await ctx.db.get(group.slate))!.memberCount).toBe(0)
+      expect((await ctx.db.get(group.crane))!.memberCount).toBe(1)
+    })
+  })
+
+  test('leave with a started and a pending interval ends the first and deletes the second', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-09-01' })
+      await ctx.db.patch(group.crane, { memberCount: 1 })
+      await switchGroupFor(ctx, playerId, { groupId: group.slate, today })
+      await leaveLeagueFor(ctx, playerId, { leagueId, today })
+      const rows = await ctx.db.query('leagueMemberships').collect()
+      expect(rows.map((r) => [r.groupId, r.toDay])).toEqual([[group.crane, today]])
+      expect((await ctx.db.get(group.slate))!.memberCount).toBe(0)
+      expect((await ctx.db.get(group.crane))!.memberCount).toBe(0)
+    })
+  })
+
+  test('a deleted group is refused UNKNOWN_GROUP', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.delete(group.crane)
+      expect(await codeOf(joinGroupFor(ctx, playerId, { groupId: group.crane, today }))).toBe('UNKNOWN_GROUP')
+    })
+  })
+
+  test('a deleted league is refused UNKNOWN_LEAGUE', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const gone = await ctx.db.insert('leagues', { slug: 'gone', name: 'Gone', featured: false, createdAt: 0 })
+      await ctx.db.delete(gone)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect(await codeOf(leaveLeagueFor(ctx, playerId, { leagueId: gone, today }))).toBe('UNKNOWN_LEAGUE')
+    })
+  })
+
   test('leave when not a member is refused NOT_IN_LEAGUE', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {

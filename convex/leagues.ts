@@ -186,7 +186,14 @@ async function intervalsOf(ctx: ReaderCtx, playerId: Id<'players'>, leagueId: Id
 async function bumpCount(ctx: WriterCtx, groupId: GroupId | null, by: 1 | -1) {
   if (groupId === null) return
   const group = await ctx.db.get(groupId)
-  if (group) await ctx.db.patch(groupId, { memberCount: Math.max(0, group.memberCount + by) })
+  if (!group) {
+    console.error(`leagues: memberCount not moved, group ${groupId} is missing (by ${by})`)
+    return
+  }
+  const next = group.memberCount + by
+  // A negative count is drift (wordle-teams-jck4 reconciles); clamp, but say so.
+  if (next < 0) console.error(`leagues: memberCount drift on group ${groupId}, attempted ${next}, clamped to 0`)
+  await ctx.db.patch(groupId, { memberCount: Math.max(0, next) })
 }
 
 /**
@@ -219,7 +226,7 @@ async function requireGroup(ctx: ReaderCtx, groupId: GroupId) {
 }
 
 export async function joinGroupFor(ctx: WriterCtx, playerId: Id<'players'>, args: { groupId: GroupId; today: string }) {
-  const today = requirePlausibleToday(args.today as PuzzleDay)
+  const today = requirePlausibleToday(args.today)
   const group = await requireGroup(ctx, args.groupId)
   const rows = await intervalsOf(ctx, playerId, group.leagueId)
   await applyPlan(ctx, playerId, group.leagueId, rows, planJoin(rows, today, group._id))
@@ -227,7 +234,7 @@ export async function joinGroupFor(ctx: WriterCtx, playerId: Id<'players'>, args
 }
 
 export async function switchGroupFor(ctx: WriterCtx, playerId: Id<'players'>, args: { groupId: GroupId; today: string }) {
-  const today = requirePlausibleToday(args.today as PuzzleDay)
+  const today = requirePlausibleToday(args.today)
   const group = await requireGroup(ctx, args.groupId)
   const rows = await intervalsOf(ctx, playerId, group.leagueId)
   await applyPlan(ctx, playerId, group.leagueId, rows, planSwitch(rows, today, group._id))
@@ -235,7 +242,7 @@ export async function switchGroupFor(ctx: WriterCtx, playerId: Id<'players'>, ar
 }
 
 export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, args: { leagueId: Id<'leagues'>; today: string }) {
-  const today = requirePlausibleToday(args.today as PuzzleDay)
+  const today = requirePlausibleToday(args.today)
   if (!(await ctx.db.get(args.leagueId))) throw accessError('UNKNOWN_LEAGUE')
   const rows = await intervalsOf(ctx, playerId, args.leagueId)
   await applyPlan(ctx, playerId, args.leagueId, rows, planLeave(rows, today))
@@ -243,9 +250,8 @@ export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, ar
 }
 
 /** A no-op STUB until Task 6 fills it; the signature is the contract. */
-/* eslint-disable @typescript-eslint/no-unused-vars */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function recomputeLeagueMonthFor(_ctx: WriterCtx, _playerId: Id<'players'>, _month: PuzzleMonth): Promise<void> {}
-/* eslint-enable @typescript-eslint/no-unused-vars */
 
 const gate = () => {
   if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) throw accessError('LEAGUES_DISABLED')
