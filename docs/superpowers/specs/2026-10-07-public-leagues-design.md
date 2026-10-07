@@ -182,6 +182,11 @@ leagueMonthResults: defineTable({
   group per league per month**. That is what lets a member-month row carry a single
   `groupId` and never split. A join mid-month starts mid-month; a leave mid-month ends
   mid-month; neither changes the group within the month.
+- **Membership liveness differs from board coverage, deliberately.** An interval with a
+  `toDay` is a *live* membership only while a pending successor exists (a switch closed at
+  month end). Without one it has been left, so leaving ends membership the same day and a
+  same-day rejoin is allowed. Board coverage is unaffected: the left interval still
+  covers today, so a board played before leaving counts.
 - **A board counts for a group iff its `puzzleDay` lies inside one of the player's
   intervals for that group.** This one rule produces non-retroactive joining,
   next-month switching and history.
