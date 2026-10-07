@@ -1,8 +1,8 @@
 import { v } from 'convex/values'
 import { internalMutation, query } from './_generated/server'
-import { accessError, requirePlausibleToday, requirePlayer } from './access.ts'
-import { addMonths, monthOf } from './lib/puzzleDay.ts'
-import { leaguesEnabled, standingsOf } from './lib/league.ts'
+import { accessError, requirePlayer } from './access.ts'
+import { addMonths, isPlausibleToday, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
+import { leaguesEnabled, standingsOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
 import type { Standing } from './lib/league.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
@@ -36,16 +36,12 @@ export const STARTING_WORDS: LeagueSpec = {
 
 const LEAGUE_SPECS: Record<string, LeagueSpec> = { [STARTING_WORDS.slug]: STARTING_WORDS }
 
-/** 'YYYY-MM' as the two numbers the month tables store (1-12). */
-export function yearMonthOf(month: PuzzleMonth): { year: number; month: number } {
-  const [year, m] = month.split('-').map(Number)
-  return { year, month: m }
-}
-
 /**
  * Create or update a league and its groups, matched by slug. IDEMPOTENT: a
  * re-run renames and reorders but never duplicates, and never moves createdAt
- * (monthToClose reads it, so moving it would skip or invent a close).
+ * (monthToClose reads it, so moving it would skip or invent a close). It
+ * NEVER REMOVES a group dropped from the spec: a re-seed only renames and
+ * reorders.
  */
 export async function seedLeagueFor(ctx: WriterCtx, spec: LeagueSpec, now: number): Promise<Id<'leagues'>> {
   const found = await ctx.db.query('leagues').withIndex('by_slug', (q) => q.eq('slug', spec.slug)).unique()
@@ -145,6 +141,18 @@ export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDa
   }
 }
 
+/**
+ * The day a league READ is for. Bounded like insights.ts's teamMonth: `today`
+ * is a client-local fact, but unbounded it would let a client walk months. It
+ * FALLS BACK to the server's day rather than throwing, because a reactive query
+ * re-runs on every league board write, so a tab left open past midnight would
+ * otherwise hit INVALID_DATE with no user action.
+ */
+export function readToday(today: string): PuzzleDay {
+  const serverToday = toPuzzleDay(new Date())
+  return isPlausibleToday(today as PuzzleDay, serverToday) ? (today as PuzzleDay) : serverToday
+}
+
 /** RETURNS rather than throws when dark, so a page never errors on a dark deployment. */
 export const leagues = query({
   args: {},
@@ -160,6 +168,6 @@ export const standings = query({
   handler: async (ctx, { slug, today }) => {
     if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }
     await requirePlayer(ctx)
-    return { enabled: true as const, view: await standingsFor(ctx, slug, requirePlausibleToday(today)) }
+    return { enabled: true as const, view: await standingsFor(ctx, slug, readToday(today)) }
   },
 })

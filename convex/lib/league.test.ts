@@ -23,6 +23,7 @@ import {
   planSwitch,
   standingsOf,
   winnerOf,
+  yearMonthOf,
 } from './league.ts'
 
 describe('the constants', () => {
@@ -559,5 +560,11 @@ describe('a closed interval is live only for a genuine month-boundary switch', (
       countFrom: 'slate',
       countTo: 'crane',
     })
+  })
+})
+
+describe('yearMonthOf', () => {
+  test('splits YYYY-MM into numbers', () => {
+    expect(yearMonthOf('2026-09')).toEqual({ year: 2026, month: 9 })
   })
 })

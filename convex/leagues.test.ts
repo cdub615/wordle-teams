@@ -1,9 +1,9 @@
 import { convexTest } from 'convex-test'
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import type { MutationCtx } from './_generated/server'
 import { aPlayer } from './fixtures.ts'
-import { seedLeagueFor, standingsFor, leaguesFor, STARTING_WORDS } from './leagues.ts'
+import { groupsOf, leaguesFor, readToday, seedLeagueFor, standingsFor, STARTING_WORDS } from './leagues.ts'
 import type { DataModel, Id } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 
@@ -176,6 +176,93 @@ describe('leaguesFor', () => {
       expect(out).toHaveLength(1)
       expect(out[0]).toMatchObject({ slug: 'starting-words', name: 'Starting Words', featured: true })
       expect(out[0].groups.map((g) => g.name)).toEqual(['CRANE', 'SLATE', 'ADIEU', 'STARE', 'ORATE'])
+    })
+  })
+})
+
+describe('readToday', () => {
+  afterEach(() => vi.useRealTimers())
+  test('passes a plausible day through and falls back to the server day otherwise', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-07T12:00:00Z'))
+    expect(readToday('2026-10-07')).toBe('2026-10-07')
+    expect(readToday('2026-10-08')).toBe('2026-10-08')
+    expect(readToday('2026-10-12')).toBe('2026-10-07')
+    expect(readToday('2026-10-02')).toBe('2026-10-07')
+    expect(readToday('garbage')).toBe('2026-10-07')
+  })
+})
+
+describe('standingsFor snapshots and isolation', () => {
+  test('a September snapshot with no winner is lastMonth with a null winner', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedStartingWords(ctx)
+      await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 9, standings: [], winnerGroupId: null, closedAt: 0 })
+      const out = (await standingsFor(ctx, 'starting-words', '2026-10-07'))!
+      expect(out.lastMonth).toEqual({ month: '2026-09', winnerGroupId: null })
+    })
+  })
+  test('January looks back to December of the previous year', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 12, standings: [], winnerGroupId: group.crane, closedAt: 0 })
+      const out = (await standingsFor(ctx, 'starting-words', '2027-01-05'))!
+      expect(out.month).toBe('2027-01')
+      expect(out.lastMonth).toEqual({ month: '2026-12', winnerGroupId: group.crane })
+    })
+  })
+  test('another league never leaks into standings or monthsWon', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { group } = await seedStartingWords(ctx)
+      const otherId = await seedLeagueFor(ctx, { slug: 'other', name: 'Other', featured: false, groups: [{ slug: 'x', name: 'X' }] }, 0)
+      const [x] = await groupsOf(ctx, otherId)
+      await ctx.db.insert('leagueGroupMonth', { leagueId: otherId, groupId: x._id, year: 2026, month: 10, boards: 40, attempts: 120, contributors: 5 })
+      await ctx.db.insert('leagueMonthResults', { leagueId: otherId, year: 2026, month: 9, standings: [], winnerGroupId: x._id, closedAt: 0 })
+      const out = (await standingsFor(ctx, 'starting-words', '2026-10-07'))!
+      expect(out.standings).toHaveLength(5)
+      expect(out.standings.every((s) => s.boards === 0)).toBe(true)
+      expect(out.lastMonth).toBeNull()
+      expect(out.monthsWon.every((m) => m.count === 0)).toBe(true)
+      expect(out.monthsWon.map((m) => m.groupId)).toContain(group.crane)
+    })
+  })
+})
+
+describe('seeding edges', () => {
+  test('a re-seed renames and reorders groups, never removing one', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const id = await seedLeagueFor(ctx, STARTING_WORDS, 0)
+      await seedLeagueFor(ctx, {
+        ...STARTING_WORDS,
+        name: 'Openers',
+        groups: [
+          { slug: 'slate', name: 'Slate!' },
+          { slug: 'crane', name: 'Crane!' },
+        ],
+      }, 5)
+      expect((await ctx.db.get(id))!.name).toBe('Openers')
+      const groups = await groupsOf(ctx, id)
+      expect(groups.map((g) => [g.slug, g.name, g.order])).toEqual([
+        ['slate', 'Slate!', 0],
+        ['crane', 'Crane!', 1],
+        ['adieu', 'ADIEU', 2],
+        ['stare', 'STARE', 3],
+        ['orate', 'ORATE', 4],
+      ])
+    })
+  })
+  test('groupsOf sorts by order, not insertion', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const leagueId = await ctx.db.insert('leagues', { slug: 'l', name: 'L', featured: false, createdAt: 0 })
+      for (const [slug, order] of [['c', 2], ['a', 0], ['b', 1]] as const) {
+        await ctx.db.insert('leagueGroups', { leagueId, slug, name: slug, order, memberCount: 0 })
+      }
+      expect((await groupsOf(ctx, leagueId)).map((g) => g.slug)).toEqual(['a', 'b', 'c'])
     })
   })
 })
