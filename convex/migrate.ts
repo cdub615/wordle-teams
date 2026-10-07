@@ -5,7 +5,27 @@ import { METHODS } from './lib/reminders.ts'
 import { attemptsFor } from './lib/board.ts'
 import { deletionKey, planCollapse, rowsToDelete, type CollapseGroup } from './lib/duplicateScores.ts'
 import { isMonth } from './lib/monthWindow.ts'
-import { addDays, addMonths, monthRange, toPuzzleDay, type PuzzleMonth } from './lib/puzzleDay.ts'
+import {
+  addDays,
+  addMonths,
+  monthOf,
+  monthRange,
+  toPuzzleDay,
+  type PuzzleDay,
+  type PuzzleMonth,
+} from './lib/puzzleDay.ts'
+import {
+  consensusOf,
+  MAX_REDATE_DISTANCE,
+  monthsTouched,
+  normalizeAnswer,
+  planRedate,
+  redateKey,
+  type Consensus,
+  type ConsensusBoard,
+  type RedateHoldReason,
+  type RedateMove,
+} from './lib/redate.ts'
 import { monthTotal, winnerOf } from './lib/scoring.ts'
 import { aggregateTeamMonth, meanAttemptsOf, sameStats } from './lib/teamStats.ts'
 import { rollupTeamMonth } from './teamStats.ts'
@@ -1463,6 +1483,384 @@ export const repairDuplicateScores = internalMutation({
         })),
       ),
       teamMonths,
+    }
+  },
+})
+
+// --- misdated daily scores (wordle-teams-c442) --------------------------------
+//
+// THE ONE-TIME RE-DATING OF BOARDS THE COPY PUT ON A NEIGHBOUR'S DAY. The copy
+// derived each board's puzzleDay from v1's `date` instant in the player's CURRENT
+// zone, so a backfilled or travelling entry could land on a day the player had
+// also played: two DIFFERENT puzzles sharing one (player, puzzleDay). rac held
+// those (answers-differ) rather than delete either. monthTotal scores only the
+// first of them, and the day the other belongs to reads as missed.
+//
+// BUILT LIKE rac's, BESIDE IT: misdatedBoardsProbe measures (every player, paged),
+// and repairMisdatedBoards re-dates one past SOURCE month at a time — dry run by
+// default, and an apply must name the exact plan it expects. The rule is
+// planRedate in lib/redate.ts: the board matching the day's consensus (the other
+// players' answer) stays, the other moves to the nearest day within ±2 whose
+// consensus is its answer, and anything doubtful is HELD with a reason. Every
+// function re-plans from rows it has just read. The same id policy as rac's
+// (legacy ids, V2_NATIVE, never an email or a name).
+//
+// FOUR HOLDS THIS FILE ADDS TO planRedate's, because planRedate sees one pair:
+//   not-a-pair         three or more boards on one day with answers that differ.
+//                      planRedate judges exactly two; which of three is at home,
+//                      and where the other two go, is a decision for the owner.
+//   target-month-open  the target day's month is later than latestRepairableMonth
+//                      — still being played somewhere. A move into it would race
+//                      live entries and the live sweep's rollups, so it waits; a
+//                      later run (once the month is over) moves it. Held rather
+//                      than thrown so the rest of the month still repairs.
+//   batch-conflict     two of one player's moves name the same target day. Each
+//                      pair's plan saw the day free; only one can have it. The
+//                      move from the EARLIER source day keeps it, the later is
+//                      held. (A target on another pair's source day needs no rule
+//                      here: that day already holds the player's boards, so
+//                      planRedate holds it as target-occupied.) Applied before
+//                      the key is computed, so dry run and apply agree.
+//
+// ONLY puzzleDay MOVES. `date` is v1's instant, kept for audit and NOT for
+// grouping (schema.ts): it is still the true moment the board was entered, and
+// the very rule this repairs is that a day must never be re-derived from it.
+//
+// IT NEVER WRITES WINNERS, by the owner's decision (2026-10-07), as rac's repair
+// does not: it rolls up teamMonthStats for each affected team in every month a
+// move touches — source AND target — and leaves monthlyWinners, and with it
+// hasSeenCelebration, untouched, even where a move would change who won.
+
+type Score = Doc<'dailyScores'>
+
+type MisdatedHoldReason = RedateHoldReason | 'not-a-pair' | 'target-month-open' | 'batch-conflict'
+
+type MisdatedHold = {
+  kind: 'hold'
+  playerId: string
+  puzzleDay: PuzzleDay
+  reason: MisdatedHoldReason
+  boards: Score[]
+  targets: PuzzleDay[]
+}
+
+type MisdatedPlan = RedateMove<Score> | MisdatedHold
+
+/**
+ * The days of one player's rows holding two or more boards whose answers are not
+ * all one puzzle (normalised; a missing answer counts as a value of its own, so
+ * planRedate holds it as no-answer). True duplicates are rac's, not this. Each
+ * group in index order, groups by day.
+ */
+function misdatedGroups(rows: readonly Score[], month?: PuzzleMonth): Score[][] {
+  return planCollapse(rows)
+    .filter((group) => month === undefined || monthOf(group.puzzleDay) === month)
+    .map((group) => [group.keep, ...group.drop])
+    .filter((boards) => new Set(boards.map((board) => normalizeAnswer(board.answer) ?? '')).size > 1)
+}
+
+/** Every player's boards on one day, read once per call through the cache. */
+async function boardsOn(ctx: ReaderCtx, cache: Map<PuzzleDay, ConsensusBoard[]>, day: PuzzleDay) {
+  let boards = cache.get(day)
+  if (boards === undefined) {
+    boards = await ctx.db
+      .query('dailyScores')
+      .withIndex('by_puzzleDay', (q) => q.eq('puzzleDay', day))
+      .collect()
+    cache.set(day, boards)
+  }
+  return boards
+}
+
+/**
+ * Plan one player's misdated groups. `rows` must hold every board of the player
+ * within ±MAX_REDATE_DISTANCE of each group's day (they decide occupiedDays).
+ * Holds a move into a month later than `latest`, then resolves batch conflicts in
+ * source-day order.
+ */
+async function planMisdated(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  rows: readonly Score[],
+  groups: readonly Score[][],
+  cache: Map<PuzzleDay, ConsensusBoard[]>,
+  latest: PuzzleMonth,
+): Promise<MisdatedPlan[]> {
+  const ownDays = new Set(rows.map((row) => row.puzzleDay))
+  const plans: MisdatedPlan[] = []
+  for (const boards of groups) {
+    const puzzleDay = boards[0].puzzleDay
+    const hold = (reason: MisdatedHoldReason, targets: PuzzleDay[] = []): MisdatedHold => ({
+      kind: 'hold',
+      playerId,
+      puzzleDay,
+      reason,
+      boards,
+      targets,
+    })
+    if (boards.length !== 2) {
+      plans.push(hold('not-a-pair'))
+      continue
+    }
+
+    const consensusByDay = new Map<PuzzleDay, Consensus | null>()
+    const occupiedDays = new Set<PuzzleDay>()
+    for (let delta = -MAX_REDATE_DISTANCE; delta <= MAX_REDATE_DISTANCE; delta++) {
+      const day = addDays(puzzleDay, delta)
+      consensusByDay.set(day, consensusOf(await boardsOn(ctx, cache, day), { excludePlayerId: playerId }))
+      if (delta !== 0 && ownDays.has(day)) occupiedDays.add(day)
+    }
+
+    const plan = planRedate({ playerId, puzzleDay, boards: [boards[0], boards[1]] }, consensusByDay, occupiedDays)
+    if (plan.kind === 'move' && monthOf(plan.to) > latest) plans.push(hold('target-month-open', [plan.to]))
+    else if (plan.kind === 'move') plans.push(plan)
+    else plans.push({ ...plan, boards: [...plan.boards] })
+  }
+
+  const claimed = new Set<PuzzleDay>()
+  return plans.map((plan) => {
+    if (plan.kind !== 'move') return plan
+    if (claimed.has(plan.to)) {
+      return {
+        kind: 'hold',
+        playerId,
+        puzzleDay: plan.from,
+        reason: 'batch-conflict',
+        boards: [plan.stay, plan.move].sort((a, b) => a._creationTime - b._creationTime),
+        targets: [plan.to],
+      }
+    }
+    claimed.add(plan.to)
+    return plan
+  })
+}
+
+/** One plan as the reports show it: legacy ids, days, answers. Nothing that names anyone. */
+function misdatedSummary(player: Doc<'players'>, plan: MisdatedPlan) {
+  if (plan.kind === 'move') {
+    return {
+      player: playerRef(player),
+      kind: 'move' as const,
+      puzzleDay: plan.from,
+      to: plan.to,
+      stay: rowSummary(plan.stay),
+      move: rowSummary(plan.move),
+    }
+  }
+  return {
+    player: playerRef(player),
+    kind: 'hold' as const,
+    puzzleDay: plan.puzzleDay,
+    reason: plan.reason,
+    targets: plan.targets,
+    boards: plan.boards.map(rowSummary),
+  }
+}
+
+/**
+ * MEASURE: every player's misdated days, planned, ten players a call.
+ *
+ * Paged over `players` as duplicateScoresProbe is, over each player's whole
+ * history, so batch conflicts are resolved across months here where the repair
+ * resolves them within its month; the repair re-plans against what is stored at
+ * the time, so a move one month's apply makes is seen as occupied by the next.
+ * Per call: ten histories plus, per misdated pair, five days of everyone's boards
+ * (by_puzzleDay, cached per day) — a few hundred documents a day in production.
+ *
+ * Returns `plans`, each a move (`puzzleDay` → `to`, the staying and the moving
+ * board) or a hold (`reason`, `targets`, the boards), with the player's legacy id.
+ */
+export const misdatedBoardsProbe = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query('players').paginate({ cursor, numItems: 10 })
+    const latest = latestRepairableMonth(new Date())
+    const cache = new Map<PuzzleDay, ConsensusBoard[]>()
+
+    const plans = []
+    for (const player of page.page) {
+      const rows = await scoresOf(ctx, player._id)
+      const groups = misdatedGroups(rows)
+      if (groups.length === 0) continue
+      for (const plan of await planMisdated(ctx, player._id, rows, groups, cache, latest)) {
+        plans.push(misdatedSummary(player, plan))
+      }
+    }
+
+    return { players: page.page.length, plans, cursor: page.continueCursor, isDone: page.isDone }
+  },
+})
+
+/**
+ * Every player's plan for the misdated days whose SOURCE day is in `month`. Each
+ * player's boards are read from two days before the month to two days after it,
+ * so a pair near either edge sees its neighbours. Bound: monthPlan's.
+ */
+async function misdatedMonthPlan(ctx: ReaderCtx, month: PuzzleMonth) {
+  const latest = latestRepairableMonth(new Date())
+  const start = addDays(`${month}-01`, -MAX_REDATE_DISTANCE)
+  const end = addDays(`${addMonths(month, 1)}-01`, MAX_REDATE_DISTANCE - 1)
+  const cache = new Map<PuzzleDay, ConsensusBoard[]>()
+
+  const plan: Array<{ player: Doc<'players'>; plans: MisdatedPlan[] }> = []
+  for (const player of await ctx.db.query('players').collect()) {
+    const rows = await ctx.db
+      .query('dailyScores')
+      .withIndex('by_player_and_puzzleDay', (q) =>
+        q.eq('playerId', player._id).gte('puzzleDay', start).lte('puzzleDay', end),
+      )
+      .collect()
+    const groups = misdatedGroups(rows, month)
+    if (groups.length === 0) continue
+    plan.push({ player, plans: await planMisdated(ctx, player._id, rows, groups, cache, latest) })
+  }
+  return plan
+}
+
+/** Index order of by_player_and_puzzleDay within one player: day, then creation. */
+const byIndexOrder = (a: Score, b: Score) =>
+  a.puzzleDay < b.puzzleDay ? -1 : a.puzzleDay > b.puzzleDay ? 1 : a._creationTime - b._creationTime
+
+/**
+ * Each affected team's months (every month a move of one of its members touches),
+ * and per (team, month) what the rollup will store: `statsChanged` against the
+ * stored teamMonthStats doc (`statsCreated` when there is none), and each moved
+ * member's boards in the month now and after the moves. Read-only; the apply
+ * computes it BEFORE writing, so it reports what the apply did.
+ *
+ * WINNER DRIFT — INFORMATION ONLY, as in rac's monthImpact. The repair never
+ * writes monthlyWinners, so the owner is shown where a stored winner would no
+ * longer match a recompute once the boards have moved: `storedWinner` is the
+ * stored row's player, `winnerAfterMoves` what recomputeTeamMonth's rule
+ * (monthTotal per member, in index order, roster entries with no player skipped,
+ * winnerOf; every day due) gives over the POST-MOVE boards, computed here without
+ * writing, and `winnerDrift` whether they differ. With no winner row, both are
+ * null and there is no drift. None of it is in the redateKey.
+ */
+async function misdatedTeamMonths(ctx: ReaderCtx, moves: readonly RedateMove<Score>[]) {
+  const movers = new Set(moves.map((move) => move.playerId as Id<'players'>))
+  const movedIds = new Set(moves.map((move) => move.move._id))
+
+  const teamMonths = []
+  for (const team of await affectedTeams(ctx, movers)) {
+    const own = moves.filter((move) => team.playerIds.includes(move.playerId as Id<'players'>))
+    const months = [...new Set(own.flatMap((move) => monthsTouched(move)))].sort()
+    for (const month of months) {
+      const [year, monthNum] = month.split('-').map(Number)
+      const now: Score[] = []
+      for (const memberId of team.playerIds) now.push(...(await scoresOf(ctx, memberId, month)))
+      const after = [
+        ...now.filter((row) => !movedIds.has(row._id)),
+        ...own.filter((move) => monthOf(move.to) === month).map((move) => ({ ...move.move, puzzleDay: move.to })),
+      ]
+      const statsAfter = aggregateTeamMonth({ memberIds: team.playerIds, scores: after })
+      const stored = await ctx.db
+        .query('teamMonthStats')
+        .withIndex('by_team_year_month', (q) => q.eq('teamId', team._id).eq('year', year).eq('month', monthNum))
+        .unique()
+
+      const storedWinner = await storedWinnerRow(ctx, team, month)
+      let winnerAfterMoves: Id<'players'> | null = null
+      if (storedWinner !== null) {
+        const system = await loadTeamMonthSystem(ctx, team, month)
+        const today = `${addMonths(month, 1)}-01`
+        const totals = []
+        for (const memberId of team.playerIds) {
+          if (!(await ctx.db.get(memberId))) continue
+          const scores = after.filter((row) => row.playerId === memberId).sort(byIndexOrder)
+          totals.push({
+            playerId: memberId,
+            total: monthTotal({ month, scores, system, playWeekends: team.playWeekends, today }),
+          })
+        }
+        winnerAfterMoves = winnerOf(totals) as Id<'players'> | null
+      }
+      const ref = async (id: Id<'players'> | null) => (id === null ? null : playerRef(await ctx.db.get(id)))
+
+      const players = []
+      for (const memberId of team.playerIds) {
+        if (!own.some((move) => move.playerId === memberId)) continue
+        players.push({
+          player: playerRef(await ctx.db.get(memberId)),
+          boardsBefore: now.filter((row) => row.playerId === memberId).length,
+          boardsAfter: after.filter((row) => row.playerId === memberId).length,
+        })
+      }
+      teamMonths.push({
+        teamDoc: team,
+        report: {
+          team: teamRef(team),
+          month,
+          statsChanged: stored === null || !sameStats({ members: stored.members, days: stored.days }, statsAfter),
+          statsCreated: stored === null,
+          players,
+          // Informational: the repair never writes winners.
+          storedWinner: await ref(storedWinner?.playerId ?? null),
+          winnerAfterMoves: await ref(winnerAfterMoves),
+          winnerDrift: storedWinner !== null && storedWinner.playerId !== winnerAfterMoves,
+        },
+      })
+    }
+  }
+  return teamMonths
+}
+
+/**
+ * RE-DATE ONE PAST SOURCE MONTH. DRY RUN UNLESS `dryRun: false`, AND AN APPLY MUST
+ * NAME THE PLAN IT EXPECTS.
+ *
+ * Plans every player's misdated days whose source day is in `month`
+ * (misdatedMonthPlan) — taking no list of players or boards — and computes the
+ * key: `YYYY-MM:` and redateKey's `legacyId:from>to` for each move, so the month
+ * is part of what the owner approved. A dry run returns it; an apply requires
+ * `expect` equal to it and throws BEFORE writing anything otherwise.
+ *
+ * Then, unless dryRun, it patches `puzzleDay` (only) on each move's moving board
+ * — held pairs are never touched — and only after every move rolls up
+ * teamMonthStats ONCE per (team, month) for each team whose roster holds a moved
+ * player, in every month that player's moves touch (source and target), with
+ * rollupTeamMonth, in the same transaction.
+ *
+ * IT NEVER WRITES WINNERS: no recomputeTeamMonth, no monthlyWinners write.
+ *
+ * Returns { month, dryRun, redateKey, moves, holds, teamMonths } — each move and
+ * hold as the probe reports it, and per (team, month) the stats impact and the
+ * winner drift it does NOT write (see misdatedTeamMonths). IDEMPOTENT: a second run finds nothing to move. NOT GATED
+ * on SWEEPS_ENABLED, for backfillMonth's reason.
+ */
+export const repairMisdatedBoards = internalMutation({
+  args: { month: v.string(), dryRun: v.optional(v.boolean()), expect: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? true
+    requirePastMonth('repairMisdatedBoards', args.month)
+    if (!dryRun && args.expect === undefined) {
+      throw new ConvexError('repairMisdatedBoards: an apply needs `expect`, from a dry run')
+    }
+
+    const plan = await misdatedMonthPlan(ctx, args.month)
+    const moves = plan.flatMap((p) => p.plans.filter((x): x is RedateMove<Score> => x.kind === 'move'))
+    const key = `${args.month}:${redateKey(moves)}`
+    if (!dryRun && key !== args.expect) {
+      throw new ConvexError(
+        `repairMisdatedBoards: the plan changed since the dry run; expected ${args.expect}, found ${key}`,
+      )
+    }
+
+    const teamMonths = await misdatedTeamMonths(ctx, moves)
+
+    if (!dryRun) {
+      for (const move of moves) await ctx.db.patch(move.move._id, { puzzleDay: move.to })
+      for (const { teamDoc, report } of teamMonths) await rollupTeamMonth(ctx, teamDoc, report.month)
+    }
+
+    const summaries = plan.flatMap(({ player, plans }) => plans.map((p) => misdatedSummary(player, p)))
+    return {
+      month: args.month,
+      dryRun,
+      redateKey: key,
+      moves: summaries.filter((s) => s.kind === 'move'),
+      holds: summaries.filter((s) => s.kind === 'hold'),
+      teamMonths: teamMonths.map(({ report }) => report),
     }
   },
 })
