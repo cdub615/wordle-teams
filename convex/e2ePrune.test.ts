@@ -707,8 +707,9 @@ describe('paging', () => {
 })
 
 describe('public leagues (zic8.3)', () => {
+  const newTest = () => convexTest(schema, modules)
   // Seeded inline: test files must not import each other's helpers.
-  async function seedLeague(t: ReturnType<typeof convexTest>) {
+  async function seedLeague(t: ReturnType<typeof newTest>) {
     return await t.run(async (ctx) => {
       const leagueId = await seedLeagueFor(ctx, STARTING_WORDS, 0)
       const groups = await ctx.db

@@ -3,6 +3,8 @@ import { internalMutation } from './_generated/server'
 import { isE2eEmail, isE2ePlayerRow } from './lib/e2e.ts'
 import { challengesResolvedByDeleting } from './challenges.ts'
 import { cascadeDeleteTeam } from './teams.ts'
+import { pruneLeagueRowsFor } from './leagues.ts'
+import { toPuzzleDay } from './lib/puzzleDay.ts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 
@@ -117,6 +119,9 @@ export type PruneBatchReport = {
   // is live for both on a dry run, but the write resolves it once.
   challengesClosed: number
   challengesWithdrawn: number
+  // PUBLIC LEAGUES (zic8.3): membership + member-month rows. Group totals and
+  // memberCounts are corrected on a write and untouched on a dry run.
+  leagueRowsDeleted: number
 }
 
 const emptyReport = (cursor: string, isDone: boolean): PruneBatchReport => ({
@@ -139,6 +144,7 @@ const emptyReport = (cursor: string, isDone: boolean): PruneBatchReport => ({
   invitesDiscardedWithDeletedTeams: 0,
   challengesClosed: 0,
   challengesWithdrawn: 0,
+  leagueRowsDeleted: 0,
 })
 
 /**
@@ -442,6 +448,12 @@ export const pruneBatch = internalMutation({
       ).filter((row) => !cursorsAlreadyCounted.has(row._id))
       report.chatReadsDeleted += cursors.length
       if (execute) for (const row of cursors) await ctx.db.delete(row._id)
+
+      // PUBLIC LEAGUES (zic8.3). Before the player row, for the reason below.
+      // Through pruneLeagueRowsFor so the group totals the player fed are
+      // corrected, not just orphaned: beta standings would otherwise keep a
+      // deleted test player's boards forever. Counts on a dry run, writes nothing.
+      report.leagueRowsDeleted += await pruneLeagueRowsFor(ctx, player._id, toPuzzleDay(new Date()), execute)
 
       // LAST, ALWAYS. Everything above needs the player's id to find its rows,
       // and a pass that had already deleted the player document would leave them

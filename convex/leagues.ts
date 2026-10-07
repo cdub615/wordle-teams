@@ -331,7 +331,7 @@ export async function moveGroup(
   d: { boards: number; attempts: number; contributors: number },
 ) {
   // recomputeLeagueMonthFor never reaches this (equal totals `continue` first),
-  // but Task 9's prune and any other caller may.
+  // but pruneLeagueRowsFor and any other caller may.
   if (d.boards === 0 && d.attempts === 0 && d.contributors === 0) return
   const row = await ctx.db
     .query('leagueGroupMonth')
@@ -342,6 +342,45 @@ export async function moveGroup(
   } else {
     await ctx.db.insert('leagueGroupMonth', { leagueId, groupId, year, month, ...d })
   }
+}
+
+/**
+ * Remove every league row for a player being deleted, keeping group totals and
+ * member counts exact. The only caller today is e2ePrune — the app has no
+ * account deletion (spec §7). Whoever builds that must call this too.
+ * Returns the number of membership + member-month rows removed (or, with
+ * `execute: false`, that would be removed; nothing is written then).
+ *
+ * The memberCount decrement comes from planLeave's countFrom, so "which group
+ * counts this player" keeps ONE definition.
+ */
+export async function pruneLeagueRowsFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  today: PuzzleDay,
+  execute = true,
+): Promise<number> {
+  const memberships = await ctx.db
+    .query('leagueMemberships')
+    .withIndex('by_player_and_league', (q) => q.eq('playerId', playerId))
+    .collect()
+  const monthRows = await ctx.db
+    .query('leagueMemberMonth')
+    .withIndex('by_player_league_year_month', (q) => q.eq('playerId', playerId))
+    .collect()
+  if (execute) {
+    for (const leagueId of new Set(memberships.map((r) => r.leagueId))) {
+      const rows = memberships.filter((r) => r.leagueId === leagueId).sort((a, b) => a.fromDay.localeCompare(b.fromDay))
+      const plan = planLeave(rows, today)
+      if (!('refused' in plan)) await bumpCount(ctx, plan.countFrom, -1)
+    }
+    for (const row of monthRows) {
+      await moveGroup(ctx, row.leagueId, row.groupId, row.year, row.month, groupDelta(row, null))
+      await ctx.db.delete(row._id)
+    }
+    for (const row of memberships) await ctx.db.delete(row._id)
+  }
+  return memberships.length + monthRows.length
 }
 
 const gate = () => {
