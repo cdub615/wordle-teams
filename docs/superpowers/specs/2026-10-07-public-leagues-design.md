@@ -367,12 +367,14 @@ the sweep schedules closes and never performs them inline.
 | --- | --- |
 | Join while already in the league | `ALREADY_IN_LEAGUE` |
 | Switch or leave while not a member | `NOT_IN_LEAGUE` |
-| Switch to an unknown group, or one from another league | `UNKNOWN_GROUP` |
+| Join or switch to a group id that does not exist | `UNKNOWN_GROUP` |
+| Switch to a group in a league you are not in | `NOT_IN_LEAGUE` (the group's league is where the switch is attempted) |
 | Unknown league slug | `UNKNOWN_LEAGUE` (query returns null for the page's 404) |
 | Feature flag off | `LEAGUES_DISABLED` from every public function |
 | Join, leave, rejoin in one month | Two intervals in the same group; both count; one member row |
 | Leave, then join a **different** group in the same month | Allowed, but the new interval opens on the **1st of next month**, not tomorrow. This preserves one-group-per-month (§4.1) |
 | No group reaches 10 boards | Snapshot with `winnerGroupId: null` |
+| Top two groups tie on BOTH the 1dp average and boards | No single winner: `winnerGroupId: null` |
 | Board edited in a closed month | Live rows update; snapshot never does |
 | Player pruned by `e2ePrune` | Intervals and member rows deleted; group rows get the negative delta (§7) |
 
