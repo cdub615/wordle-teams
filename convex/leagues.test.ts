@@ -711,6 +711,8 @@ describe('closing a month', () => {
       await ctx.db.insert('leagueMonthResults', row)
       await ctx.db.insert('leagueMonthResults', row)
       expect(await closeLeagueMonthFor(ctx, leagueId, '2026-09')).toBe(false)
+      // the call site that runs INLINE in the sweep
+      expect(await scheduleLeagueClosesFor(ctx, '2026-10-02')).toBe(0)
     })
   })
 

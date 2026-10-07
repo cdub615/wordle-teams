@@ -70,7 +70,7 @@ export async function seedLeagueFor(ctx: WriterCtx, spec: LeagueSpec, now: numbe
  *
  * SEED EARLY IN A MONTH. Seeding late on a month's last UTC day makes that month
  * closeable (joins count from tomorrow), so the sweep writes one empty "no
- * winner" snapshot for it. Seed earlier in a month to avoid that.
+ * winner" snapshot for it.
  */
 export const seedLeague = internalMutation({
   args: { slug: v.string() },
