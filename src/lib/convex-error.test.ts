@@ -211,7 +211,7 @@ test('CHALLENGE_NO_ACCEPTER says nobody else on that team can accept', () => {
 test.each([
   ['LEAGUES_DISABLED', "Leagues aren't available yet."],
   ['UNKNOWN_LEAGUE', "That league doesn't exist."],
-  ['UNKNOWN_GROUP', "That group isn't part of this league."],
+  ['UNKNOWN_GROUP', "That group doesn't exist."],
   ['ALREADY_IN_LEAGUE', "You're already in this league. Use Switch group to change."],
   ['NOT_IN_LEAGUE', "You're not in this league."],
 ])('%s has its own copy', (code, copy) => {
