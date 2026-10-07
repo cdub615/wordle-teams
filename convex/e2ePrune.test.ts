@@ -722,7 +722,7 @@ describe('public leagues (zic8.3)', () => {
   }
 
   test('a pruned player leaves no league rows and their group totals drop out', async () => {
-    const t = convexTest(schema, modules)
+    const t = newTest()
     const { leagueId, crane } = await seedLeague(t)
     await t.run(async (ctx) => {
       const e2e = await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS, legacyId: undefined }))
@@ -750,7 +750,7 @@ describe('public leagues (zic8.3)', () => {
   })
 
   test('a player mid-switch is uncounted from the group that counts them, the pending one', async () => {
-    const t = convexTest(schema, modules)
+    const t = newTest()
     const { leagueId, crane, slate } = await seedLeague(t)
     await t.run(async (ctx) => {
       const e2e = await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS, legacyId: undefined }))
@@ -776,7 +776,7 @@ describe('public leagues (zic8.3)', () => {
   })
 
   test('a dry run counts the league rows and changes none of them', async () => {
-    const t = convexTest(schema, modules)
+    const t = newTest()
     const { leagueId, crane } = await seedLeague(t)
     await t.run(async (ctx) => {
       const e2e = await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS, legacyId: undefined }))
