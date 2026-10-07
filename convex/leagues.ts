@@ -452,19 +452,29 @@ export async function myLeaguesFor(ctx: ReaderCtx, playerId: Id<'players'>, toda
     .collect()
   const out = []
   for (const leagueId of new Set(rows.map((r) => r.leagueId))) {
-    const intervals = rows.filter((r) => r.leagueId === leagueId).sort((a, b) => a.fromDay.localeCompare(b.fromDay))
+    const intervals = rows.filter((r) => r.leagueId === leagueId)
     const membership = membershipOf(intervals, today)
     const league = await ctx.db.get(leagueId)
     if (!membership || !league) continue
     const groups = await groupsOf(ctx, leagueId)
-    const nameOf = (id: GroupId) => ({ _id: id, name: groups.find((g) => g._id === id)?.name ?? '' })
+    const nameOf = (id: GroupId) => {
+      const g = groups.find((x) => x._id === id)
+      return g ? { _id: id, name: g.name } : null
+    }
+    const group = nameOf(membership.groupId)
+    const pendingGroup = membership.pendingGroupId ? nameOf(membership.pendingGroupId) : null
+    if (!group || (membership.pendingGroupId && !pendingGroup)) {
+      // A membership naming a group the league does not have: a broken invariant. Skip, never render a blank name.
+      console.error('myLeaguesFor: membership names a group missing from its league', { playerId, leagueId, groupId: membership.groupId, pendingGroupId: membership.pendingGroupId })
+      continue
+    }
     const standing = (await currentStandings(ctx, leagueId, groups, monthOf(today))).find((s) => s.groupId === membership.groupId)
     out.push({
       league: { slug: league.slug, name: league.name },
       leagueId,
-      group: nameOf(membership.groupId),
+      group,
       since: membership.since,
-      pending: membership.pendingGroupId ? { group: nameOf(membership.pendingGroupId), from: membership.pendingFrom! } : null,
+      pending: pendingGroup ? { group: pendingGroup, from: membership.pendingFrom! } : null,
       rank: standing?.rank ?? null,
       average: standing?.average ?? null,
       boards: standing?.boards ?? 0,
@@ -491,7 +501,7 @@ export async function myContributionFor(ctx: ReaderCtx, playerId: Id<'players'>,
     .query('leagueGroupMonth')
     .withIndex('by_group_year_month', (q) => q.eq('groupId', mine.groupId).eq('year', year).eq('month', month))
     .unique()
-  return contributionOf(mine, group ?? mine)
+  return contributionOf(mine, group ?? { boards: 0, attempts: 0 })
 }
 
 export const myLeagues = query({

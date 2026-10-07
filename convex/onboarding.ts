@@ -3,12 +3,13 @@ import { currentPlayer, requirePlayer } from './access'
 import { leaguesEnabled } from './lib/league.ts'
 
 /**
- * The two onboarding facts the client cannot already derive.
+ * The three onboarding facts the client cannot already derive (enteredBoard,
+ * dismissed, inLeague).
  *
  * WHY THIS QUERY IS SO SMALL, and why it must stay that way. The card needs
  * four booleans; three of them (hasTeam, hasInvited, and dismissal's absence)
  * come from data routes/app.tsx ALREADY subscribes to via getMyTeams. Only
- * these two are new.
+ * these three are new.
  *
  * THAT IS A DELIBERATE FAN-OUT DECISION, not a coincidence. getMyTeamsFor runs
  * `ctx.db.query('teams').collect()` — a full scan of every team in the system
@@ -71,6 +72,9 @@ export const getStatus = query({
     // caller's own id like everything else here, so nobody else's activity can
     // invalidate it. Reported as in-league while the feature is dark, so the
     // step never offers something that would refuse.
+    // ANY membership row counts, INCLUDING A LEFT ONE, deliberately: a player who
+    // left chose to and is not re-offered the step (spec §8.4). Do NOT "fix"
+    // this to use membershipOf.
     const inLeague =
       !leaguesEnabled(process.env.LEAGUES_ENABLED) ||
       (await ctx.db

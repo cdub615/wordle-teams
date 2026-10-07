@@ -835,6 +835,64 @@ describe('myLeaguesFor', () => {
     })
   })
 
+  test('pending-only: just joined, starts tomorrow', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.slate, fromDay: '2026-10-08' })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.slate, year: 2026, month: 10, boards: 10, attempts: 40, contributors: 2 })
+      expect(await myLeaguesFor(ctx, playerId, today)).toEqual([
+        {
+          league: { slug: 'starting-words', name: 'Starting Words' },
+          leagueId,
+          group: { _id: group.slate, name: 'SLATE' },
+          since: '2026-10-08',
+          pending: null,
+          rank: 1,
+          average: 4,
+          boards: 10,
+        },
+      ])
+    })
+  })
+
+  test('two leagues: one row each, each with its own league group', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const otherId = await seedLeagueFor(ctx, { slug: 'other', name: 'Other', featured: false, groups: [{ slug: 'solo', name: 'Solo' }] }, 0)
+      const solo = (await groupsOf(ctx, otherId))[0]!
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-09-01' })
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId: otherId, groupId: solo._id, fromDay: '2026-09-05' })
+      const rows = await myLeaguesFor(ctx, playerId, today)
+      expect(rows.map((r) => [r.league.slug, r.group.name, r.since]).sort()).toEqual([
+        ['other', 'Solo', '2026-09-05'],
+        ['starting-words', 'CRANE', '2026-09-01'],
+      ])
+    })
+  })
+
+  test('a membership naming a missing group is skipped, not rendered blank', async () => {
+    const t = convexTest(schema, modules)
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await t.run(async (ctx) => {
+        const { leagueId, group } = await seedStartingWords(ctx)
+        const otherId = await seedLeagueFor(ctx, { slug: 'other', name: 'Other', featured: false, groups: [{ slug: 'solo', name: 'Solo' }] }, 0)
+        const playerId = await ctx.db.insert('players', aPlayer())
+        // Foreign group id: valid document, but not in this league's groups.
+        await ctx.db.insert('leagueMemberships', { playerId, leagueId: otherId, groupId: group.crane, fromDay: '2026-09-01' })
+        expect(await myLeaguesFor(ctx, playerId, today)).toEqual([])
+        expect(leagueId).toBeDefined()
+      })
+      expect(err).toHaveBeenCalled()
+    } finally {
+      err.mockRestore()
+    }
+  })
+
   test('a left league is not listed', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -867,6 +925,15 @@ describe('myContributionFor', () => {
       await seedStartingWords(ctx)
       const playerId = await ctx.db.insert('players', aPlayer())
       expect(await myContributionFor(ctx, playerId, 'starting-words', today)).toBeNull()
+    })
+  })
+  test('a member row with no group row reports group null, shift null', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberMonth', { playerId, leagueId, groupId: group.crane, year: 2026, month: 10, boards: 12, attempts: 30 })
+      expect(await myContributionFor(ctx, playerId, 'starting-words', today)).toEqual({ mine: 2.5, group: null, shift: null })
     })
   })
   test('null for an unknown league', async () => {
