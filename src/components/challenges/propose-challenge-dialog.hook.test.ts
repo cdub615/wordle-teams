@@ -130,10 +130,19 @@ describe('the "Challenge a team" control', () => {
 
 // ───────────────────────────── the dialog ─────────────────────────────
 
-const TEAMS = [
-  { id: teamId('team-a'), name: 'Alphas' },
-  { id: CURRENT, name: 'Current Crew' },
-  { id: teamId('team-b'), name: 'Bravos' },
+const playerId = (value: string) => value as Id<'players'>
+const VIEWER = playerId('player-viewer')
+/** Every team in TEAMS has the viewer AND somebody else, so all are proposable. */
+const withMate = [{ id: VIEWER }, { id: playerId('player-mate') }]
+
+const TEAMS: ReadonlyArray<{
+  id: Id<'teams'>
+  name: string
+  members: ReadonlyArray<{ id: Id<'players'> }>
+}> = [
+  { id: teamId('team-a'), name: 'Alphas', members: withMate },
+  { id: CURRENT, name: 'Current Crew', members: withMate },
+  { id: teamId('team-b'), name: 'Bravos', members: withMate },
 ]
 
 type DialogProps = Parameters<typeof ProposeChallengeDialog>[0]
@@ -143,11 +152,13 @@ function dialog({
   proposeToTeam = vi.fn<DialogProps['proposeToTeam']>().mockResolvedValue('challenge-1'),
   proposeByLink = vi.fn<DialogProps['proposeByLink']>().mockResolvedValue(TOKEN),
   onOpenChange = vi.fn<DialogProps['onOpenChange']>(),
+  viewerId = VIEWER,
 }: {
   teams?: typeof TEAMS
   proposeToTeam?: Mock<DialogProps['proposeToTeam']>
   proposeByLink?: Mock<DialogProps['proposeByLink']>
   onOpenChange?: Mock<DialogProps['onOpenChange']>
+  viewerId?: DialogProps['viewerId']
 } = {}) {
   const props = {
     open: true,
@@ -155,6 +166,7 @@ function dialog({
     teamId: CURRENT,
     teamName: 'Current Crew',
     teams,
+    viewerId,
     proposeToTeam,
     proposeByLink,
   }
@@ -195,7 +207,7 @@ describe('4. your other teams', () => {
   })
 
   test('with no other team: one line pointing at the link, instead of an empty list', () => {
-    dialog({ teams: [{ id: CURRENT, name: 'Current Crew' }] })
+    dialog({ teams: [{ id: CURRENT, name: 'Current Crew', members: withMate }] })
     expect(screen.queryByRole('list')).toBeNull()
     expect(screen.queryByText(/not on any other team.*link/i)).not.toBeNull()
     // The link option it points at is still there.
@@ -296,6 +308,7 @@ const PROPOSE_REFUSALS = [
   'CHALLENGE_EXISTS',
   'CHALLENGES_REFUSED',
   'CHALLENGES_DISABLED',
+  'CHALLENGE_NO_ACCEPTER',
 ] as const satisfies ReadonlyArray<AccessCode>
 
 describe('7. every refusal surfaces its own copy, and the dialog stays open', () => {
@@ -381,4 +394,68 @@ test('9. a successful direct proposal: "Challenge sent to <team>", and the dialo
   await waitFor(() => expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(false))
   expect(toastSuccess).toHaveBeenCalledExactlyOnceWith('Challenge sent to Bravos')
   expect(toastError).not.toHaveBeenCalled()
+})
+
+// ─────────────────────── 10. a team only you are on ───────────────────────
+//
+// wordle-teams-zic8.2.24. The server refuses CHALLENGE_NO_ACCEPTER when the
+// opponent's only member is the proposer: nobody could ever accept it. The
+// dialog says so BEFORE the tap, and SHOWS the team rather than hiding it — a
+// team the viewer knows they are on, silently missing from "Your other teams",
+// would read as a bug. The reason is the button's DESCRIPTION, so a screen
+// reader hears why it is disabled, not only that it is.
+
+const SOLO = { id: teamId('team-solo'), name: 'Solo Act', members: [{ id: VIEWER }] }
+const ONLY_YOU = 'Only you are on this team'
+
+describe('10. a team only you are on', () => {
+  test('is listed, disabled, with "Only you are on this team" as its description', () => {
+    dialog({ teams: [...TEAMS, SOLO] })
+    const solo = screen.getByRole('button', { name: 'Solo Act' })
+    expect(solo.hasAttribute('disabled')).toBe(true)
+    expect(solo.getAttribute('aria-disabled')).toBe('true')
+
+    const reason = screen.getByText(ONLY_YOU)
+    expect(reason.id).not.toBe('')
+    expect((solo.getAttribute('aria-describedby') ?? '').split(' ')).toContain(reason.id)
+  })
+
+  test('cannot be chosen: a tap proposes nothing', async () => {
+    const { proposeToTeam, onOpenChange } = dialog({ teams: [...TEAMS, SOLO] })
+    fireEvent.click(screen.getByRole('button', { name: 'Solo Act' }))
+    // A microtask for a handler that should not have run to have run anyway.
+    await act(async () => {})
+    expect(proposeToTeam).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  test('a team with one other member is enabled and carries no such reason', () => {
+    dialog({ teams: [...TEAMS, SOLO] })
+    const alphas = screen.getByRole('button', { name: 'Alphas' })
+    expect(alphas.hasAttribute('disabled')).toBe(false)
+    expect(alphas.getAttribute('aria-describedby')).toBeNull()
+    // Exactly one reason line: the solo team's, not one per row.
+    expect(screen.getAllByText(ONLY_YOU)).toHaveLength(1)
+  })
+
+  // NOT KNOWING WHO IS LOOKING DISABLES NOTHING. With no viewer id every member
+  // counts as somebody else, so the row is offered and the server's
+  // CHALLENGE_NO_ACCEPTER is the answer — never a dialog of greyed-out teams.
+  test('with no viewer id, a solo team is not disabled (the server still refuses)', () => {
+    dialog({ teams: [...TEAMS, SOLO], viewerId: null })
+    const solo = screen.getByRole('button', { name: 'Solo Act' })
+    expect(solo.hasAttribute('disabled')).toBe(false)
+    expect(screen.queryByText(ONLY_YOU)).toBeNull()
+  })
+
+  test('beside a solo team, a team with another member still proposes and closes', async () => {
+    const { proposeToTeam, onOpenChange } = dialog({ teams: [SOLO, ...TEAMS] })
+    fireEvent.click(screen.getByRole('button', { name: 'Bravos' }))
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(false))
+    expect(proposeToTeam).toHaveBeenCalledExactlyOnceWith({
+      challengerTeamId: CURRENT,
+      opponentTeamId: teamId('team-b'),
+    })
+    expect(toastSuccess).toHaveBeenCalledExactlyOnceWith('Challenge sent to Bravos')
+  })
 })

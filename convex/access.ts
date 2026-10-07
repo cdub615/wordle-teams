@@ -144,6 +144,10 @@ export type AccessCode =
   // teams, so membership alone would let one person start a challenge with no
   // one on the other team consenting. claimChallengeLinkFor raises it only
   // after every CHALLENGE_LINK_INVALID check, so it never tells a dead token apart.
+  // CHALLENGE_NO_ACCEPTER (wordle-teams-zic8.2.24) is a direct proposal to a team
+  // whose only member is the proposer: since nobody may answer their own
+  // challenge, nobody could ever accept it. proposeToTeamFor only; a link's
+  // claimer is the accepter, so the link path cannot reach it.
   | 'CHALLENGES_REFUSED'
   | 'CHALLENGE_LIMIT_REACHED'
   | 'CHALLENGE_EXISTS'
@@ -153,6 +157,7 @@ export type AccessCode =
   | 'CHALLENGE_NOT_ACTIVE'
   | 'CHALLENGES_DISABLED'
   | 'CHALLENGE_OWN_PROPOSAL'
+  | 'CHALLENGE_NO_ACCEPTER'
 
 /**
  * Throws a ConvexError carrying `{ code }`.

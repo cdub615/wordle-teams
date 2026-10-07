@@ -69,11 +69,27 @@ async function seedTwoTeams(ctx: Ctx, { pro = true } = {}) {
   return { playerId, challengerTeamId, opponentTeamId }
 }
 
+/**
+ * seedTwoTeams plus a second member of the opponent team. Email overridden; see
+ * seedAccepter.
+ *
+ * THE SHAPE EVERY SUCCESSFUL DIRECT PROPOSAL NEEDS (wordle-teams-zic8.2.24).
+ * seedTwoTeams' opponent holds only the proposer, and proposeToTeamFor refuses
+ * that with CHALLENGE_NO_ACCEPTER: nobody on it could ever accept. A propose
+ * test that means to reach the pair checks, or to succeed, seeds this instead.
+ */
+async function seedWithTeammate(ctx: Ctx) {
+  const seeded = await seedTwoTeams(ctx)
+  const teammateId = await ctx.db.insert('players', aPlayer({ email: 'teammate@example.com' }))
+  await ctx.db.patch(seeded.opponentTeamId, { playerIds: [seeded.playerId, teammateId] })
+  return { ...seeded, teammateId }
+}
+
 describe('proposeToTeamFor', () => {
   test('a Pro member on both teams creates a pending challenge', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       const id = await proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId)
       const doc = await ctx.db.get(id)
       expect(doc?.status).toBe('pending')
@@ -95,20 +111,27 @@ describe('proposeToTeamFor', () => {
     })
   })
 
+  // A TEAMMATE ON THE CHALLENGER, which is also the "opponent" here: alone on
+  // it, the proposer would hear CHALLENGE_NO_ACCEPTER first, and this would no
+  // longer be about naming your own team.
   test('a team cannot challenge itself', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { playerId, challengerTeamId } = await seedTwoTeams(ctx)
+      const teammateId = await ctx.db.insert('players', aPlayer({ email: 'teammate@example.com' }))
+      await ctx.db.patch(challengerTeamId, { playerIds: [playerId, teammateId] })
       await expect(
         proposeToTeamFor(ctx, playerId, challengerTeamId, challengerTeamId),
       ).rejects.toMatchObject({ data: { code: 'INVALID_TEAM' } })
     })
   })
 
+  // WITH A TEAMMATE, so the refusal is the owner's switch and not the empty
+  // roster: CHALLENGE_NO_ACCEPTER must not fire for a team someone could answer for.
   test('an opponent refusing incoming challenges is refused', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       await ctx.db.patch(opponentTeamId, { acceptsChallenges: false })
       await expect(
         proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId),
@@ -119,7 +142,7 @@ describe('proposeToTeamFor', () => {
   test('a second active challenge against the SAME opponent is refused', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       const id = await proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId)
       await ctx.db.patch(id, { status: 'active', startDay: '2026-10-05', endDay: '2026-10-31' })
       await expect(
@@ -131,7 +154,7 @@ describe('proposeToTeamFor', () => {
   test('the pair rule also catches the REVERSE direction', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       await ctx.db.insert('teamChallenges', {
         challengerTeamId: opponentTeamId,
         opponentTeamId: challengerTeamId,
@@ -151,7 +174,7 @@ describe('proposeToTeamFor', () => {
   test('at MAX_ACTIVE_CHALLENGES the challenger is refused', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       for (let i = 0; i < MAX_ACTIVE_CHALLENGES; i++) {
         const otherId = await ctx.db.insert(
           'teams',
@@ -177,7 +200,7 @@ describe('proposeToTeamFor', () => {
   test('one BELOW the cap is allowed — the boundary tested in both directions', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       for (let i = 0; i < MAX_ACTIVE_CHALLENGES - 1; i++) {
         const otherId = await ctx.db.insert(
           'teams',
@@ -222,7 +245,7 @@ describe('proposeToTeamFor', () => {
   test('a closed challenge does not count toward the cap', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       const id = await proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId)
       await ctx.db.patch(id, { status: 'closed' })
       expect(await liveChallengeCountFor(ctx, challengerTeamId)).toBe(0)
@@ -232,7 +255,7 @@ describe('proposeToTeamFor', () => {
   test('an opponent at the cap is refused, though the challenger has room', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       for (let i = 0; i < MAX_ACTIVE_CHALLENGES; i++) {
         const otherId = await ctx.db.insert(
           'teams',
@@ -260,7 +283,7 @@ describe('proposeToTeamFor', () => {
   test('an opponent ONE BELOW the cap is allowed', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       for (let i = 0; i < MAX_ACTIVE_CHALLENGES - 1; i++) {
         const otherId = await ctx.db.insert(
           'teams',
@@ -303,7 +326,7 @@ describe('proposeToTeamFor', () => {
   test('declined, withdrawn, expired and closed challenges occupy no slot', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       for (const status of ['declined', 'withdrawn', 'expired', 'closed'] as const) {
         await ctx.db.insert('teamChallenges', {
           challengerTeamId,
@@ -325,7 +348,7 @@ describe('proposeToTeamFor', () => {
   test('a pending LINK proposal (no opponent yet) blocks no pair and lists once', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+      const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
       await ctx.db.insert('teamChallenges', {
         challengerTeamId,
         proposedBy: playerId,
@@ -366,6 +389,50 @@ describe('proposeToTeamFor', () => {
       await expect(
         proposeToTeamFor(ctx, playerId, strangersTeam, challengerTeamId),
       ).rejects.toMatchObject({ data: { code: 'NOT_A_MEMBER' } })
+    })
+  })
+
+  // NOBODY COULD EVER ACCEPT (wordle-teams-zic8.2.24). A direct proposer is on
+  // both teams, and since zic8.2.23 cannot accept their own proposal — so when
+  // they are the opponent's ONLY member the challenge could only sit pending,
+  // holding a MAX_ACTIVE_CHALLENGES slot on both sides and blocking the pair
+  // until it expired. Refused up front, and refused BEFORE the insert.
+  describe('an opponent with nobody else on it (CHALLENGE_NO_ACCEPTER)', () => {
+    test('the proposer alone on the opponent is refused, and no challenge is written', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+        await expect(
+          proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId),
+        ).rejects.toMatchObject({ data: { code: 'CHALLENGE_NO_ACCEPTER' } })
+        expect(await ctx.db.query('teamChallenges').collect()).toEqual([])
+      })
+    })
+
+    test('one other member on the opponent is enough: the proposal is made', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { playerId, challengerTeamId, opponentTeamId } = await seedWithTeammate(ctx)
+        const id = await proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId)
+        const doc = await ctx.db.get(id)
+        expect(doc?.status).toBe('pending')
+        expect(doc?.opponentTeamId).toBe(opponentTeamId)
+      })
+    })
+
+    // WHICH REFUSAL WINS when the solo opponent ALSO has challenges switched off.
+    // The empty roster does: it is the permanent reason. Flipping the switch on
+    // would not make the proposal answerable, so CHALLENGES_REFUSED would send
+    // the proposer (usually that team's owner) to a setting that cannot help.
+    test('a solo opponent that also refuses challenges hears CHALLENGE_NO_ACCEPTER', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { playerId, challengerTeamId, opponentTeamId } = await seedTwoTeams(ctx)
+        await ctx.db.patch(opponentTeamId, { acceptsChallenges: false })
+        await expect(
+          proposeToTeamFor(ctx, playerId, challengerTeamId, opponentTeamId),
+        ).rejects.toMatchObject({ data: { code: 'CHALLENGE_NO_ACCEPTER' } })
+      })
     })
   })
 })
@@ -1068,14 +1135,6 @@ describe('the proposer cannot answer their own challenge', () => {
   afterEach(() => {
     vi.useRealTimers()
   })
-
-  /** seedTwoTeams plus a second member of the opponent team. Email overridden; see seedAccepter. */
-  async function seedWithTeammate(ctx: Ctx) {
-    const seeded = await seedTwoTeams(ctx)
-    const teammateId = await ctx.db.insert('players', aPlayer({ email: 'teammate@example.com' }))
-    await ctx.db.patch(seeded.opponentTeamId, { playerIds: [seeded.playerId, teammateId] })
-    return { ...seeded, teammateId }
-  }
 
   test('a dual-member proposer is refused CHALLENGE_OWN_PROPOSAL on accept, and nothing changes', async () => {
     const t = convexTest(schema, modules)

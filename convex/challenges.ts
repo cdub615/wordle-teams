@@ -167,7 +167,32 @@ export async function proposeToTeamFor(
   // THE DUAL-MEMBERSHIP ENTRY POINT: you may name a team you are on. Naming a
   // team you are NOT on is the searchable-directory feature, which is out of
   // scope — the link path is how you reach a team you do not belong to.
-  await requireTeamMemberFor(ctx, playerId, opponentTeamId)
+  const opponent = await requireTeamMemberFor(ctx, playerId, opponentTeamId)
+
+  // SOMEONE ELSE MUST BE ABLE TO ANSWER (wordle-teams-zic8.2.24). The proposer
+  // is on the opponent too, and since zic8.2.23 cannot accept their own
+  // proposal, so an opponent whose only member is the proposer could never
+  // accept: the row would sit pending, hold a MAX_ACTIVE_CHALLENGES slot on both
+  // teams and block the pair until it expired.
+  //
+  // HERE, BEFORE requireChallengeablePair, because it is about this proposer
+  // and this roster and nothing a wait or a setting can change. After the pair
+  // checks, a solo team at its cap would hear CHALLENGE_LIMIT_REACHED ("wait
+  // for one to finish"), and a solo team with challenges off CHALLENGES_REFUSED
+  // — both true, neither the reason. It reuses the team requireTeamMemberFor
+  // already read. A self-challenge from a solo team hears this rather than
+  // INVALID_TEAM; the dialog never offers the current team, so only a hand-made
+  // call can ask, and either answer refuses it.
+  //
+  // IDS, NOT RESOLVED PLAYERS. A roster id with no player row counts as another
+  // member, as it does for requireTeamMemberFor and every other roster check.
+  // Resolving rows would cost reads to catch a dangling id, which the schema
+  // permits but no writer produces (see getMyTeamsFor's null check: a scoped
+  // copy is the only source). The dialog, reading getMyTeams' resolved members,
+  // is the stricter of the two there, so it errs towards not offering the team.
+  if (!opponent.playerIds.some((id) => id !== playerId)) {
+    throw accessError('CHALLENGE_NO_ACCEPTER')
+  }
 
   await requireChallengeablePair(ctx, challengerTeamId, opponentTeamId)
 
