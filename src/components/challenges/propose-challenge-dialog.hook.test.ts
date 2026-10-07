@@ -152,11 +152,13 @@ function dialog({
   proposeToTeam = vi.fn<DialogProps['proposeToTeam']>().mockResolvedValue('challenge-1'),
   proposeByLink = vi.fn<DialogProps['proposeByLink']>().mockResolvedValue(TOKEN),
   onOpenChange = vi.fn<DialogProps['onOpenChange']>(),
+  viewerId = VIEWER,
 }: {
   teams?: typeof TEAMS
   proposeToTeam?: Mock<DialogProps['proposeToTeam']>
   proposeByLink?: Mock<DialogProps['proposeByLink']>
   onOpenChange?: Mock<DialogProps['onOpenChange']>
+  viewerId?: DialogProps['viewerId']
 } = {}) {
   const props = {
     open: true,
@@ -164,7 +166,7 @@ function dialog({
     teamId: CURRENT,
     teamName: 'Current Crew',
     teams,
-    viewerId: VIEWER,
+    viewerId,
     proposeToTeam,
     proposeByLink,
   }
@@ -434,6 +436,16 @@ describe('10. a team only you are on', () => {
     expect(alphas.getAttribute('aria-describedby')).toBeNull()
     // Exactly one reason line: the solo team's, not one per row.
     expect(screen.getAllByText(ONLY_YOU)).toHaveLength(1)
+  })
+
+  // NOT KNOWING WHO IS LOOKING DISABLES NOTHING. With no viewer id every member
+  // counts as somebody else, so the row is offered and the server's
+  // CHALLENGE_NO_ACCEPTER is the answer — never a dialog of greyed-out teams.
+  test('with no viewer id, a solo team is not disabled (the server still refuses)', () => {
+    dialog({ teams: [...TEAMS, SOLO], viewerId: null })
+    const solo = screen.getByRole('button', { name: 'Solo Act' })
+    expect(solo.hasAttribute('disabled')).toBe(false)
+    expect(screen.queryByText(ONLY_YOU)).toBeNull()
   })
 
   test('beside a solo team, a team with another member still proposes and closes', async () => {
