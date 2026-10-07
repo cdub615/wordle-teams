@@ -285,6 +285,10 @@ describe('repairMisdatedBoards', () => {
           statsChanged: true,
           statsCreated: true,
           players: [{ player: uuid(1), boardsBefore: 2, boardsAfter: 2 }],
+          // No winner row: nothing stored to drift from.
+          storedWinner: null,
+          winnerAfterMoves: null,
+          winnerDrift: false,
         },
       ],
     })
@@ -373,6 +377,11 @@ describe('repairMisdatedBoards', () => {
         statsChanged: true,
         statsCreated: false,
         players: [{ player: uuid(1), boardsBefore: 0, boardsAfter: 1 }],
+        // INFORMATION ONLY: the move hands January to Ada, and the apply below
+        // still leaves the stored winner (Bob) alone.
+        storedWinner: uuid(2),
+        winnerAfterMoves: uuid(1),
+        winnerDrift: true,
       },
       {
         team: 206,
@@ -380,6 +389,10 @@ describe('repairMisdatedBoards', () => {
         statsChanged: true,
         statsCreated: false,
         players: [{ player: uuid(1), boardsBefore: 2, boardsAfter: 1 }],
+        // Ada's FROTH stays on 2025-02-01 and is the board February scores.
+        storedWinner: uuid(1),
+        winnerAfterMoves: uuid(1),
+        winnerDrift: false,
       },
     ])
 
@@ -466,6 +479,24 @@ describe('repairMisdatedBoards', () => {
       /plan changed.*found 2025-02:$/,
     )
     expect(await snapshotAll(t)).toEqual(before)
+  })
+
+  test('winner drift is false when the moves change a total but not who wins', async () => {
+    // Ada's move adds a board to her January, and she was already winning it.
+    const t = convexTest(schema, modules)
+    const { ada } = await seedMisdated(t)
+    const bob = await seedPlayer(t, 2)
+    await seedBoard(t, bob, '2025-01-15', 'KNOLL', { legacyId: 3, guesses: ['CRANE', 'SLATE', 'KNOLL'] })
+    const team = await seedTeam(t, 206, [bob, ada])
+    await t.run(async (ctx) => recomputeTeamMonth(ctx, (await ctx.db.get(team))!, MONTH, toPuzzleDay(new Date())))
+    const winners = await t.run(async (ctx) => ctx.db.query('monthlyWinners').collect())
+    expect(winners.map((w) => w.playerId)).toEqual([ada])
+
+    const { dry } = await dryThenApply(t)
+    expect(dry.teamMonths).toMatchObject([
+      { team: 206, month: MONTH, storedWinner: uuid(1), winnerAfterMoves: uuid(1), winnerDrift: false },
+    ])
+    expect(await t.run(async (ctx) => ctx.db.query('monthlyWinners').collect())).toEqual(winners)
   })
 
   test("rolls up only teams holding a moved player, and only that player's months", async () => {
@@ -559,11 +590,17 @@ describe('repairMisdatedBoards', () => {
     const r1 = await seedBoard(t, ada, '2025-01-10', 'CHARM', { legacyId: 1 })
     const r2 = await seedBoard(t, ada, '2025-01-10', 'BRAVO', { legacyId: 2 })
     const native = await seedPlayer(t, 2, { legacyId: undefined, firstName: 'Natsuko' })
-    await seedBoard(t, native, '2025-01-11', 'DELTA', { legacyId: 3 })
+    // Natsuko's one-guess DELTA wins January as stored; Ada's move overtakes it.
+    await seedBoard(t, native, '2025-01-11', 'DELTA', { legacyId: 3, guesses: ['DELTA'] })
     await seedBoard(t, native, '2025-01-11', 'GLOAT', { legacyId: 4 })
     const team = await seedTeam(t, undefined, [ada, native])
+    await t.run(async (ctx) => recomputeTeamMonth(ctx, (await ctx.db.get(team))!, MONTH, toPuzzleDay(new Date())))
     const probe = await probeAll(t)
     const { dry, real } = await dryThenApply(t)
+    // The winner drift names players as everything else does: legacy id or v2-native.
+    expect(dry.teamMonths).toMatchObject([
+      { team: 'v2-native', storedWinner: 'v2-native', winnerAfterMoves: uuid(1), winnerDrift: true },
+    ])
     const wire = JSON.stringify([probe, dry, real])
     expect(wire).toContain(uuid(1))
     expect(wire).toContain('"v2-native"')

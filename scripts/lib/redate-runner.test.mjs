@@ -18,6 +18,7 @@ import {
   redateFingerprint,
   sourceMonthsWithMoves,
   summarizePlans,
+  winnerDriftLines,
 } from './redate-runner.mjs'
 
 // wordle-teams-c442.3: what scripts/redate-misdated-boards.mjs decides before it
@@ -348,5 +349,48 @@ describe('classifyRefusals and classifyApplyError, as this runner meets them', (
       'refused',
     )
     expect(classifyApplyError(new TypeError('fetch failed'))).toBe('unconfirmed')
+  })
+})
+
+describe('winnerDriftLines — information for the owner, never written', () => {
+  const tm = (team, month, storedWinner, winnerAfterMoves, winnerDrift) => ({
+    team,
+    month,
+    statsChanged: true,
+    statsCreated: false,
+    players: [],
+    storedWinner,
+    winnerAfterMoves,
+    winnerDrift,
+  })
+  const UUID_A = '00000000-0000-4000-8000-000000000001'
+  const UUID_B = '00000000-0000-4000-8000-000000000002'
+
+  test('one line per team-month under a heading that says nothing is written', () => {
+    expect(
+      winnerDriftLines([
+        tm(206, '2025-01', UUID_B, UUID_A, true),
+        tm(206, '2025-02', UUID_A, UUID_A, false),
+        tm('v2-native', '2025-01', null, null, false),
+      ]),
+    ).toEqual([
+      '  WINNER DRIFT (not written):',
+      `    team 206 2025-01: DRIFT: stored ${UUID_B}, after the moves ${UUID_A}`,
+      `    team 206 2025-02: no drift (stored ${UUID_A})`,
+      '    team v2-native 2025-01: no winner row',
+    ])
+  })
+
+  test('nothing when no team-month is rolled up', () => {
+    expect(winnerDriftLines([])).toEqual([])
+  })
+
+  test('drift never reaches the fingerprint: it is the keys alone', () => {
+    const key = '2025-01:2:2025-01-10>2025-01-09'
+    const bare = redateFingerprint([{ month: '2025-01', redateKey: key }])
+    const drifting = redateFingerprint([
+      { month: '2025-01', redateKey: key, teamMonths: [tm(206, '2025-01', UUID_B, UUID_A, true)] },
+    ])
+    expect(drifting).toBe(bare)
   })
 })
