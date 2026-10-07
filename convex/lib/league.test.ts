@@ -509,11 +509,55 @@ describe('a closed interval is live only for a genuine month-boundary switch', (
     ]
     expect(membershipOf(state, '2026-10-31')).toMatchObject({ groupId: 'crane', pendingGroupId: 'slate' })
   })
-  test('PINNED: a leave on the last day then same-day rejoin is indistinguishable from a switch', () => {
-    const state = [
-      { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-31' },
-      { groupId: 'crane', fromDay: '2026-11-01' },
-    ]
-    expect(membershipOf(state, '2026-10-31')).toMatchObject({ groupId: 'crane', pendingGroupId: 'crane' })
+  const pinned = [
+    { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-31' },
+    { groupId: 'crane', fromDay: '2026-11-01' },
+  ]
+  test('PINNED: a last-day leave then same-day rejoin reads as a switch, but never reports one to the same group', () => {
+    expect(membershipOf(pinned, '2026-10-31')).toEqual({
+      groupId: 'crane',
+      since: '2026-09-01',
+      pendingGroupId: null,
+      pendingFrom: null,
+    })
+  })
+  test('PINNED: switching to the same group nets to no count move, with the same ops', () => {
+    expect(planSwitch(pinned, '2026-10-31', 'crane')).toEqual({
+      ops: [
+        { op: 'delete', index: 1 },
+        { op: 'reopen', index: 0 },
+      ],
+      countFrom: null,
+      countTo: null,
+    })
+  })
+  test('PINNED: leaving patches, deletes the pending one, and counts crane out', () => {
+    expect(planLeave(pinned, '2026-10-31')).toEqual({
+      ops: [
+        { op: 'patch', index: 0, toDay: '2026-10-31' },
+        { op: 'delete', index: 1 },
+      ],
+      countFrom: 'crane',
+      countTo: null,
+    })
+  })
+  const genuine = [
+    { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-31' },
+    { groupId: 'slate', fromDay: '2026-11-01' },
+  ]
+  test('joining is refused while a genuine switch is pending', () => {
+    expect(planJoin(genuine, '2026-10-07', 'adieu')).toEqual({ refused: 'ALREADY_IN_LEAGUE' })
+  })
+  test('input order does not matter', () => {
+    const reversed = [genuine[1], genuine[0]]
+    expect(membershipOf(reversed, '2026-10-07')).toEqual(membershipOf(genuine, '2026-10-07'))
+    expect(planSwitch(reversed, '2026-10-07', 'crane')).toEqual({
+      ops: [
+        { op: 'delete', index: 0 },
+        { op: 'reopen', index: 1 },
+      ],
+      countFrom: 'slate',
+      countTo: 'crane',
+    })
   })
 })

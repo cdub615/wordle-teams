@@ -208,7 +208,10 @@ export function monthToClose(today: PuzzleDay, leagueCreatedDay: PuzzleDay): Puz
 /**
  * ONE STEP OF A MEMBERSHIP CHANGE, against the player's intervals for ONE
  * league, by index into the array the planner was given. The handler maps
- * indexes to document ids and applies the ops in order.
+ * indexes to document ids and applies the ops in order. The handler must map
+ * EVERY index to a document id BEFORE applying any op: no op references a row
+ * an earlier op inserted, and no plan touches one index twice. The order of the
+ * input intervals does not matter to the planners.
  *
  *   insert   — a new interval
  *   patch    — set an interval's toDay
@@ -232,6 +235,11 @@ export type MembershipPlan<G extends string = string> =
   | { ops: IntervalOp<G>[]; countFrom: G | null; countTo: G | null }
   | { refused: 'ALREADY_IN_LEAGUE' | 'NOT_IN_LEAGUE' }
 
+/** A plan whose count move is net-zero (countFrom === countTo) moves nothing. */
+function planOf<G extends string>(ops: IntervalOp<G>[], countFrom: G | null, countTo: G | null): MembershipPlan<G> {
+  return countFrom === countTo ? { ops, countFrom: null, countTo: null } : { ops, countFrom, countTo }
+}
+
 type Live<G extends string> = { started: number | null; pending: number | null; groupOf: (i: number) => G }
 
 /**
@@ -252,16 +260,19 @@ function isSwitchSuccessor(closedOn: PuzzleDay, pendingFrom: PuzzleDay): boolean
 function liveOf<G extends string>(intervals: readonly Interval<G>[], today: PuzzleDay): Live<G> {
   let started: number | null = null
   let pending: number | null = null
-  intervals.forEach((interval, i) => {
+  for (const [i, interval] of intervals.entries()) {
     if (interval.fromDay > today) pending = i
-  })
-  intervals.forEach((interval, i) => {
-    if (interval.fromDay > today) return
-    if (interval.toDay === undefined) started = i
-    else if (pending !== null && interval.toDay >= today && isSwitchSuccessor(interval.toDay, intervals[pending].fromDay)) {
+  }
+  for (const [i, interval] of intervals.entries()) {
+    if (interval.fromDay > today) continue
+    if (interval.toDay === undefined) {
       started = i
+    } else if (pending !== null && isSwitchSuccessor(interval.toDay, intervals[pending].fromDay)) {
+      // `toDay >= today` is implied (the successor opens after today); kept as a
+      // deliberate guard, an equivalent mutant no test can kill.
+      if (interval.toDay >= today) started = i
     }
-  })
+  }
   return { started, pending, groupOf: (i) => intervals[i].groupId }
 }
 
@@ -272,6 +283,7 @@ function firstOfNextMonth(today: PuzzleDay): PuzzleDay {
 /** Where a join into `groupId` opens: tomorrow, or the 1st if a DIFFERENT group already counted this month. */
 function joinFromDayFor<G extends string>(intervals: readonly Interval<G>[], today: PuzzleDay, groupId: G): PuzzleDay {
   const monthStart = monthRange(monthOf(today)).start
+  // The `toDay === undefined` branch is defensive: callers pass only non-live intervals.
   const otherGroupThisMonth = intervals.some(
     (i) => i.groupId !== groupId && (i.toDay === undefined || i.toDay >= monthStart),
   )
@@ -290,7 +302,8 @@ export function planJoin<G extends string>(
 ): MembershipPlan<G> {
   const live = liveOf(intervals, today)
   if (live.started !== null || live.pending !== null) return { refused: 'ALREADY_IN_LEAGUE' }
-  return { ops: [{ op: 'insert', groupId, fromDay: joinFromDayFor(intervals, today, groupId) }], countFrom: null, countTo: groupId }
+  const fromDay = joinFromDayFor(intervals, today, groupId)
+  return planOf([{ op: 'insert', groupId, fromDay }], null, groupId)
 }
 
 /** Switch. Takes effect on the 1st; see the state table in the plan's Task 2. */
@@ -305,11 +318,7 @@ export function planSwitch<G extends string>(
   if (pending !== null) {
     const pendingGroup = groupOf(pending)
     if (started !== null && groupOf(started) === groupId) {
-      return {
-        ops: [{ op: 'delete', index: pending }, { op: 'reopen', index: started }],
-        countFrom: pendingGroup,
-        countTo: groupId,
-      }
+      return planOf([{ op: 'delete', index: pending }, { op: 'reopen', index: started }], pendingGroup, groupId)
     }
     if (pendingGroup === groupId) return { ops: [], countFrom: null, countTo: null }
     if (started === null) {
@@ -320,26 +329,22 @@ export function planSwitch<G extends string>(
         groupId,
       )
       if (fromDay !== intervals[pending].fromDay) {
-        return {
-          ops: [{ op: 'delete', index: pending }, { op: 'insert', groupId, fromDay }],
-          countFrom: pendingGroup,
-          countTo: groupId,
-        }
+        return planOf([{ op: 'delete', index: pending }, { op: 'insert', groupId, fromDay }], pendingGroup, groupId)
       }
     }
-    return { ops: [{ op: 'retarget', index: pending, groupId }], countFrom: pendingGroup, countTo: groupId }
+    return planOf([{ op: 'retarget', index: pending, groupId }], pendingGroup, groupId)
   }
 
   const current = groupOf(started!)
   if (current === groupId) return { ops: [], countFrom: null, countTo: null }
-  return {
-    ops: [
+  return planOf(
+    [
       { op: 'patch', index: started!, toDay: lastDayOfMonth(today) },
       { op: 'insert', groupId, fromDay: firstOfNextMonth(today) },
     ],
-    countFrom: current,
-    countTo: groupId,
-  }
+    current,
+    groupId,
+  )
 }
 
 /** Leave. Effective today; boards already counted stay counted (§3). */
@@ -349,8 +354,9 @@ export function planLeave<G extends string>(intervals: readonly Interval<G>[], t
   const ops: IntervalOp<G>[] = []
   if (started !== null) ops.push({ op: 'patch', index: started, toDay: today })
   if (pending !== null) ops.push({ op: 'delete', index: pending })
-  return { ops, countFrom: groupOf(pending ?? started!), countTo: null }
+  return planOf(ops, groupOf(pending ?? started!), null)
 }
+
 /** What a player's membership looks like today, for myLeagues. Null if not a member. */
 export function membershipOf<G extends string>(
   intervals: readonly Interval<G>[],
@@ -363,6 +369,7 @@ export function membershipOf<G extends string>(
     return { groupId: p.groupId, since: p.fromDay, pendingGroupId: null, pendingFrom: null }
   }
   const s = intervals[started]
-  const p = pending === null ? null : intervals[pending]
+  // A "pending" interval in the SAME group (a last-day leave then rejoin) is not a switch to report.
+  const p = pending === null || intervals[pending].groupId === s.groupId ? null : intervals[pending]
   return { groupId: s.groupId, since: s.fromDay, pendingGroupId: p?.groupId ?? null, pendingFrom: p?.fromDay ?? null }
 }
