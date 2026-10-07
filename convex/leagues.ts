@@ -149,9 +149,9 @@ export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDa
  * re-runs on every league board write, so a tab left open past midnight would
  * otherwise hit INVALID_DATE with no user action.
  */
-export function readToday(today: string): PuzzleDay {
+export function readToday(today: PuzzleDay): PuzzleDay {
   const serverToday = toPuzzleDay(new Date())
-  return isPlausibleToday(today as PuzzleDay, serverToday) ? (today as PuzzleDay) : serverToday
+  return isPlausibleToday(today, serverToday) ? today : serverToday
 }
 
 /** RETURNS rather than throws when dark, so a page never errors on a dark deployment. */
