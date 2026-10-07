@@ -235,10 +235,19 @@ export type MembershipPlan<G extends string = string> =
 type Live<G extends string> = { started: number | null; pending: number | null; groupOf: (i: number) => G }
 
 /**
+ * A pending interval is the genuine successor of a closed one only when it opens
+ * the day after the close AND on the 1st of a month: that is a switch. (A leave
+ * ON the last day of a month followed by a same-day rejoin is indistinguishable
+ * from a switch; that is harmless, since every later op on it is valid.)
+ */
+function isSwitchSuccessor(closedOn: PuzzleDay, pendingFrom: PuzzleDay): boolean {
+  return pendingFrom === addDays(closedOn, 1) && pendingFrom === monthRange(monthOf(pendingFrom)).start
+}
+
+/**
  * Index of the started and the pending interval, if any. An interval carrying a
- * toDay is live ONLY while a pending successor exists (a switch: closed at month
- * end, successor from the 1st). With no successor it has been LEFT, whatever the
- * date, so leaving ends membership the same day.
+ * toDay is live ONLY while its genuine switch successor is pending. Otherwise it
+ * has been LEFT, whatever the date, so leaving ends membership the same day.
  */
 function liveOf<G extends string>(intervals: readonly Interval<G>[], today: PuzzleDay): Live<G> {
   let started: number | null = null
@@ -248,13 +257,25 @@ function liveOf<G extends string>(intervals: readonly Interval<G>[], today: Puzz
   })
   intervals.forEach((interval, i) => {
     if (interval.fromDay > today) return
-    if (interval.toDay === undefined || (pending !== null && interval.toDay >= today)) started = i
+    if (interval.toDay === undefined) started = i
+    else if (pending !== null && interval.toDay >= today && isSwitchSuccessor(interval.toDay, intervals[pending].fromDay)) {
+      started = i
+    }
   })
   return { started, pending, groupOf: (i) => intervals[i].groupId }
 }
 
 function firstOfNextMonth(today: PuzzleDay): PuzzleDay {
   return monthRange(addMonths(monthOf(today), 1)).start
+}
+
+/** Where a join into `groupId` opens: tomorrow, or the 1st if a DIFFERENT group already counted this month. */
+function joinFromDayFor<G extends string>(intervals: readonly Interval<G>[], today: PuzzleDay, groupId: G): PuzzleDay {
+  const monthStart = monthRange(monthOf(today)).start
+  const otherGroupThisMonth = intervals.some(
+    (i) => i.groupId !== groupId && (i.toDay === undefined || i.toDay >= monthStart),
+  )
+  return otherGroupThisMonth ? firstOfNextMonth(today) : addDays(today, 1)
 }
 
 /**
@@ -269,12 +290,7 @@ export function planJoin<G extends string>(
 ): MembershipPlan<G> {
   const live = liveOf(intervals, today)
   if (live.started !== null || live.pending !== null) return { refused: 'ALREADY_IN_LEAGUE' }
-  const monthStart = monthRange(monthOf(today)).start
-  const otherGroupThisMonth = intervals.some(
-    (i) => i.groupId !== groupId && (i.toDay === undefined || i.toDay >= monthStart),
-  )
-  const fromDay = otherGroupThisMonth ? firstOfNextMonth(today) : addDays(today, 1)
-  return { ops: [{ op: 'insert', groupId, fromDay }], countFrom: null, countTo: groupId }
+  return { ops: [{ op: 'insert', groupId, fromDay: joinFromDayFor(intervals, today, groupId) }], countFrom: null, countTo: groupId }
 }
 
 /** Switch. Takes effect on the 1st; see the state table in the plan's Task 2. */
@@ -296,6 +312,21 @@ export function planSwitch<G extends string>(
       }
     }
     if (pendingGroup === groupId) return { ops: [], countFrom: null, countTo: null }
+    if (started === null) {
+      // Pending only: it must open where a fresh join into the new group would.
+      const fromDay = joinFromDayFor(
+        intervals.filter((_, i) => i !== pending),
+        today,
+        groupId,
+      )
+      if (fromDay !== intervals[pending].fromDay) {
+        return {
+          ops: [{ op: 'delete', index: pending }, { op: 'insert', groupId, fromDay }],
+          countFrom: pendingGroup,
+          countTo: groupId,
+        }
+      }
+    }
     return { ops: [{ op: 'retarget', index: pending, groupId }], countFrom: pendingGroup, countTo: groupId }
   }
 

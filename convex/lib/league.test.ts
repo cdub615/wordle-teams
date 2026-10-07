@@ -455,3 +455,65 @@ describe('leaving ends membership the same day', () => {
     })
   })
 })
+
+describe('a closed interval is live only for a genuine month-boundary switch', () => {
+  const today = '2026-10-07'
+  const leftThenSame = [
+    { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-07' },
+    { groupId: 'crane', fromDay: '2026-10-08' },
+  ]
+  const leftThenOther = [
+    { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-07' },
+    { groupId: 'slate', fromDay: '2026-11-01' },
+  ]
+  test('leave then same-day rejoin of the same group reads as pending only', () => {
+    expect(membershipOf(leftThenSame, today)).toEqual({
+      groupId: 'crane',
+      since: '2026-10-08',
+      pendingGroupId: null,
+      pendingFrom: null,
+    })
+  })
+  test('leave then rejoin, then switch: moves the pending interval to the 1st', () => {
+    expect(planSwitch(leftThenSame, today, 'slate')).toEqual({
+      ops: [
+        { op: 'delete', index: 1 },
+        { op: 'insert', groupId: 'slate', fromDay: '2026-11-01' },
+      ],
+      countFrom: 'crane',
+      countTo: 'slate',
+    })
+  })
+  test('leave then join a different group, membership is that pending group', () => {
+    expect(membershipOf(leftThenOther, today)).toEqual({
+      groupId: 'slate',
+      since: '2026-11-01',
+      pendingGroupId: null,
+      pendingFrom: null,
+    })
+  })
+  test('leave then join a different group, then switch back: reopens from tomorrow, not the 1st', () => {
+    expect(planSwitch(leftThenOther, today, 'crane')).toEqual({
+      ops: [
+        { op: 'delete', index: 1 },
+        { op: 'insert', groupId: 'crane', fromDay: '2026-10-08' },
+      ],
+      countFrom: 'slate',
+      countTo: 'crane',
+    })
+  })
+  test('a genuine switch is live on the last day of the month', () => {
+    const state = [
+      { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-31' },
+      { groupId: 'slate', fromDay: '2026-11-01' },
+    ]
+    expect(membershipOf(state, '2026-10-31')).toMatchObject({ groupId: 'crane', pendingGroupId: 'slate' })
+  })
+  test('PINNED: a leave on the last day then same-day rejoin is indistinguishable from a switch', () => {
+    const state = [
+      { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-31' },
+      { groupId: 'crane', fromDay: '2026-11-01' },
+    ]
+    expect(membershipOf(state, '2026-10-31')).toMatchObject({ groupId: 'crane', pendingGroupId: 'crane' })
+  })
+})
