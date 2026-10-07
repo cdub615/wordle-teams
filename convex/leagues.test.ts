@@ -2,9 +2,10 @@ import { convexTest } from 'convex-test'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import type { MutationCtx } from './_generated/server'
+import { internal } from './_generated/api'
 import { aPlayer } from './fixtures.ts'
 import { upsertBoardFor } from './scores.ts'
-import { groupsOf, joinGroupFor, leaguesFor, leaveLeagueFor, readToday, recomputeLeagueMonthFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor } from './leagues.ts'
+import { closeLeagueMonthFor, groupsOf, joinGroupFor, leaguesFor, leaveLeagueFor, readToday, recomputeLeagueMonthFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor } from './leagues.ts'
 import type { DataModel, Id } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 
@@ -661,5 +662,107 @@ describe('recomputeLeagueMonthFor', () => {
       })
       expect((await ctx.db.query('leagueGroupMonth').collect())[0]).toMatchObject({ groupId: group.slate, boards: 1, attempts: 2 })
     })
+  })
+})
+
+describe('closing a month', () => {
+  test('writes a snapshot with standings and the winner', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.slate, year: 2026, month: 9, boards: 12, attempts: 42, contributors: 2 })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 9, boards: 10, attempts: 40, contributors: 1 })
+      expect(await closeLeagueMonthFor(ctx, leagueId, '2026-09')).toBe(true)
+      const [result] = await ctx.db.query('leagueMonthResults').collect()
+      expect(result.winnerGroupId).toBe(group.slate) // 3.5 beats 4.0
+      expect(result.standings).toHaveLength(5)
+      expect(result.standings[0]).toEqual({ groupId: group.slate, boards: 12, attempts: 42, average: 3.5, contributors: 2 })
+    })
+  })
+
+  test('is idempotent: a second close changes nothing, even after backfill', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const rowId = await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 9, boards: 10, attempts: 40, contributors: 1 })
+      await closeLeagueMonthFor(ctx, leagueId, '2026-09')
+      await ctx.db.patch(rowId, { boards: 30, attempts: 31 })
+      expect(await closeLeagueMonthFor(ctx, leagueId, '2026-09')).toBe(false)
+      const results = await ctx.db.query('leagueMonthResults').collect()
+      expect(results).toHaveLength(1)
+      expect(results[0].standings[0]).toMatchObject({ boards: 10, attempts: 40 })
+    })
+  })
+
+  test('no qualifying group snapshots winnerGroupId null', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedStartingWords(ctx)
+      await closeLeagueMonthFor(ctx, leagueId, '2026-09')
+      expect((await ctx.db.query('leagueMonthResults').collect())[0].winnerGroupId).toBeNull()
+    })
+  })
+
+  test('a board backfilled into a closed month moves live rows only, never the snapshot', async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+    try {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { leagueId, group } = await seedStartingWords(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer())
+        await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.slate, fromDay: '2026-08-01' })
+        await closeLeagueMonthFor(ctx, leagueId, '2026-09')
+        const before = await ctx.db.query('leagueMonthResults').collect()
+        await upsertBoardFor(ctx, playerId, { puzzleDay: '2026-09-15', answer: 'crane', guesses: ['slate', 'crane', '', '', '', ''], today: '2026-10-07' })
+        expect(await ctx.db.query('leagueGroupMonth').collect()).toEqual(
+          expect.arrayContaining([expect.objectContaining({ groupId: group.slate, year: 2026, month: 9, boards: 1, attempts: 2 })]),
+        )
+        await recomputeLeagueMonthFor(ctx, playerId, '2026-09')
+        expect(await ctx.db.query('leagueMonthResults').collect()).toEqual(before)
+        expect(before[0].winnerGroupId).toBeNull()
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('scheduleLeagueClosesFor', () => {
+  const seededIn = Date.parse('2026-08-15T12:00:00Z')
+  test('nothing on day 1', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await seedLeagueFor(ctx, STARTING_WORDS, seededIn)
+      expect(await scheduleLeagueClosesFor(ctx, '2026-10-01')).toBe(0)
+    })
+  })
+  test('day 2 schedules last month once; an existing snapshot schedules nothing', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const leagueId = await seedLeagueFor(ctx, STARTING_WORDS, seededIn)
+      expect(await scheduleLeagueClosesFor(ctx, '2026-10-02')).toBe(1)
+      await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 9, standings: [], winnerGroupId: null, closedAt: 0 })
+      expect(await scheduleLeagueClosesFor(ctx, '2026-10-03')).toBe(0)
+    })
+  })
+  test('never the month before the league existed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await seedLeagueFor(ctx, STARTING_WORDS, Date.parse('2026-10-01T12:00:00Z'))
+      expect(await scheduleLeagueClosesFor(ctx, '2026-10-02')).toBe(0)
+    })
+  })
+  test('the sweep runs it, and the scheduled job writes the snapshot', async () => {
+    vi.useFakeTimers({ now: new Date('2026-10-02T00:45:00Z') })
+    try {
+      const t = convexTest(schema, modules)
+      await t.run((ctx) => seedLeagueFor(ctx, STARTING_WORDS, seededIn))
+      await t.mutation(internal.teamStats.sweep, {})
+      await t.finishAllScheduledFunctions(vi.runAllTimers)
+      const results = await t.run((ctx) => ctx.db.query('leagueMonthResults').collect())
+      expect(results.map((r) => [r.year, r.month])).toEqual([[2026, 9]])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
