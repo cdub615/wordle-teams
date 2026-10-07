@@ -2,6 +2,7 @@ import { v } from 'convex/values'
 import { internal } from './_generated/api'
 import { internalMutation, mutation, query } from './_generated/server'
 import { accessError, requirePlausibleToday, requirePlayer } from './access.ts'
+import { isMonth } from './lib/monthWindow.ts'
 import { attemptsFor } from './lib/board.ts'
 import { addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { groupDelta, leaguesEnabled, memberTotalsFor, monthToClose, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
@@ -64,7 +65,13 @@ export async function seedLeagueFor(ctx: WriterCtx, spec: LeagueSpec, now: numbe
   return leagueId
 }
 
-/** Run once per deployment: `pnpm exec convex run leagues:seedLeague '{"slug":"starting-words"}'`. */
+/**
+ * Run once per deployment: `pnpm exec convex run leagues:seedLeague '{"slug":"starting-words"}'`.
+ *
+ * SEED EARLY IN A MONTH. Seeding late on a month's last UTC day makes that month
+ * closeable (joins count from tomorrow), so the sweep writes one empty "no
+ * winner" snapshot for it. Seed earlier in a month to avoid that.
+ */
 export const seedLeague = internalMutation({
   args: { slug: v.string() },
   handler: async (ctx, { slug }) => {
@@ -374,11 +381,16 @@ export const leaveLeague = mutation({
  * backfilled after close changes the live rows but never this.
  */
 export async function closeLeagueMonthFor(ctx: WriterCtx, leagueId: Id<'leagues'>, month: PuzzleMonth): Promise<boolean> {
+  if (!isMonth(month)) {
+    console.error(`leagues.closeLeagueMonthFor: malformed month ${JSON.stringify(month)}; nothing written`)
+    return false
+  }
   const { year, month: m } = yearMonthOf(month)
+  // .first(), NOT .unique(): a duplicate snapshot must not throw (see the sweep note below).
   const existing = await ctx.db
     .query('leagueMonthResults')
     .withIndex('by_league_year_month', (q) => q.eq('leagueId', leagueId).eq('year', year).eq('month', m))
-    .unique()
+    .first()
   if (existing) return false
   if (!(await ctx.db.get(leagueId))) return false
 
@@ -405,10 +417,13 @@ export async function scheduleLeagueClosesFor(ctx: SchedulingCtx, today: PuzzleD
     const month = monthToClose(today, toPuzzleDay(new Date(league.createdAt)))
     if (!month) continue
     const { year, month: m } = yearMonthOf(month)
+    // .first(), NOT .unique(): this runs INLINE in teamStats.sweep, so a throw on a
+    // (manually created) duplicate snapshot would roll back every team rollup and
+    // challenge close that day.
     const done = await ctx.db
       .query('leagueMonthResults')
       .withIndex('by_league_year_month', (q) => q.eq('leagueId', league._id).eq('year', year).eq('month', m))
-      .unique()
+      .first()
     if (done) continue
     await ctx.scheduler.runAfter(0, internal.leagues.closeLeagueMonth, { leagueId: league._id, month })
     queued += 1

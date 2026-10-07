@@ -694,6 +694,26 @@ describe('closing a month', () => {
     })
   })
 
+  test('a malformed month writes nothing', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedStartingWords(ctx)
+      expect(await closeLeagueMonthFor(ctx, leagueId, '2026-9')).toBe(false)
+      expect(await ctx.db.query('leagueMonthResults').collect()).toEqual([])
+    })
+  })
+
+  test('a duplicate snapshot does not throw', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedStartingWords(ctx)
+      const row = { leagueId, year: 2026, month: 9, standings: [], winnerGroupId: null, closedAt: 0 }
+      await ctx.db.insert('leagueMonthResults', row)
+      await ctx.db.insert('leagueMonthResults', row)
+      expect(await closeLeagueMonthFor(ctx, leagueId, '2026-09')).toBe(false)
+    })
+  })
+
   test('no qualifying group snapshots winnerGroupId null', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -743,6 +763,15 @@ describe('scheduleLeagueClosesFor', () => {
       expect(await scheduleLeagueClosesFor(ctx, '2026-10-02')).toBe(1)
       await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 9, standings: [], winnerGroupId: null, closedAt: 0 })
       expect(await scheduleLeagueClosesFor(ctx, '2026-10-03')).toBe(0)
+    })
+  })
+  test('each league is checked against its own snapshot', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await seedLeagueFor(ctx, STARTING_WORDS, seededIn)
+      const other = await seedLeagueFor(ctx, { slug: 'other', name: 'Other', featured: false, groups: [{ slug: 'solo', name: 'Solo' }] }, seededIn)
+      await ctx.db.insert('leagueMonthResults', { leagueId: other, year: 2026, month: 9, standings: [], winnerGroupId: null, closedAt: 0 })
+      expect(await scheduleLeagueClosesFor(ctx, '2026-10-02')).toBe(1)
     })
   })
   test('never the month before the league existed', async () => {
