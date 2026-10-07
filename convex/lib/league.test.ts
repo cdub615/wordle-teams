@@ -253,6 +253,12 @@ describe('planJoin', () => {
       ops: [{ op: 'insert', groupId: 'slate', fromDay: '2026-11-01' }],
     })
   })
+  test('an interval that ended ON the 1st still holds this month', () => {
+    const left = [{ groupId: 'crane', fromDay: '2026-09-02', toDay: '2026-10-01' }]
+    expect(planJoin(left, today, 'slate')).toMatchObject({
+      ops: [{ op: 'insert', groupId: 'slate', fromDay: '2026-11-01' }],
+    })
+  })
   test('an interval that ended last month does not hold this month', () => {
     const old = [{ groupId: 'crane', fromDay: '2026-09-02', toDay: '2026-09-30' }]
     expect(planJoin(old, today, 'slate')).toMatchObject({
@@ -300,6 +306,13 @@ describe('planSwitch', () => {
       countFrom: 'slate',
       countTo: 'adieu',
     })
+  })
+  test('started + pending: switching to the pending group again is a no-op', () => {
+    const state = [
+      { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-31' },
+      { groupId: 'slate', fromDay: '2026-11-01' },
+    ]
+    expect(planSwitch(state, today, 'slate')).toEqual({ ops: [], countFrom: null, countTo: null })
   })
   test('started + pending: switching back cancels the pending switch', () => {
     const state = [
