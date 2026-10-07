@@ -13,10 +13,14 @@ import {
   LEAGUES_ON,
   lastDayOfMonth,
   leaguesEnabled,
+  membershipOf,
   memberTotalsFor,
   MIN_LEAGUE_BOARDS,
   monthToClose,
   PICKER_INLINE_MAX,
+  planJoin,
+  planLeave,
+  planSwitch,
   standingsOf,
   winnerOf,
 } from './league.ts'
@@ -217,5 +221,181 @@ describe('monthToClose', () => {
   test('never a month before the league existed', () => {
     expect(monthToClose('2026-11-02', '2026-11-01')).toBeNull()
     expect(monthToClose('2026-11-02', '2026-10-31')).toBe('2026-10')
+  })
+})
+
+describe('planJoin', () => {
+  const today = '2026-10-07'
+  test('a first join opens from tomorrow and counts +1', () => {
+    expect(planJoin([], today, 'crane')).toEqual({
+      ops: [{ op: 'insert', groupId: 'crane', fromDay: '2026-10-08' }],
+      countFrom: null,
+      countTo: 'crane',
+    })
+  })
+  test('refused while a live interval exists', () => {
+    expect(planJoin([{ groupId: 'crane', fromDay: '2026-10-01' }], today, 'slate')).toEqual({
+      refused: 'ALREADY_IN_LEAGUE',
+    })
+    expect(planJoin([{ groupId: 'crane', fromDay: '2026-10-08' }], today, 'crane')).toEqual({
+      refused: 'ALREADY_IN_LEAGUE',
+    })
+  })
+  test('rejoining the SAME group after leaving this month opens tomorrow', () => {
+    const left = [{ groupId: 'crane', fromDay: '2026-10-02', toDay: '2026-10-05' }]
+    expect(planJoin(left, today, 'crane')).toMatchObject({
+      ops: [{ op: 'insert', groupId: 'crane', fromDay: '2026-10-08' }],
+    })
+  })
+  test('joining a DIFFERENT group after leaving this month opens on the 1st', () => {
+    const left = [{ groupId: 'crane', fromDay: '2026-10-02', toDay: '2026-10-05' }]
+    expect(planJoin(left, today, 'slate')).toMatchObject({
+      ops: [{ op: 'insert', groupId: 'slate', fromDay: '2026-11-01' }],
+    })
+  })
+  test('an interval that ended last month does not hold this month', () => {
+    const old = [{ groupId: 'crane', fromDay: '2026-09-02', toDay: '2026-09-30' }]
+    expect(planJoin(old, today, 'slate')).toMatchObject({
+      ops: [{ op: 'insert', groupId: 'slate', fromDay: '2026-10-08' }],
+    })
+  })
+})
+
+describe('planSwitch', () => {
+  const today = '2026-10-07'
+  test('refused when not a member', () => {
+    expect(planSwitch([], today, 'slate')).toEqual({ refused: 'NOT_IN_LEAGUE' })
+  })
+  test('started only: close at month end, open on the 1st', () => {
+    expect(planSwitch([{ groupId: 'crane', fromDay: '2026-09-01' }], today, 'slate')).toEqual({
+      ops: [
+        { op: 'patch', index: 0, toDay: '2026-10-31' },
+        { op: 'insert', groupId: 'slate', fromDay: '2026-11-01' },
+      ],
+      countFrom: 'crane',
+      countTo: 'slate',
+    })
+  })
+  test('started only, same group: nothing', () => {
+    expect(planSwitch([{ groupId: 'crane', fromDay: '2026-09-01' }], today, 'crane')).toEqual({
+      ops: [],
+      countFrom: null,
+      countTo: null,
+    })
+  })
+  test('pending only (just joined): retarget it in place', () => {
+    expect(planSwitch([{ groupId: 'crane', fromDay: '2026-10-08' }], today, 'slate')).toEqual({
+      ops: [{ op: 'retarget', index: 0, groupId: 'slate' }],
+      countFrom: 'crane',
+      countTo: 'slate',
+    })
+  })
+  test('started + pending: switching again replaces the pending group', () => {
+    const state = [
+      { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-31' },
+      { groupId: 'slate', fromDay: '2026-11-01' },
+    ]
+    expect(planSwitch(state, today, 'adieu')).toEqual({
+      ops: [{ op: 'retarget', index: 1, groupId: 'adieu' }],
+      countFrom: 'slate',
+      countTo: 'adieu',
+    })
+  })
+  test('started + pending: switching back cancels the pending switch', () => {
+    const state = [
+      { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-31' },
+      { groupId: 'slate', fromDay: '2026-11-01' },
+    ]
+    expect(planSwitch(state, today, 'crane')).toEqual({
+      ops: [
+        { op: 'delete', index: 1 },
+        { op: 'reopen', index: 0 },
+      ],
+      countFrom: 'slate',
+      countTo: 'crane',
+    })
+  })
+  test('closed history before the live interval is ignored', () => {
+    const state = [
+      { groupId: 'adieu', fromDay: '2026-08-01', toDay: '2026-08-31' },
+      { groupId: 'crane', fromDay: '2026-09-01' },
+    ]
+    expect(planSwitch(state, today, 'slate')).toMatchObject({
+      ops: [
+        { op: 'patch', index: 1, toDay: '2026-10-31' },
+        { op: 'insert', groupId: 'slate', fromDay: '2026-11-01' },
+      ],
+    })
+  })
+})
+
+describe('membershipOf', () => {
+  const today = '2026-10-07'
+  test('null when not a member', () => {
+    expect(membershipOf([], today)).toBeNull()
+    expect(membershipOf([{ groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-09-30' }], today)).toBeNull()
+  })
+  test('started only', () => {
+    expect(membershipOf([{ groupId: 'crane', fromDay: '2026-09-01' }], today)).toEqual({
+      groupId: 'crane',
+      since: '2026-09-01',
+      pendingGroupId: null,
+      pendingFrom: null,
+    })
+  })
+  test('pending only reports the group it will start in', () => {
+    expect(membershipOf([{ groupId: 'crane', fromDay: '2026-10-08' }], today)).toEqual({
+      groupId: 'crane',
+      since: '2026-10-08',
+      pendingGroupId: null,
+      pendingFrom: null,
+    })
+  })
+  test('a pending switch', () => {
+    const state = [
+      { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-31' },
+      { groupId: 'slate', fromDay: '2026-11-01' },
+    ]
+    expect(membershipOf(state, today)).toEqual({
+      groupId: 'crane',
+      since: '2026-09-01',
+      pendingGroupId: 'slate',
+      pendingFrom: '2026-11-01',
+    })
+  })
+})
+
+describe('planLeave', () => {
+  const today = '2026-10-07'
+  test('refused when not a member', () => {
+    expect(planLeave([], today)).toEqual({ refused: 'NOT_IN_LEAGUE' })
+  })
+  test('started only: ends today', () => {
+    expect(planLeave([{ groupId: 'crane', fromDay: '2026-09-01' }], today)).toEqual({
+      ops: [{ op: 'patch', index: 0, toDay: '2026-10-07' }],
+      countFrom: 'crane',
+      countTo: null,
+    })
+  })
+  test('pending only: deleted, never started', () => {
+    expect(planLeave([{ groupId: 'crane', fromDay: '2026-10-08' }], today)).toEqual({
+      ops: [{ op: 'delete', index: 0 }],
+      countFrom: 'crane',
+      countTo: null,
+    })
+  })
+  test('started + pending: ends today and drops the pending switch', () => {
+    const state = [
+      { groupId: 'crane', fromDay: '2026-09-01', toDay: '2026-10-31' },
+      { groupId: 'slate', fromDay: '2026-11-01' },
+    ]
+    expect(planLeave(state, today)).toEqual({
+      ops: [
+        { op: 'patch', index: 0, toDay: '2026-10-07' },
+        { op: 'delete', index: 1 },
+      ],
+      countFrom: 'slate',
+      countTo: null,
+    })
   })
 })
