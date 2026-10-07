@@ -7,9 +7,9 @@ import { leaguesEnabled } from './lib/league.ts'
  * dismissed, inLeague).
  *
  * WHY THIS QUERY IS SO SMALL, and why it must stay that way. The card needs
- * four booleans; three of them (hasTeam, hasInvited, and dismissal's absence)
- * come from data routes/app.tsx ALREADY subscribes to via getMyTeams. Only
- * these three are new.
+ * hasTeam and hasInvited, which come from data routes/app.tsx ALREADY
+ * subscribes to via getMyTeams, plus enteredBoard, dismissed and inLeague.
+ * Only those last three are new.
  *
  * THAT IS A DELIBERATE FAN-OUT DECISION, not a coincidence. getMyTeamsFor runs
  * `ctx.db.query('teams').collect()` — a full scan of every team in the system

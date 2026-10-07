@@ -879,13 +879,12 @@ describe('myLeaguesFor', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       await t.run(async (ctx) => {
-        const { leagueId, group } = await seedStartingWords(ctx)
+        const { group } = await seedStartingWords(ctx)
         const otherId = await seedLeagueFor(ctx, { slug: 'other', name: 'Other', featured: false, groups: [{ slug: 'solo', name: 'Solo' }] }, 0)
         const playerId = await ctx.db.insert('players', aPlayer())
         // Foreign group id: valid document, but not in this league's groups.
         await ctx.db.insert('leagueMemberships', { playerId, leagueId: otherId, groupId: group.crane, fromDay: '2026-09-01' })
         expect(await myLeaguesFor(ctx, playerId, today)).toEqual([])
-        expect(leagueId).toBeDefined()
       })
       expect(err).toHaveBeenCalled()
     } finally {
