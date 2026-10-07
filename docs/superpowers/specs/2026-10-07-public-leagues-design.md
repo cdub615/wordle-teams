@@ -131,10 +131,8 @@ leagueMemberships: defineTable({
   leagueId: v.id('leagues'),
   groupId: v.id('leagueGroups'),
   fromDay: v.string(),         // 'YYYY-MM-DD', inclusive
-  toDay: v.optional(v.string()), // inclusive; ABSENT MEANS CURRENT
-})
-  .index('by_player_and_league', ['playerId', 'leagueId'])
-  .index('by_group', ['groupId']),
+  toDay: v.optional(v.string()), // inclusive; ABSENT MEANS OPEN (started or pending)
+}).index('by_player_and_league', ['playerId', 'leagueId']),
 
 leagueMemberMonth: defineTable({
   playerId: v.id('players'),
@@ -169,7 +167,7 @@ leagueMonthResults: defineTable({
     average: v.union(v.number(), v.null()),  // null below MIN_LEAGUE_BOARDS
     contributors: v.number(),
   })),
-  winnerGroupId: v.union(v.id('leagueGroups'), v.null()), // null: no group qualified
+  winnerGroupId: v.union(v.id('leagueGroups'), v.null()), // null: no group qualified, or an exact tie
   closedAt: v.number(),
 }).index('by_league_year_month', ['leagueId', 'year', 'month']),
 ```

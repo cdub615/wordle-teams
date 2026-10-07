@@ -944,9 +944,7 @@ Commit red: `test(zic8.3): league tables (red)`.
     groupId: v.id('leagueGroups'),
     fromDay: v.string(),
     toDay: v.optional(v.string()),
-  })
-    .index('by_player_and_league', ['playerId', 'leagueId'])
-    .index('by_group', ['groupId']),
+  }).index('by_player_and_league', ['playerId', 'leagueId']),
 
   // DERIVED. Rebuilt from the player's own boards on every board write.
   leagueMemberMonth: defineTable({
@@ -1416,7 +1414,7 @@ describe('membership', () => {
     })
   })
 
-  test('switch to a group from another league is refused UNKNOWN_GROUP', async () => {
+  test('switch to a group from another league is refused NOT_IN_LEAGUE', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { leagueId, group } = await seedStartingWords(ctx)
@@ -1496,7 +1494,7 @@ async function applyPlan(
   rows: Doc<'leagueMemberships'>[],
   plan: MembershipPlan<GroupId>,
 ) {
-  if ('refused' in plan) accessError(plan.refused)
+  if ('refused' in plan) throw accessError(plan.refused)
   for (const op of plan.ops) {
     if (op.op === 'insert') await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: op.groupId, fromDay: op.fromDay })
     else if (op.op === 'patch') await ctx.db.patch(rows[op.index]._id, { toDay: op.toDay })
@@ -1510,7 +1508,7 @@ async function applyPlan(
 
 async function requireGroup(ctx: ReaderCtx, groupId: GroupId) {
   const group = await ctx.db.get(groupId)
-  if (!group) accessError('UNKNOWN_GROUP')
+  if (!group) throw accessError('UNKNOWN_GROUP')
   return group
 }
 
@@ -1532,7 +1530,7 @@ export async function switchGroupFor(ctx: WriterCtx, playerId: Id<'players'>, ar
 
 export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, args: { leagueId: Id<'leagues'>; today: string }) {
   const today = requirePlausibleToday(args.today)
-  if (!(await ctx.db.get(args.leagueId))) accessError('UNKNOWN_LEAGUE')
+  if (!(await ctx.db.get(args.leagueId))) throw accessError('UNKNOWN_LEAGUE')
   const rows = await intervalsOf(ctx, playerId, args.leagueId)
   await applyPlan(ctx, playerId, args.leagueId, rows, planLeave(rows, today))
   await recomputeLeagueMonthFor(ctx, playerId, monthOf(today))
@@ -1542,7 +1540,7 @@ export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, ar
 export async function recomputeLeagueMonthFor(_ctx: WriterCtx, _playerId: Id<'players'>, _month: PuzzleMonth): Promise<void> {}
 
 const gate = () => {
-  if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) accessError('LEAGUES_DISABLED')
+  if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) throw accessError('LEAGUES_DISABLED')
 }
 
 export const joinGroup = mutation({
@@ -1723,14 +1721,20 @@ export async function recomputeLeagueMonthFor(ctx: WriterCtx, playerId: Id<'play
     .withIndex('by_player_and_league', (q) => q.eq('playerId', playerId))
     .collect()
   const { year, month: m } = yearMonthOf(month)
-  const existing = (
-    await ctx.db
-      .query('leagueMemberMonth')
-      .withIndex('by_player_league_year_month', (q) => q.eq('playerId', playerId))
-      .collect()
-  ).filter((r) => r.year === year && r.month === m)
-  const leagueIds = new Set([...memberships.map((r) => r.leagueId), ...existing.map((r) => r.leagueId)])
+  // MEMBERSHIP ROWS ARE NEVER DELETED outside pruneLeagueRowsFor (leave patches,
+  // it does not delete), so every league this player has a member-month row in
+  // is already named here — and a point read per league keeps this write's read
+  // set to ONE month rather than the player's whole history.
+  const leagueIds = new Set(memberships.map((r) => r.leagueId))
   if (leagueIds.size === 0) return
+  const existing: Doc<'leagueMemberMonth'>[] = []
+  for (const leagueId of leagueIds) {
+    const row = await ctx.db
+      .query('leagueMemberMonth')
+      .withIndex('by_player_league_year_month', (q) => q.eq('playerId', playerId).eq('leagueId', leagueId).eq('year', year).eq('month', m))
+      .unique()
+    if (row) existing.push(row)
+  }
 
   const { start, end } = monthRange(month)
   const boards = (
