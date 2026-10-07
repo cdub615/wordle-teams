@@ -14,7 +14,9 @@
  *   repair           a DRY RUN (the default; --dry-run says so explicitly): measure,
  *                    then repairMisdatedBoards({ month, dryRun: true }) for each
  *                    source month with a move — its moves, holds and per
- *                    (team, month) stats impact — and ONE overall FINGERPRINT
+ *                    (team, month) stats impact and WINNER DRIFT (information
+ *                    only: never written, not in the fingerprint) — and ONE
+ *                    overall FINGERPRINT
  *   repair --apply --confirm-host=<host> --expect=<fingerprint>
  *                    re-plans every month (dry runs); refuses unless every month
  *                    planned, each agrees with measure, and the fingerprint still
@@ -61,6 +63,7 @@ import {
   redateFingerprint,
   sourceMonthsWithMoves,
   summarizePlans,
+  winnerDriftLines,
 } from './lib/redate-runner.mjs'
 
 const CONVEX_URL = process.env.CONVEX_URL
@@ -173,6 +176,7 @@ async function plan(months) {
           `hold(s); ${result.teamMonths.length} team-month(s) rolled up, ${changed} with stats changed ` +
           `(${created} stats doc(s) created); winners never written`,
       )
+      for (const line of winnerDriftLines(result.teamMonths)) console.log(line)
       results.push({ month, redateKey: result.redateKey })
       planned.push(result)
     } catch (error) {

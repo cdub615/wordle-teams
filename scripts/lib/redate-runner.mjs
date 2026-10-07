@@ -125,6 +125,24 @@ export function planDisagreements(measuredPlans, planned) {
 }
 
 /**
+ * THE WINNER DRIFT A DRY RUN REPORTS, as printed: per team-month, whether the
+ * stored winner would no longer match a recompute after the moves. INFORMATION
+ * ONLY — the repair never writes winners — and not part of the fingerprint.
+ */
+export function winnerDriftLines(teamMonths) {
+  if (teamMonths.length === 0) return []
+  return [
+    '  WINNER DRIFT (not written):',
+    ...teamMonths.map((tm) => {
+      const at = `    team ${tm.team} ${tm.month}:`
+      if (tm.storedWinner === null) return `${at} no winner row`
+      if (tm.winnerDrift) return `${at} DRIFT: stored ${tm.storedWinner}, after the moves ${tm.winnerAfterMoves}`
+      return `${at} no drift (stored ${tm.storedWinner})`
+    }),
+  ]
+}
+
+/**
  * REFUSE UNLESS THE PLAN IS STILL THE ONE APPROVED: every month planned, the dry
  * run agreeing with measure, and the fingerprint equal to `--expect`.
  */

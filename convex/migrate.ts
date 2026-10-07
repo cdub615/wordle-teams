@@ -1717,12 +1717,25 @@ async function misdatedMonthPlan(ctx: ReaderCtx, month: PuzzleMonth) {
   return plan
 }
 
+/** Index order of by_player_and_puzzleDay within one player: day, then creation. */
+const byIndexOrder = (a: Score, b: Score) =>
+  a.puzzleDay < b.puzzleDay ? -1 : a.puzzleDay > b.puzzleDay ? 1 : a._creationTime - b._creationTime
+
 /**
  * Each affected team's months (every month a move of one of its members touches),
  * and per (team, month) what the rollup will store: `statsChanged` against the
  * stored teamMonthStats doc (`statsCreated` when there is none), and each moved
  * member's boards in the month now and after the moves. Read-only; the apply
  * computes it BEFORE writing, so it reports what the apply did.
+ *
+ * WINNER DRIFT — INFORMATION ONLY, as in rac's monthImpact. The repair never
+ * writes monthlyWinners, so the owner is shown where a stored winner would no
+ * longer match a recompute once the boards have moved: `storedWinner` is the
+ * stored row's player, `winnerAfterMoves` what recomputeTeamMonth's rule
+ * (monthTotal per member, in index order, roster entries with no player skipped,
+ * winnerOf; every day due) gives over the POST-MOVE boards, computed here without
+ * writing, and `winnerDrift` whether they differ. With no winner row, both are
+ * null and there is no drift. None of it is in the redateKey.
  */
 async function misdatedTeamMonths(ctx: ReaderCtx, moves: readonly RedateMove<Score>[]) {
   const movers = new Set(moves.map((move) => move.playerId as Id<'players'>))
@@ -1746,6 +1759,24 @@ async function misdatedTeamMonths(ctx: ReaderCtx, moves: readonly RedateMove<Sco
         .withIndex('by_team_year_month', (q) => q.eq('teamId', team._id).eq('year', year).eq('month', monthNum))
         .unique()
 
+      const storedWinner = await storedWinnerRow(ctx, team, month)
+      let winnerAfterMoves: Id<'players'> | null = null
+      if (storedWinner !== null) {
+        const system = await loadTeamMonthSystem(ctx, team, month)
+        const today = `${addMonths(month, 1)}-01`
+        const totals = []
+        for (const memberId of team.playerIds) {
+          if (!(await ctx.db.get(memberId))) continue
+          const scores = after.filter((row) => row.playerId === memberId).sort(byIndexOrder)
+          totals.push({
+            playerId: memberId,
+            total: monthTotal({ month, scores, system, playWeekends: team.playWeekends, today }),
+          })
+        }
+        winnerAfterMoves = winnerOf(totals) as Id<'players'> | null
+      }
+      const ref = async (id: Id<'players'> | null) => (id === null ? null : playerRef(await ctx.db.get(id)))
+
       const players = []
       for (const memberId of team.playerIds) {
         if (!own.some((move) => move.playerId === memberId)) continue
@@ -1763,6 +1794,10 @@ async function misdatedTeamMonths(ctx: ReaderCtx, moves: readonly RedateMove<Sco
           statsChanged: stored === null || !sameStats({ members: stored.members, days: stored.days }, statsAfter),
           statsCreated: stored === null,
           players,
+          // Informational: the repair never writes winners.
+          storedWinner: await ref(storedWinner?.playerId ?? null),
+          winnerAfterMoves: await ref(winnerAfterMoves),
+          winnerDrift: storedWinner !== null && storedWinner.playerId !== winnerAfterMoves,
         },
       })
     }
@@ -1789,8 +1824,8 @@ async function misdatedTeamMonths(ctx: ReaderCtx, moves: readonly RedateMove<Sco
  * IT NEVER WRITES WINNERS: no recomputeTeamMonth, no monthlyWinners write.
  *
  * Returns { month, dryRun, redateKey, moves, holds, teamMonths } — each move and
- * hold as the probe reports it, and per (team, month) the stats impact (see
- * misdatedTeamMonths). IDEMPOTENT: a second run finds nothing to move. NOT GATED
+ * hold as the probe reports it, and per (team, month) the stats impact and the
+ * winner drift it does NOT write (see misdatedTeamMonths). IDEMPOTENT: a second run finds nothing to move. NOT GATED
  * on SWEEPS_ENABLED, for backfillMonth's reason.
  */
 export const repairMisdatedBoards = internalMutation({
