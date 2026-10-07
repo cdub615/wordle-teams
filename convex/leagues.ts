@@ -1,13 +1,14 @@
 import { v } from 'convex/values'
+import { internal } from './_generated/api'
 import { internalMutation, mutation, query } from './_generated/server'
 import { accessError, requirePlausibleToday, requirePlayer } from './access.ts'
 import { attemptsFor } from './lib/board.ts'
 import { addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
-import { groupDelta, leaguesEnabled, memberTotalsFor, planJoin, planLeave, planSwitch, standingsOf, yearMonthOf } from './lib/league.ts'
+import { groupDelta, leaguesEnabled, memberTotalsFor, monthToClose, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
 import type { MembershipPlan, Standing } from './lib/league.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
-import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
+import type { GenericDatabaseReader, GenericDatabaseWriter, Scheduler } from 'convex/server'
 
 /**
  * PUBLIC LEAGUES (wordle-teams-zic8.3). Spec:
@@ -23,6 +24,9 @@ import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server
  */
 
 type WriterCtx = { db: GenericDatabaseWriter<DataModel> }
+// Local, not imported from winners.ts: no edge, not even a type one, from here
+// to a module that could grow a path back (scores.ts and teamStats.ts import us).
+type SchedulingCtx = WriterCtx & { scheduler: Scheduler }
 type ReaderCtx = { db: GenericDatabaseReader<DataModel> }
 
 export type LeagueSpec = { slug: string; name: string; featured: boolean; groups: { slug: string; name: string }[] }
@@ -361,5 +365,66 @@ export const leaveLeague = mutation({
     gate()
     const player = await requirePlayer(ctx)
     await leaveLeagueFor(ctx, player._id, args)
+  },
+})
+
+/**
+ * Freeze one league-month. IDEMPOTENT: a snapshot that exists is never
+ * rewritten, so a retried or duplicated job cannot restate who won, and a board
+ * backfilled after close changes the live rows but never this.
+ */
+export async function closeLeagueMonthFor(ctx: WriterCtx, leagueId: Id<'leagues'>, month: PuzzleMonth): Promise<boolean> {
+  const { year, month: m } = yearMonthOf(month)
+  const existing = await ctx.db
+    .query('leagueMonthResults')
+    .withIndex('by_league_year_month', (q) => q.eq('leagueId', leagueId).eq('year', year).eq('month', m))
+    .unique()
+  if (existing) return false
+  if (!(await ctx.db.get(leagueId))) return false
+
+  const standings = await currentStandings(ctx, leagueId, await groupsOf(ctx, leagueId), month)
+  await ctx.db.insert('leagueMonthResults', {
+    leagueId,
+    year,
+    month: m,
+    standings: standings.map(({ groupId, boards, attempts, average, contributors }) => ({ groupId, boards, attempts, average, contributors })),
+    winnerGroupId: winnerOf(standings),
+    closedAt: Date.now(),
+  })
+  return true
+}
+
+/**
+ * Called by teamStats.sweep. SCHEDULES, never closes inline (zic8.2's D5): a
+ * close that throws fails its own job and cannot roll the sweep back. Returns
+ * how many jobs it queued.
+ */
+export async function scheduleLeagueClosesFor(ctx: SchedulingCtx, today: PuzzleDay): Promise<number> {
+  let queued = 0
+  for (const league of await ctx.db.query('leagues').collect()) {
+    const month = monthToClose(today, toPuzzleDay(new Date(league.createdAt)))
+    if (!month) continue
+    const { year, month: m } = yearMonthOf(month)
+    const done = await ctx.db
+      .query('leagueMonthResults')
+      .withIndex('by_league_year_month', (q) => q.eq('leagueId', league._id).eq('year', year).eq('month', m))
+      .unique()
+    if (done) continue
+    await ctx.scheduler.runAfter(0, internal.leagues.closeLeagueMonth, { leagueId: league._id, month })
+    queued += 1
+  }
+  return queued
+}
+
+/** NOT gated on LEAGUES_ENABLED: switching the feature off must not leave a played month unclosed. */
+export const closeLeagueMonth = internalMutation({
+  args: { leagueId: v.id('leagues'), month: v.string() },
+  handler: async (ctx, { leagueId, month }) => {
+    try {
+      await closeLeagueMonthFor(ctx, leagueId, month)
+    } catch (error) {
+      console.error(`leagues.closeLeagueMonth: ${leagueId} ${month} did not close`)
+      throw error
+    }
   },
 })

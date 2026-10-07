@@ -4,6 +4,7 @@ import { internalMutation } from './_generated/server'
 import { aggregateTeamMonth, sameStats } from './lib/teamStats.ts'
 import { monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { sweepsEnabled } from './lib/sweeps.ts'
+import { scheduleLeagueClosesFor } from './leagues.ts'
 import { closeDueChallengeFor, closeDueChallengesFor } from './challenges.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
@@ -219,7 +220,11 @@ export const sweep = internalMutation({
     // GATED ON SWEEPS_ENABLED ONLY (the switch above), NEVER ON CHALLENGES_ENABLED:
     // turning the feature off must not strand a challenge that is already running.
     const challenges = await closeDueChallengesFor(ctx, toPuzzleDay(new Date()))
-    return { teams: teams.length, month, challenges }
+    //
+    // LEAGUE MONTHS CLOSE ON THIS SWEEP TOO (zic8.3, spec §9), from day 2, one
+    // scheduled job per league. Gated on SWEEPS_ENABLED (above) only.
+    const leagueCloses = await scheduleLeagueClosesFor(ctx, toPuzzleDay(new Date()))
+    return { teams: teams.length, month, challenges, leagueCloses }
   },
 })
 
