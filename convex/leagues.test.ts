@@ -1,9 +1,9 @@
 import { convexTest } from 'convex-test'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import type { MutationCtx } from './_generated/server'
 import { aPlayer } from './fixtures.ts'
-import { groupsOf, leaguesFor, readToday, seedLeagueFor, standingsFor, STARTING_WORDS } from './leagues.ts'
+import { groupsOf, joinGroupFor, leaguesFor, leaveLeagueFor, readToday, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor } from './leagues.ts'
 import type { DataModel, Id } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 
@@ -265,6 +265,152 @@ describe('seeding edges', () => {
         await ctx.db.insert('leagueGroups', { leagueId, slug, name: slug, order, memberCount: 0 })
       }
       expect((await groupsOf(ctx, leagueId)).map((g) => g.slug)).toEqual(['a', 'b', 'c'])
+    })
+  })
+})
+
+/**
+ * FROZEN CLOCK: requirePlausibleToday bounds `today` to +-1 day of the server's,
+ * so a literal date would start failing on its own with INVALID_DATE.
+ */
+const NOW = new Date('2026-10-07T12:00:00Z')
+const today = '2026-10-07'
+
+describe('membership', () => {
+  beforeEach(() => vi.useFakeTimers({ now: NOW, toFake: ['Date'] }))
+  afterEach(() => vi.useRealTimers())
+
+  const codeOf = async (p: Promise<unknown>) => {
+    try {
+      await p
+      return null
+    } catch (error) {
+      return (error as { data?: { code?: string } }).data?.code ?? String(error)
+    }
+  }
+
+  test('join opens an interval from tomorrow and counts the member', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await joinGroupFor(ctx, playerId, { groupId: group.crane, today })
+      const rows = await ctx.db.query('leagueMemberships').collect()
+      expect(rows).toEqual([expect.objectContaining({ playerId, leagueId, groupId: group.crane, fromDay: '2026-10-08' })])
+      expect(rows[0].toDay).toBeUndefined()
+      expect((await ctx.db.get(group.crane))!.memberCount).toBe(1)
+    })
+  })
+
+  test('a second join is refused ALREADY_IN_LEAGUE', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await joinGroupFor(ctx, playerId, { groupId: group.crane, today })
+      expect(await codeOf(joinGroupFor(ctx, playerId, { groupId: group.slate, today }))).toBe('ALREADY_IN_LEAGUE')
+      expect((await ctx.db.get(group.slate))!.memberCount).toBe(0)
+    })
+  })
+
+  test('switch from a started interval closes at month end and moves the count', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-09-01' })
+      await ctx.db.patch(group.crane, { memberCount: 1 })
+      await switchGroupFor(ctx, playerId, { groupId: group.slate, today })
+      const rows = (await ctx.db.query('leagueMemberships').collect()).sort((a, b) => a.fromDay.localeCompare(b.fromDay))
+      expect(rows.map((r) => [r.groupId, r.fromDay, r.toDay])).toEqual([
+        [group.crane, '2026-09-01', '2026-10-31'],
+        [group.slate, '2026-11-01', undefined],
+      ])
+      expect((await ctx.db.get(group.crane))!.memberCount).toBe(0)
+      expect((await ctx.db.get(group.slate))!.memberCount).toBe(1)
+    })
+  })
+
+  test('switching back cancels the pending switch', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-09-01' })
+      await ctx.db.patch(group.crane, { memberCount: 1 })
+      await switchGroupFor(ctx, playerId, { groupId: group.slate, today })
+      await switchGroupFor(ctx, playerId, { groupId: group.crane, today })
+      const rows = await ctx.db.query('leagueMemberships').collect()
+      expect(rows.map((r) => [r.groupId, r.toDay])).toEqual([[group.crane, undefined]])
+      expect((await ctx.db.get(group.crane))!.memberCount).toBe(1)
+      expect((await ctx.db.get(group.slate))!.memberCount).toBe(0)
+    })
+  })
+
+  test('switch to a group from another league is refused NOT_IN_LEAGUE', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const other = await seedLeagueFor(ctx, { slug: 'other', name: 'Other', featured: false, groups: [{ slug: 'x', name: 'X' }] }, 0)
+      const [x] = await groupsOf(ctx, other)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-09-01' })
+      // x belongs to `other`, where this player has no membership: NOT_IN_LEAGUE.
+      expect(await codeOf(switchGroupFor(ctx, playerId, { groupId: x._id, today }))).toBe('NOT_IN_LEAGUE')
+    })
+  })
+
+  test('leave ends today, and a pending-only membership is deleted', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const a = await ctx.db.insert('players', aPlayer({ email: 'a@example.com' }))
+      const b = await ctx.db.insert('players', aPlayer({ email: 'b@example.com' }))
+      await ctx.db.insert('leagueMemberships', { playerId: a, leagueId, groupId: group.crane, fromDay: '2026-09-01' })
+      await joinGroupFor(ctx, b, { groupId: group.crane, today })
+      await ctx.db.patch(group.crane, { memberCount: 2 })
+      await leaveLeagueFor(ctx, a, { leagueId, today })
+      await leaveLeagueFor(ctx, b, { leagueId, today })
+      const rows = await ctx.db.query('leagueMemberships').collect()
+      expect(rows.map((r) => [r.playerId, r.toDay])).toEqual([[a, today]])
+      expect((await ctx.db.get(group.crane))!.memberCount).toBe(0)
+    })
+  })
+
+  test('leave mid-month then rejoin the same group the same day opens tomorrow and ends at one member', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-09-01' })
+      await ctx.db.patch(group.crane, { memberCount: 1 })
+      await leaveLeagueFor(ctx, playerId, { leagueId, today })
+      expect((await ctx.db.get(group.crane))!.memberCount).toBe(0)
+      await joinGroupFor(ctx, playerId, { groupId: group.crane, today })
+      const rows = (await ctx.db.query('leagueMemberships').collect()).sort((x, y) => x.fromDay.localeCompare(y.fromDay))
+      expect(rows.map((r) => [r.groupId, r.fromDay, r.toDay])).toEqual([
+        [group.crane, '2026-09-01', today],
+        [group.crane, '2026-10-08', undefined],
+      ])
+      expect((await ctx.db.get(group.crane))!.memberCount).toBe(1)
+    })
+  })
+
+  test('leave when not a member is refused NOT_IN_LEAGUE', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect(await codeOf(leaveLeagueFor(ctx, playerId, { leagueId, today }))).toBe('NOT_IN_LEAGUE')
+    })
+  })
+
+  test('an implausible today is refused INVALID_DATE', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect(await codeOf(joinGroupFor(ctx, playerId, { groupId: group.crane, today: '2026-01-01' }))).toBe('INVALID_DATE')
     })
   })
 })
