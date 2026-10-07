@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { convexTest } from 'convex-test'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
@@ -5,7 +6,7 @@ import type { MutationCtx } from './_generated/server'
 import { internal } from './_generated/api'
 import { aPlayer } from './fixtures.ts'
 import { upsertBoardFor } from './scores.ts'
-import { closeLeagueMonthFor, groupsOf, joinGroupFor, leaguesFor, leaveLeagueFor, readToday, recomputeLeagueMonthFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor } from './leagues.ts'
+import { closeLeagueMonthFor, groupsOf, joinGroupFor, leaguesFor, leaveLeagueFor, myContributionFor, myLeaguesFor, readToday, recomputeLeagueMonthFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor } from './leagues.ts'
 import type { DataModel, Id } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 
@@ -795,5 +796,116 @@ describe('scheduleLeagueClosesFor', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('myLeaguesFor', () => {
+  beforeEach(() => vi.useFakeTimers({ now: NOW, toFake: ['Date'] }))
+  afterEach(() => vi.useRealTimers())
+
+  test('empty for a non-member', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect(await myLeaguesFor(ctx, playerId, today)).toEqual([])
+    })
+  })
+
+  test('group, rank, average and a pending switch', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-09-01', toDay: '2026-10-31' })
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.slate, fromDay: '2026-11-01' })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 10, boards: 10, attempts: 38, contributors: 3 })
+      expect(await myLeaguesFor(ctx, playerId, today)).toEqual([
+        {
+          league: { slug: 'starting-words', name: 'Starting Words' },
+          leagueId,
+          group: { _id: group.crane, name: 'CRANE' },
+          since: '2026-09-01',
+          pending: { group: { _id: group.slate, name: 'SLATE' }, from: '2026-11-01' },
+          rank: 1,
+          average: 3.8,
+          boards: 10,
+        },
+      ])
+    })
+  })
+
+  test('a left league is not listed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-09-01', toDay: '2026-10-03' })
+      expect(await myLeaguesFor(ctx, playerId, today)).toEqual([])
+    })
+  })
+})
+
+describe('myContributionFor', () => {
+  beforeEach(() => vi.useFakeTimers({ now: NOW, toFake: ['Date'] }))
+  afterEach(() => vi.useRealTimers())
+
+  test('mine, group, and the shift', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberMonth', { playerId, leagueId, groupId: group.crane, year: 2026, month: 10, boards: 4, attempts: 10 })
+      // 14 boards with the member, exactly 10 without: both sides clear MIN_LEAGUE_BOARDS.
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 10, boards: 14, attempts: 56, contributors: 2 })
+      expect(await myContributionFor(ctx, playerId, 'starting-words', today)).toEqual({ mine: 2.5, group: 4, shift: -0.6 })
+    })
+  })
+  test('null with no boards this month', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect(await myContributionFor(ctx, playerId, 'starting-words', today)).toBeNull()
+    })
+  })
+  test('null for an unknown league', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect(await myContributionFor(ctx, playerId, 'nope', today)).toBeNull()
+    })
+  })
+})
+
+describe('the my* wrappers are gated', () => {
+  // Wrappers cannot be driven (wordle-teams-obw), so pin the exact lines, as
+  // challenges.test.ts does. Exact lines, not toContain: an inverted gate
+  // contains every fragment.
+  const source = readFileSync(new URL('./leagues.ts', import.meta.url), 'utf8')
+  function handlerLines(name: string): string[] {
+    const start = source.indexOf(`export const ${name} = `)
+    expect(start, `no export const ${name}`).toBeGreaterThan(-1)
+    const rest = source.slice(start)
+    const end = rest.indexOf('\nexport ', 1)
+    const body = (end === -1 ? rest : rest.slice(0, end)).split(/handler: async \(.*?\) => \{/)[1]
+    expect(body, `no handler in ${name}`).toBeDefined()
+    return body!
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('//') && !line.startsWith('*') && !line.startsWith('/*'))
+  }
+  const DARK = 'if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }'
+
+  test.each(['myLeagues', 'myContribution'])('%s answers { enabled: false } first when dark', (name) => {
+    expect(handlerLines(name)[0]).toBe(DARK)
+  })
+
+  test('myContribution returns locked, never numbers, to a non-Pro caller', () => {
+    const lines = handlerLines('myContribution')
+    const gate = lines.indexOf('if (!(await isProFor(ctx, player._id))) return { enabled: true as const, locked: true as const }')
+    expect(gate).toBeGreaterThan(-1)
+    // The gate precedes any read of contribution data.
+    expect(lines.findIndex((l) => l.includes('myContributionFor('))).toBeGreaterThan(gate)
   })
 })

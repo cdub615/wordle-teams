@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { convexTest } from 'convex-test'
 import schema from './schema.ts'
 import { api } from './_generated/api'
@@ -29,6 +29,35 @@ describe('onboarding.getStatus', () => {
     expect(await as.query(api.onboarding.getStatus, {})).toEqual({
       enteredBoard: false,
       dismissed: false,
+      inLeague: true,
+    })
+  })
+
+  describe('inLeague with leagues enabled', () => {
+    beforeEach(() => vi.stubEnv('LEAGUES_ENABLED', 'true'))
+    afterEach(() => vi.unstubAllEnvs())
+
+    test('false for a fresh player', async () => {
+      const t = convexTest(schema, modules)
+      registerBetterAuth(t)
+      await t.run(async (ctx) => {
+        await ctx.db.insert('players', aPlayer({ email: 'l1@example.com' }))
+      })
+      const as = await authenticatedAs(t, 'l1@example.com')
+      expect((await as.query(api.onboarding.getStatus, {}))?.inLeague).toBe(false)
+    })
+
+    test('true for a player with a membership row', async () => {
+      const t = convexTest(schema, modules)
+      registerBetterAuth(t)
+      await t.run(async (ctx) => {
+        const playerId = await ctx.db.insert('players', aPlayer({ email: 'l2@example.com' }))
+        const leagueId = await ctx.db.insert('leagues', { slug: 's', name: 'S', featured: true, createdAt: 0 })
+        const groupId = await ctx.db.insert('leagueGroups', { leagueId, slug: 'c', name: 'C', order: 0, memberCount: 0 })
+        await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId, fromDay: '2026-10-08' })
+      })
+      const as = await authenticatedAs(t, 'l2@example.com')
+      expect((await as.query(api.onboarding.getStatus, {}))?.inLeague).toBe(true)
     })
   })
 
