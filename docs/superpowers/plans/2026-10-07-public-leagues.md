@@ -2030,8 +2030,9 @@ describe('myContributionFor', () => {
       const { leagueId, group } = await seedStartingWords(ctx)
       const playerId = await ctx.db.insert('players', aPlayer())
       await ctx.db.insert('leagueMemberMonth', { playerId, leagueId, groupId: group.crane, year: 2026, month: 10, boards: 4, attempts: 10 })
-      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 10, boards: 10, attempts: 40, contributors: 2 })
-      expect(await myContributionFor(ctx, playerId, 'starting-words', today)).toEqual({ mine: 2.5, group: 4, shift: -1 })
+      // 14 boards with the member, exactly 10 without: both sides clear MIN_LEAGUE_BOARDS.
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 10, boards: 14, attempts: 56, contributors: 2 })
+      expect(await myContributionFor(ctx, playerId, 'starting-words', today)).toEqual({ mine: 2.5, group: 4, shift: -0.6 })
     })
   })
   test('null with no boards this month', async () => {
