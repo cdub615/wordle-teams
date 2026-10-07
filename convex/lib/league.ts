@@ -42,16 +42,16 @@ export function leaguesEnabled(value: string | undefined): boolean {
   return value === LEAGUES_ON
 }
 
-/**
- * The real last calendar day of `day`'s month. NOT monthRange(month).end, which
- * is always '-31' because it is an index bound, not a date.
- */
 /** 'YYYY-MM' as the two numbers the month tables store (1-12). */
 export function yearMonthOf(month: PuzzleMonth): { year: number; month: number } {
   const [year, m] = month.split('-').map(Number)
   return { year, month: m }
 }
 
+/**
+ * The real last calendar day of `day`'s month. NOT monthRange(month).end, which
+ * is always '-31' because it is an index bound, not a date.
+ */
 export function lastDayOfMonth(day: PuzzleDay): PuzzleDay {
   return daysOfMonth(monthOf(day)).at(-1)!
 }

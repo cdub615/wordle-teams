@@ -139,6 +139,8 @@ describe('standingsFor', () => {
       const { leagueId, group } = await seedStartingWords(ctx)
       await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 10, boards: 10, attempts: 38, contributors: 2 })
       await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.slate, year: 2026, month: 10, boards: 6, attempts: 24, contributors: 1 })
+      // A row for another month must stay out of October's totals.
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.adieu, year: 2026, month: 9, boards: 30, attempts: 90, contributors: 4 })
       const out = (await standingsFor(ctx, 'starting-words', '2026-10-07'))!
       expect(out.month).toBe('2026-10')
       expect(out.standings.map((s) => [s.groupId, s.rank, s.average, s.boards])).toEqual([
