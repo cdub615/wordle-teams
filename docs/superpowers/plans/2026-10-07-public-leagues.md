@@ -1311,7 +1311,7 @@ export const standings = query({
   handler: async (ctx, { slug, today }) => {
     if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }
     await requirePlayer(ctx)
-    return { enabled: true as const, view: await standingsFor(ctx, slug, requirePlausibleToday(today)) }
+    return { enabled: true as const, view: await standingsFor(ctx, slug, readToday(today)) }
   },
 })
 ```
@@ -2054,7 +2054,7 @@ In `convex/onboarding.test.ts`, find the existing `toEqual({ enteredBoard: …, 
 
 - [ ] **Step 2: Run to verify it fails.** Commit red: `test(zic8.3): my leagues, my contribution, inLeague (red)`.
 
-- [ ] **Step 3: Implement** (append to `convex/leagues.ts`; import `contributionOf, membershipOf` from lib and `isProFor` from access)
+- [ ] **Step 3: Implement** (append to `convex/leagues.ts`; import `contributionOf, membershipOf` from lib and `isProFor` from access. `readToday` already exists in leagues.ts from Task 4's review fix: queries fall back to the server's day and never refuse a stale `today`)
 
 ```ts
 /** The home card and the standings header: one row per league the caller is in. */
@@ -2108,7 +2108,7 @@ export const myLeagues = query({
   handler: async (ctx, { today }) => {
     if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }
     const player = await requirePlayer(ctx)
-    return { enabled: true as const, leagues: await myLeaguesFor(ctx, player._id, requirePlausibleToday(today)) }
+    return { enabled: true as const, leagues: await myLeaguesFor(ctx, player._id, readToday(today)) }
   },
 })
 
@@ -2122,7 +2122,7 @@ export const myContribution = query({
     return {
       enabled: true as const,
       locked: false as const,
-      contribution: await myContributionFor(ctx, player._id, slug, requirePlausibleToday(today)),
+      contribution: await myContributionFor(ctx, player._id, slug, readToday(today)),
     }
   },
 })

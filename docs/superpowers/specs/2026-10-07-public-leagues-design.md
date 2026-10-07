@@ -103,7 +103,10 @@ app has none of that machinery. Showing group totals only means none of it is ne
 A residual inference exists and is accepted: in a group with two contributors, one of
 them can derive the other's monthly average by subtraction. They cannot learn **who**
 the other player is, because no identity crosses the boundary, so nothing about a
-person is disclosed. The `globalThreshold.ts` minimum-cohort rule therefore has
+person is disclosed. The same holds for the live view: in a one-contributor group, each
+change to the group's totals is that player's board arriving in real time, which is
+finer-grained than a monthly average but still carries no identity. The
+`globalThreshold.ts` minimum-cohort rule therefore has
 nothing to protect here and is **not** imported.
 
 ## 4. Data model
@@ -246,7 +249,16 @@ and `convex-test` never redacts. Every public function first checks
 | `seedLeague` | internalMutation | — | Idempotent by slug: creates or updates a league and its groups. Run once per deployment for Starting Words (`featured: true`) |
 
 "Today" follows the same puzzle-day convention as `acceptChallenge`'s `startDay`,
-validated with `requirePlausiblePuzzleDay`.
+validated two ways, deliberately. **Mutations** use `requirePlausibleToday` and refuse an
+implausible day (`INVALID_DATE`). **Queries** (`standings`, `myLeagues`, `myContribution`) never
+refuse: they fall back to the server's day when the client's is implausible
+(`readToday`, the `insights.ts` `teamMonth` precedent). A reactive query re-runs on every
+board write by any league member, not when the clock moves, so a refusing query would throw
+on a tab left open past midnight while the user did nothing. `today` only chooses which
+month is current, and those totals are public, so nothing is lost by the fallback.
+
+`standings` returns last month as `{ month, winnerGroupId }` only, which is all §8.2 renders,
+not the full snapshot.
 
 **The months-won tally** reads `leagueMonthResults` `by_league_year_month` for the
 league. At one row per month that is about 12 rows a year; when it outgrows that, a
