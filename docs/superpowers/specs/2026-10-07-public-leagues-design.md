@@ -335,8 +335,12 @@ sheet above that. Used by the standings page, the home card and onboarding.
 ### 8.4 Home card and onboarding
 
 - **Home card** (`app.tsx`): one row per joined league (group, rank, average), capped at
-  `HOME_CARD_MAX_LEAGUES` with "See all". If none are joined, it shows the **featured**
-  league's picker: "Pick your opener". Built on `myLeagues` + `standings`, both keyed so
+  `HOME_CARD_MAX_LEAGUES` with "See all". **The picker is offered only to a player who
+  has NEVER joined a league, and only on a team player's dashboard** (owner decision
+  2026-10-08): a teamless never-joined player gets the offer once, as the onboarding step
+  below, so the card hides its picker there; anyone who has ever joined, leavers included,
+  sees only their current league rows or no card. "Ever joined" is `getStatus.inLeague`.
+  Built on `myLeagues` (+ `leagues`, read only while a picker could show), both keyed so
   that team changes do not invalidate them. This respects `onboarding.ts`'s rule against
   adding a second full-team-scan subscription.
 - **Onboarding** (`next-step-card`): a new step for a **teamless** player who has never joined a league (a player who left is not re-offered it: they chose to leave), "No team yet?
