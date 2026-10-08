@@ -214,6 +214,7 @@ test.each([
   ['UNKNOWN_GROUP', "That group doesn't exist."],
   ['ALREADY_IN_LEAGUE', "You're already in this league. Use Switch group to change."],
   ['NOT_IN_LEAGUE', "You're not in this league."],
+  ['UNKNOWN_WORD', "That isn't a Wordle answer word."],
 ])('%s has its own copy', (code, copy) => {
   expect(mutationErrorMessage(new ConvexError({ code }), 'fallback')).toBe(copy)
 })

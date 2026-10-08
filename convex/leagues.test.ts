@@ -130,6 +130,48 @@ describe('seedLeagueFor', () => {
       expect((await ctx.db.get(first))!.createdAt).toBe(100)
     })
   })
+  test('a fresh seed writes groupSource answer-words', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const id = await seedLeagueFor(ctx, STARTING_WORDS, 100)
+      expect((await ctx.db.get(id))!.groupSource).toBe('answer-words')
+    })
+  })
+  test('a re-seed patches groupSource onto a league that lacked it, in place', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      // The dev deployment's state: seeded before groupSource existed.
+      const legacy = await ctx.db.insert('leagues', { slug: 'starting-words', name: 'Starting Words', featured: true, createdAt: 50 })
+      for (const [order, name] of ['CRANE', 'SLATE', 'ADIEU', 'STARE', 'ORATE'].entries()) {
+        await ctx.db.insert('leagueGroups', { leagueId: legacy, slug: name.toLowerCase(), name, order, memberCount: 0 })
+      }
+      expect((await ctx.db.get(legacy))!.groupSource).toBeUndefined()
+      const id = await seedLeagueFor(ctx, STARTING_WORDS, 999)
+      expect(id).toBe(legacy)
+      const row = (await ctx.db.get(legacy))!
+      expect(row.groupSource).toBe('answer-words')
+      expect(row.createdAt).toBe(50)
+      expect(await ctx.db.query('leagueGroups').collect()).toHaveLength(5)
+    })
+  })
+  test('a spec without groupSource leaves the stored value alone on re-seed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const id = await seedLeagueFor(ctx, { slug: 'o', name: 'O', featured: false, groups: [] }, 0)
+      expect((await ctx.db.get(id))!.groupSource).toBeUndefined()
+    })
+  })
+  test('the by_league_and_slug and by_league_and_memberCount indexes serve queries', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      await ctx.db.patch(group.stare, { memberCount: 3 })
+      const bySlug = await ctx.db.query('leagueGroups').withIndex('by_league_and_slug', (q) => q.eq('leagueId', leagueId).eq('slug', 'slate')).unique()
+      expect(bySlug?._id).toBe(group.slate)
+      const byCount = await ctx.db.query('leagueGroups').withIndex('by_league_and_memberCount', (q) => q.eq('leagueId', leagueId)).order('desc').first()
+      expect(byCount?._id).toBe(group.stare)
+    })
+  })
 })
 
 describe('standingsFor', () => {
