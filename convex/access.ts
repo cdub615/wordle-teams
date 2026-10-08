@@ -533,6 +533,11 @@ export async function isProFor(ctx: ReaderCtx, playerId: Id<'players'>): Promise
  * (wordle-teams-obw) and safe for the browser to import. This function reads two
  * facts and hands them over.
  *
+ * OUTSIDE THE LAYERS, THE TRIAL ALSO UNLOCKS ONE LEAGUE FEATURE: leagues.ts's
+ * `myContribution` opens on `trialActive` (owner decision 2026-10-08, spec §3,
+ * lib/league.ts's `contributionUnlocked`). League challenges and the month window
+ * stay Pro-only.
+ *
  * A MISSING PLAYER IS NOT AN ERROR HERE. Insights is a read surface; a caller
  * that cannot resolve a player should render the free view, not throw. The
  * callers that must refuse already do so through requirePlayer before reaching

@@ -192,6 +192,17 @@ export function contributionOf(
 }
 
 /**
+ * Whether the personal contribution view (`api.leagues.myContribution`) is open
+ * to a caller. OWNER DECISION 2026-10-08 (spec §3): Pro OR an active Insights
+ * trial. It is the ONE Pro feature the trial unlocks: challenges and the month
+ * window stay Pro-only. The trial arithmetic (`now < trialEndsAt`) lives only in
+ * lib/insightsAccess.ts; this takes its verdict as `trialActive`.
+ */
+export function contributionUnlocked({ isPro, trialActive }: { isPro: boolean; trialActive: boolean }): boolean {
+  return isPro || trialActive
+}
+
+/**
  * The month the daily sweep should close today, if any.
  *
  * FROM DAY 2, NOT DAY 1 (spec §9): at 00:45 UTC on the 1st a player at UTC-12

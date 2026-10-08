@@ -1,11 +1,11 @@
 import { v } from 'convex/values'
 import { internal } from './_generated/api'
 import { internalMutation, mutation, query } from './_generated/server'
-import { accessError, isProFor, requirePlausibleToday, requirePlayer } from './access.ts'
+import { accessError, insightsAccessFor, isProFor, requirePlausibleToday, requirePlayer } from './access.ts'
 import { isMonth } from './lib/monthWindow.ts'
 import { attemptsFor } from './lib/board.ts'
 import { addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
-import { contributionOf, groupDelta, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
+import { contributionOf, contributionUnlocked, groupDelta, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
 import type { MembershipPlan, Standing } from './lib/league.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
@@ -570,13 +570,16 @@ export const myLeagues = query({
   },
 })
 
-/** Free callers get `locked: true` rather than an error, so the page can render the teaser. */
+/** Callers with neither Pro nor an active Insights trial get `locked: true` rather than an error, so the page can render the teaser. */
 export const myContribution = query({
   args: { slug: v.string(), today: v.string() },
   handler: async (ctx, { slug, today }) => {
     if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }
     const player = await requirePlayer(ctx)
-    if (!(await isProFor(ctx, player._id))) return { enabled: true as const, locked: true as const }
+    // Pro OR an active Insights trial (owner decision 2026-10-08, spec §3). insightsAccessFor
+    // owns the trial arithmetic; isPro is read separately because InsightsAccess does not expose it.
+    const [isPro, access] = await Promise.all([isProFor(ctx, player._id), insightsAccessFor(ctx, player._id)])
+    if (!contributionUnlocked({ isPro, trialActive: access.trialActive })) return { enabled: true as const, locked: true as const }
     return {
       enabled: true as const,
       locked: false as const,
