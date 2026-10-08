@@ -666,6 +666,80 @@ describe('recomputeLeagueMonthFor', () => {
       expect((await ctx.db.query('leagueGroupMonth').collect())[0]).toMatchObject({ groupId: group.slate, boards: 1, attempts: 2 })
     })
   })
+
+  test('join, enter TOMORROW’s board, leave the same day: nothing is stranded in the group', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await joinGroupFor(ctx, playerId, { groupId: group.crane, today }) // opens 2026-10-08
+      // The server accepts a board up to its own today + 1.
+      await upsertBoardFor(ctx, playerId, { puzzleDay: '2026-10-08', answer: 'crane', guesses: ['slate', 'crane', '', '', '', ''], today })
+      expect((await ctx.db.query('leagueGroupMonth').collect())[0]).toMatchObject({ groupId: group.crane, boards: 1, contributors: 1 })
+      // planLeave DELETES the pending interval: no membership row survives.
+      await leaveLeagueFor(ctx, playerId, { leagueId, today })
+      expect(await ctx.db.query('leagueMemberships').collect()).toEqual([])
+      expect(await ctx.db.query('leagueMemberMonth').collect()).toEqual([])
+      expect((await ctx.db.query('leagueGroupMonth').collect())[0]).toMatchObject({ groupId: group.crane, boards: 0, attempts: 0, contributors: 0 })
+      await expectGroupRowsAreSums(ctx)
+    })
+  })
+})
+
+describe('a membership change late in a month reaches next month’s boards', () => {
+  // The server's last day of October. A board for November 1 is accepted (server today + 1).
+  beforeEach(() => vi.useFakeTimers({ now: new Date('2026-10-31T12:00:00Z'), toFake: ['Date'] }))
+  afterEach(() => vi.useRealTimers())
+
+  const nov1 = { puzzleDay: '2026-11-01', answer: 'crane', guesses: ['slate', 'crane', '', '', '', ''] }
+
+  async function craneMemberWithNov1Board(ctx: Ctx) {
+    const { leagueId, group } = await seedStartingWords(ctx)
+    const playerId = await ctx.db.insert('players', aPlayer())
+    await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-10-01' })
+    await ctx.db.patch(group.crane, { memberCount: 1 })
+    await upsertBoardFor(ctx, playerId, { ...nov1, today: '2026-10-31' })
+    const novRows = async () => (await ctx.db.query('leagueGroupMonth').collect()).filter((r) => r.month === 11)
+    expect(await novRows()).toEqual([expect.objectContaining({ groupId: group.crane, boards: 1, contributors: 1 })])
+    return { leagueId, group, playerId, novRows }
+  }
+
+  test('a switch on the last day moves the board on the 1st to the new group', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { group, playerId, novRows } = await craneMemberWithNov1Board(ctx)
+      await switchGroupFor(ctx, playerId, { groupId: group.slate, today: '2026-10-31' })
+      const rows = await novRows()
+      expect(rows.find((r) => r.groupId === group.crane)).toMatchObject({ boards: 0, attempts: 0, contributors: 0 })
+      expect(rows.find((r) => r.groupId === group.slate)).toMatchObject({ boards: 1, attempts: 2, contributors: 1 })
+      expect(await ctx.db.query('leagueMemberMonth').collect()).toEqual([expect.objectContaining({ groupId: group.slate, month: 11 })])
+      await expectGroupRowsAreSums(ctx)
+    })
+  })
+
+  test('a leave on the last day takes the board on the 1st out of the group', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group, playerId, novRows } = await craneMemberWithNov1Board(ctx)
+      await leaveLeagueFor(ctx, playerId, { leagueId, today: '2026-10-31' })
+      expect(await novRows()).toEqual([expect.objectContaining({ groupId: group.crane, boards: 0, attempts: 0, contributors: 0 })])
+      expect(await ctx.db.query('leagueMemberMonth').collect()).toEqual([])
+      await expectGroupRowsAreSums(ctx)
+    })
+  })
+
+  test('a client a day behind the server (today = the 30th) still moves the board on the 1st', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { group, playerId, novRows } = await craneMemberWithNov1Board(ctx)
+      // requirePlausibleToday accepts server today - 1, and a board can be server today + 1: today + 2.
+      await switchGroupFor(ctx, playerId, { groupId: group.slate, today: '2026-10-30' })
+      const rows = await novRows()
+      expect(rows.find((r) => r.groupId === group.crane)).toMatchObject({ boards: 0, contributors: 0 })
+      expect(rows.find((r) => r.groupId === group.slate)).toMatchObject({ boards: 1, contributors: 1 })
+      await expectGroupRowsAreSums(ctx)
+    })
+  })
 })
 
 describe('closing a month', () => {
