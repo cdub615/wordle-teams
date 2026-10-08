@@ -606,30 +606,41 @@ function Dashboard() {
   // is never re-offered it; it is also true while leagues are dark. A missing
   // status errs towards not offering.
   const everJoinedLeague = onboardingStatus?.inLeague ?? true
+  // "NOT NOW" ON THE CARD (owner decision 2026-10-08) is permanent: the card
+  // never offers again, and the Leagues menu item remains. A missing status
+  // counts as dismissed, by the same rule as `inLeague ?? true`: nothing flashes.
+  const leagueOfferDismissed = onboardingStatus?.leagueOfferDismissed ?? true
   // THE LEAGUES LIST IS READ ONLY WHILE THE PICKER COULD SHOW: it carries every
   // group's memberCount, which changes on every join/switch/leave anywhere, so
   // an unconditional subscription would fan each one out to every dashboard.
-  // Not for a member, a leaver, or a teamless player (whose offer is the
-  // onboarding step's, not this card's).
+  // Not for a member, a leaver, a player who dismissed it, or a teamless
+  // player (whose offer is the onboarding step's, not this card's).
   const { data: allLeagues } = useQuery(
     convexQuery(
       api.leagues.leagues,
-      !everJoinedLeague && teams.length > 0 && myLeagues?.enabled && myLeagues.leagues.length === 0 ? {} : 'skip',
+      !everJoinedLeague && !leagueOfferDismissed && teams.length > 0 && myLeagues?.enabled && myLeagues.leagues.length === 0
+        ? {}
+        : 'skip',
     ),
   )
   const joinLeague = useMutation({ mutationFn: useConvexMutation(api.leagues.joinGroup) })
+  const dismissLeagueOffer = useMutation({ mutationFn: useConvexMutation(api.leagues.dismissLeagueOffer) })
   // `offerPicker` is the CALL SITE's: true on the team grid, false on the
   // teamless branch. A member sees their rows on both.
   const leaguesCard = (className: string, offerPicker: boolean) => {
     const leaguesInput = leagueToday
-      ? leaguesCardInput(myLeagues, allLeagues, { everJoined: everJoinedLeague, offerPicker })
+      ? leaguesCardInput(myLeagues, allLeagues, {
+          everJoined: everJoinedLeague,
+          offerPicker,
+          dismissed: leagueOfferDismissed,
+        })
       : null
     return leaguesInput ? (
       <LeaguesCard
         className={className}
         mine={leaguesInput.mine}
         featured={leaguesInput.featured}
-        busy={joinLeague.isPending}
+        busy={joinLeague.isPending || dismissLeagueOffer.isPending}
         // `mutate` WITH onError, the dismissOnboarding idiom below: a failure is
         // toasted rather than left as an unhandled rejection, and the success
         // needs no UI because myLeagues answers with the new membership.
@@ -637,6 +648,14 @@ function Dashboard() {
           joinLeague.mutate(
             { groupId: groupId as Id<'leagueGroups'>, today: toPuzzleDay(new Date()) },
             { onError: (error: unknown) => toast.error(mutationErrorMessage(error, 'Could not join that group')) },
+          )
+        }
+        // The same `mutate` + onError idiom. No success UI: getStatus answers
+        // with leagueOfferDismissed and the card goes away.
+        onDismiss={() =>
+          dismissLeagueOffer.mutate(
+            {},
+            { onError: (error: unknown) => toast.error(mutationErrorMessage(error, 'Could not hide the leagues card')) },
           )
         }
       />
@@ -831,7 +850,7 @@ function Dashboard() {
       // PUBLIC LEAGUES (zic8.3): THE teamless league offer — the leagues card
       // never shows its picker on the team-less branch. /leagues redirects to
       // the featured league's page while there is exactly one, which is where
-      // the "Pick your opener" picker lives.
+      // the "Join the opener wars" picker lives.
       onLeague={() => void navigate({ to: '/leagues' })}
       // OPENS THE DIALOG HERE RATHER THAN NAVIGATING TO /team, which is what
       // this used to do. The task's whole job is to get one more person into

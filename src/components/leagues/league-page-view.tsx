@@ -137,9 +137,10 @@ export function LeaguePageView({ slug, today, standings, mine, contribution, bus
       ) : (
         <section aria-labelledby="league-join-heading" className="flex flex-col gap-2">
           <h2 id="league-join-heading" className="font-medium">
-            Pick your opener
+            Join the opener wars
           </h2>
-          <GroupPicker groups={view.groups} currentGroupId={null} disabled={busy} label="Pick your opener" onPick={onJoin} />
+          <p className="text-sm text-muted-foreground">Pick a side — your boards count whatever word you start with.</p>
+          <GroupPicker groups={view.groups} currentGroupId={null} disabled={busy} label="Choose a group" onPick={onJoin} />
           {/* planJoin: tomorrow, or the 1st if a DIFFERENT group already counted this month. */}
           <p className="text-xs text-muted-foreground">
             Your boards count from tomorrow, or from the 1st if you were in another group this month.
@@ -173,8 +174,16 @@ export function LeaguePageView({ slug, today, standings, mine, contribution, bus
             label="Switch group"
             onPick={onSwitch}
           />
-          <p className="text-xs text-muted-foreground">A switch takes effect on the 1st.</p>
-          <Button type="button" variant="ghost" className="self-start" disabled={busy} onClick={() => onLeave(membership)}>
+          {/* STATE-TRUE (owner hand test 2026-10-08): a membership that has not
+              started yet is retargeted IN PLACE by a switch (planSwitch), so the
+              change is immediate until its start day; only a started one waits
+              for the 1st. */}
+          <p className="text-xs text-muted-foreground">
+            {membership.since > today
+              ? `You can change group until it starts on ${dayName(membership.since)}.`
+              : 'A switch takes effect on the 1st.'}
+          </p>
+          <Button type="button" variant="outline" className="self-start" disabled={busy} onClick={() => onLeave(membership)}>
             Leave league
           </Button>
         </section>

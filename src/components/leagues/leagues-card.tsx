@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router'
+import { Button } from '#/components/ui/button.tsx'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
 import { GroupPicker, type PickerGroup } from '#/components/leagues/group-picker.tsx'
 import { HOME_CARD_MAX_LEAGUES } from '../../../convex/lib/league.ts'
@@ -16,6 +17,8 @@ type Props = {
   mine: MyLeague[]
   featured: FeaturedLeague | null
   onJoin: (groupId: string) => void
+  /** "Not now" on the picker: the caller records the dismissal (leagues.dismissLeagueOffer). */
+  onDismiss: () => void
   busy: boolean
   className?: string
 }
@@ -32,21 +35,22 @@ type LeaguesResult<L extends FeaturedLeague & { featured: boolean }> = { enabled
  * - A MEMBER always gets their current rows, and never the picker.
  * - THE PICKER is offered only to a player who has NEVER joined a league
  *   (`everJoined` is getStatus.inLeague, which counts a left membership: a
- *   leaver chose to leave and is not re-offered it) AND only where the caller
- *   says it may be (`offerPicker`: the team dashboard, not the teamless branch,
- *   whose onboarding step makes the offer instead). Spec §8.4, owner decision
- *   2026-10-08.
+ *   leaver chose to leave and is not re-offered it), who has NOT DISMISSED the
+ *   offer ("Not now": getStatus.leagueOfferDismissed), AND only where the
+ *   caller says it may be (`offerPicker`: the team dashboard, not the teamless
+ *   branch, whose onboarding step makes the offer instead). Spec §8.4, owner
+ *   decisions 2026-10-08.
  * - Otherwise nothing: leagues dark, myLeagues not answered, or no featured
  *   league to offer.
  */
 export function leaguesCardInput<M extends MyLeague, L extends FeaturedLeague & { featured: boolean }>(
   myLeagues: MyLeaguesResult<M> | undefined,
   allLeagues: LeaguesResult<L> | undefined,
-  viewer: { everJoined: boolean; offerPicker: boolean },
+  viewer: { everJoined: boolean; offerPicker: boolean; dismissed: boolean },
 ): { mine: M[]; featured: L | null } | null {
   if (!myLeagues?.enabled) return null
   if (myLeagues.leagues.length > 0) return { mine: myLeagues.leagues, featured: null }
-  if (viewer.everJoined || !viewer.offerPicker) return null
+  if (viewer.everJoined || viewer.dismissed || !viewer.offerPicker) return null
   const featured = allLeagues?.enabled ? (allLeagues.leagues.find((l) => l.featured) ?? null) : null
   return featured ? { mine: [], featured } : null
 }
@@ -57,27 +61,30 @@ export function leaguesCardInput<M extends MyLeague, L extends FeaturedLeague & 
  * the join mutation. Group totals only, never a player (§3.2). Renders NOTHING
  * with no membership and no featured league, so the card is never an empty box.
  */
-export function LeaguesCard({ mine, featured, onJoin, busy, className }: Props) {
+export function LeaguesCard({ mine, featured, onJoin, onDismiss, busy, className }: Props) {
   if (mine.length === 0) {
     if (!featured) return null
     return (
       <Card className={className} role="region" aria-label="Leagues">
         <CardHeader>
           <CardTitle asChild>
-            <h2>Pick your opener</h2>
+            <h2>Join the opener wars</h2>
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
-          <p className="text-sm text-muted-foreground">
-            Join a {featured.name} group. Every board you play counts for it.
-          </p>
+          {/* Groups are SIDES to play for, not a claim about the player's own opener (§8.4). */}
+          <p className="text-sm text-muted-foreground">Pick a side — your boards count whatever word you start with.</p>
           <GroupPicker
             groups={featured.groups}
             currentGroupId={null}
             disabled={busy}
-            label="Pick your opener"
+            label="Choose a group"
             onPick={onJoin}
           />
+          {/* DISMISSIBLE (owner decision 2026-10-08): joining must not be the only way to clear the card. */}
+          <Button type="button" variant="ghost" size="sm" className="self-start" disabled={busy} onClick={onDismiss}>
+            Not now
+          </Button>
         </CardContent>
       </Card>
     )

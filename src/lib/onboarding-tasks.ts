@@ -73,7 +73,7 @@ export const MODEL_LINE =
 
 const TASK_COPY: Record<OnboardingTaskId, { title: string; hint: string }> = {
   board: { title: "Enter today's board", hint: 'About 10 seconds' },
-  league: { title: 'Pick your opener', hint: 'No team yet? Play for a group today' },
+  league: { title: 'Join the opener wars', hint: 'Pick a side — your boards count whatever word you start with.' },
   team: { title: 'Create a team', hint: 'Where scores get compared' },
   invite: { title: 'Invite someone', hint: 'A scoreboard needs someone to score against' },
 }
