@@ -8,7 +8,7 @@ vi.mock('@tanstack/react-router', () => ({
     createElement('a', { href: params ? to.replace('$slug', params.slug) : to, ...rest }, children as never),
 }))
 
-import { LeaguesCard, leaguesCardInput } from './leagues-card.tsx'
+import { LeaguesCard, leaguesCardInput, pickerCouldShow } from './leagues-card.tsx'
 
 afterEach(cleanup)
 
@@ -53,9 +53,15 @@ describe('LeaguesCard', () => {
     render(createElement(LeaguesCard, { mine: [row('starting-words', 1)], featured: null, onJoin: vi.fn(), onDismiss: vi.fn(), busy: false }))
     expect(screen.queryByRole('button', { name: 'Not now' })).toBeNull()
   })
-  test('busy disables the picker', () => {
+  test('busy disables the picker and "Not now"', () => {
     render(createElement(LeaguesCard, { mine: [], featured, onJoin: vi.fn(), onDismiss: vi.fn(), busy: true }))
     expect((screen.getByRole('button', { name: 'SLATE' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Not now' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+  test('"Not now" is described by the offer it dismisses', () => {
+    render(createElement(LeaguesCard, { mine: [], featured, onJoin: vi.fn(), onDismiss: vi.fn(), busy: false }))
+    const describedBy = screen.getByRole('button', { name: 'Not now' }).getAttribute('aria-describedby')
+    expect(describedBy && document.getElementById(describedBy)?.textContent).toBe('Join the opener wars')
   })
   test('in a league: one row with rank and average, linking to the league', () => {
     render(createElement(LeaguesCard, { mine: [row('starting-words', 1)], featured, onJoin: vi.fn(), onDismiss: vi.fn(), busy: false }))
@@ -118,5 +124,20 @@ describe('leaguesCardInput', () => {
     expect(leaguesCardInput({ enabled: true, leagues: [] }, { enabled: false }, team)).toBeNull()
     expect(leaguesCardInput({ enabled: true, leagues: [] }, undefined, team)).toBeNull()
     expect(leaguesCardInput({ enabled: true, leagues: [] }, { enabled: true, leagues: [{ ...featured, featured: false }] }, team)).toBeNull()
+  })
+})
+
+describe('pickerCouldShow', () => {
+  const could = { myLeagues: { enabled: true as const, leagues: [] }, everJoined: false, dismissed: false, offerPicker: true }
+  test('a never-joined, undismissed team player with no rows: true', () => {
+    expect(pickerCouldShow(could)).toBe(true)
+  })
+  test('each condition alone flips it', () => {
+    expect(pickerCouldShow({ ...could, myLeagues: undefined })).toBe(false)
+    expect(pickerCouldShow({ ...could, myLeagues: { enabled: false } })).toBe(false)
+    expect(pickerCouldShow({ ...could, myLeagues: { enabled: true, leagues: [row('starting-words', 1)] } })).toBe(false)
+    expect(pickerCouldShow({ ...could, everJoined: true })).toBe(false)
+    expect(pickerCouldShow({ ...could, dismissed: true })).toBe(false)
+    expect(pickerCouldShow({ ...could, offerPicker: false })).toBe(false)
   })
 })

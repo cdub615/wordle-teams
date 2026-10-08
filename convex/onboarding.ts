@@ -71,7 +71,7 @@ export const getStatus = query({
       }
     }
 
-    // PUBLIC LEAGUES (zic8.3): whether to offer "Pick your opener". Keyed to the
+    // PUBLIC LEAGUES (zic8.3): whether to offer "Join the opener wars". Keyed to the
     // caller's own id like everything else here, so nobody else's activity can
     // invalidate it. Reported as in-league while the feature is dark, so the
     // step never offers something that would refuse.

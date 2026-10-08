@@ -180,7 +180,7 @@ export function LeaguePageView({ slug, today, standings, mine, contribution, bus
               for the 1st. */}
           <p className="text-xs text-muted-foreground">
             {membership.since > today
-              ? `You can change group until it starts on ${dayName(membership.since)}.`
+              ? `Changes apply at once until it starts on ${dayName(membership.since)}.`
               : 'A switch takes effect on the 1st.'}
           </p>
           <Button type="button" variant="outline" className="self-start" disabled={busy} onClick={() => onLeave(membership)}>

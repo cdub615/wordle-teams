@@ -36,7 +36,7 @@ import { PasskeyOffer } from '#/components/passkey-offer.tsx'
 import { BoardEntryButton, BoardEntrySurface } from '#/components/board-entry/button.tsx'
 import { NextStepCard } from '#/components/onboarding/next-step-card.tsx'
 import { ChallengeNudge } from '#/components/challenges/challenge-nudge.tsx'
-import { LeaguesCard, leaguesCardInput } from '#/components/leagues/leagues-card.tsx'
+import { LeaguesCard, leaguesCardInput, pickerCouldShow } from '#/components/leagues/leagues-card.tsx'
 import { onboardingFactsFrom } from '#/lib/onboarding-facts.ts'
 import { DashboardError } from '#/components/dashboard-error.tsx'
 import { Button } from '#/components/ui/button.tsx'
@@ -610,15 +610,18 @@ function Dashboard() {
   // never offers again, and the Leagues menu item remains. A missing status
   // counts as dismissed, by the same rule as `inLeague ?? true`: nothing flashes.
   const leagueOfferDismissed = onboardingStatus?.leagueOfferDismissed ?? true
-  // THE LEAGUES LIST IS READ ONLY WHILE THE PICKER COULD SHOW: it carries every
-  // group's memberCount, which changes on every join/switch/leave anywhere, so
-  // an unconditional subscription would fan each one out to every dashboard.
-  // Not for a member, a leaver, a player who dismissed it, or a teamless
-  // player (whose offer is the onboarding step's, not this card's).
+  // THE LEAGUES LIST IS READ ONLY WHILE THE PICKER COULD SHOW (pickerCouldShow
+  // has why). The picker's place is the team grid, so `offerPicker` is
+  // "has a team" here, matching the two leaguesCard call sites below.
   const { data: allLeagues } = useQuery(
     convexQuery(
       api.leagues.leagues,
-      !everJoinedLeague && !leagueOfferDismissed && teams.length > 0 && myLeagues?.enabled && myLeagues.leagues.length === 0
+      pickerCouldShow({
+        myLeagues,
+        everJoined: everJoinedLeague,
+        dismissed: leagueOfferDismissed,
+        offerPicker: teams.length > 0,
+      })
         ? {}
         : 'skip',
     ),

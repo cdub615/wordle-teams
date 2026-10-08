@@ -126,17 +126,17 @@ describe('LeaguePageView', () => {
     // Owner hand test 2026-10-08: joined today (starts tomorrow), a switch
     // retargets the membership at once, so "takes effect on the 1st" was false.
     show({ mine: { enabled: true, leagues: [{ ...crane, since: '2026-10-08' }] } })
-    expect(screen.getByText('You can change group until it starts on October 8.')).toBeTruthy()
+    expect(screen.getByText('Changes apply at once until it starts on October 8.')).toBeTruthy()
     expect(screen.queryByText('A switch takes effect on the 1st.')).toBeNull()
     cleanup()
     show({ today: '2026-10-31', mine: { enabled: true, leagues: [{ ...crane, since: '2026-11-01' }] } })
-    expect(screen.getByText('You can change group until it starts on November 1.')).toBeTruthy()
+    expect(screen.getByText('Changes apply at once until it starts on November 1.')).toBeTruthy()
   })
 
   test('the switch note for a started membership: a switch takes effect on the 1st', () => {
     show({ mine: { enabled: true, leagues: [crane] } })
     expect(screen.getByText('A switch takes effect on the 1st.')).toBeTruthy()
-    expect(screen.queryByText(/You can change group until/)).toBeNull()
+    expect(screen.queryByText(/Changes apply at once until/)).toBeNull()
     cleanup()
     // Starting TODAY has started.
     show({ today: '2026-10-08', mine: { enabled: true, leagues: [{ ...crane, since: '2026-10-08' }] } })

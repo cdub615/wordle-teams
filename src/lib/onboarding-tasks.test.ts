@@ -31,7 +31,7 @@ describe('incompleteTasks', () => {
   test('a teamless player not in a league is offered the league', () => {
     expect(incompleteTasks({ ...nothing, inLeague: false })).toEqual([
       { id: 'board', title: "Enter today's board", hint: 'About 10 seconds' },
-      { id: 'league', title: 'Join the opener wars', hint: 'Pick a side — your boards count whatever word you start with.' },
+      { id: 'league', title: 'Join the opener wars', hint: 'Pick a side — your boards count whatever word you start with' },
       { id: 'team', title: 'Create a team', hint: 'Where scores get compared' },
     ])
   })

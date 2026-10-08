@@ -51,7 +51,7 @@ export function NextStepCard({
   facts: OnboardingFacts
   onBoard: () => void
   onTeam: () => void
-  /** PUBLIC LEAGUES (zic8.3): "Pick your opener", the teamless league offer. */
+  /** PUBLIC LEAGUES (zic8.3): "Join the opener wars", the teamless league offer. */
   onLeague: () => void
   onInvite: () => void
   onDismiss: () => void

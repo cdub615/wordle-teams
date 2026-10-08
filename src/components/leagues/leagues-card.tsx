@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router'
+import { useId } from 'react'
 import { Button } from '#/components/ui/button.tsx'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
 import { GroupPicker, type PickerGroup } from '#/components/leagues/group-picker.tsx'
@@ -28,18 +29,42 @@ type MyLeaguesResult<M extends MyLeague> = { enabled: false } | { enabled: true;
 type LeaguesResult<L extends FeaturedLeague & { featured: boolean }> = { enabled: false } | { enabled: true; leagues: L[] }
 
 /**
+ * COULD THE PICKER SHOW? The ONE predicate for it, shared by leaguesCardInput
+ * (whether to render the offer) and app.tsx (whether to subscribe to the
+ * `leagues` list at all, which is read only while this is true: it carries
+ * every group's memberCount, so an unconditional subscription would fan every
+ * join anywhere out to every dashboard).
+ *
+ * True only for a player whom myLeagues has answered with NO current rows, who
+ * has NEVER joined a league (`everJoined` is getStatus.inLeague, which counts
+ * a left membership: a leaver chose to leave and is not re-offered it), who
+ * has NOT DISMISSED the offer ("Not now": getStatus.leagueOfferDismissed), and
+ * only where the caller says it may be (`offerPicker`: the team dashboard, not
+ * the teamless branch, whose onboarding step makes the offer instead). Spec
+ * §8.4, owner decisions 2026-10-08.
+ */
+export function pickerCouldShow({
+  myLeagues,
+  everJoined,
+  dismissed,
+  offerPicker,
+}: {
+  myLeagues: { enabled: false } | { enabled: true; leagues: readonly unknown[] } | undefined
+  everJoined: boolean
+  dismissed: boolean
+  offerPicker: boolean
+}): boolean {
+  return !!myLeagues?.enabled && myLeagues.leagues.length === 0 && !everJoined && !dismissed && offerPicker
+}
+
+/**
  * THE CARD'S GATING, as a pure function of the two query results (each
  * `undefined` while loading, skipped or failed) and two facts about the viewer.
  * Null means "render nothing".
  *
  * - A MEMBER always gets their current rows, and never the picker.
- * - THE PICKER is offered only to a player who has NEVER joined a league
- *   (`everJoined` is getStatus.inLeague, which counts a left membership: a
- *   leaver chose to leave and is not re-offered it), who has NOT DISMISSED the
- *   offer ("Not now": getStatus.leagueOfferDismissed), AND only where the
- *   caller says it may be (`offerPicker`: the team dashboard, not the teamless
- *   branch, whose onboarding step makes the offer instead). Spec §8.4, owner
- *   decisions 2026-10-08.
+ * - THE PICKER only where pickerCouldShow says so, and only with a featured
+ *   league to offer.
  * - Otherwise nothing: leagues dark, myLeagues not answered, or no featured
  *   league to offer.
  */
@@ -50,7 +75,7 @@ export function leaguesCardInput<M extends MyLeague, L extends FeaturedLeague & 
 ): { mine: M[]; featured: L | null } | null {
   if (!myLeagues?.enabled) return null
   if (myLeagues.leagues.length > 0) return { mine: myLeagues.leagues, featured: null }
-  if (viewer.everJoined || viewer.dismissed || !viewer.offerPicker) return null
+  if (!pickerCouldShow({ myLeagues, ...viewer })) return null
   const featured = allLeagues?.enabled ? (allLeagues.leagues.find((l) => l.featured) ?? null) : null
   return featured ? { mine: [], featured } : null
 }
@@ -62,13 +87,16 @@ export function leaguesCardInput<M extends MyLeague, L extends FeaturedLeague & 
  * with no membership and no featured league, so the card is never an empty box.
  */
 export function LeaguesCard({ mine, featured, onJoin, onDismiss, busy, className }: Props) {
+  // Ties "Not now" to the offer it dismisses, keeping its accessible NAME the
+  // visible text (label-in-name) while a screen reader hears what it hides.
+  const headingId = useId()
   if (mine.length === 0) {
     if (!featured) return null
     return (
       <Card className={className} role="region" aria-label="Leagues">
         <CardHeader>
           <CardTitle asChild>
-            <h2>Join the opener wars</h2>
+            <h2 id={headingId}>Join the opener wars</h2>
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
@@ -82,7 +110,11 @@ export function LeaguesCard({ mine, featured, onJoin, onDismiss, busy, className
             onPick={onJoin}
           />
           {/* DISMISSIBLE (owner decision 2026-10-08): joining must not be the only way to clear the card. */}
-          <Button type="button" variant="ghost" size="sm" className="self-start" disabled={busy} onClick={onDismiss}>
+          <Button type="button" variant="ghost" size="sm" className="self-start"
+            aria-describedby={headingId}
+            disabled={busy}
+            onClick={onDismiss}
+          >
             Not now
           </Button>
         </CardContent>
