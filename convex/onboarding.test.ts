@@ -30,6 +30,7 @@ describe('onboarding.getStatus', () => {
       enteredBoard: false,
       dismissed: false,
       inLeague: true,
+      leagueOfferDismissed: false,
       leaguesEnabled: false,
     })
   })
@@ -56,6 +57,33 @@ describe('onboarding.getStatus', () => {
       })
       const as = await authenticatedAs(t, 'l3@example.com')
       expect((await as.query(api.onboarding.getStatus, {}))?.leaguesEnabled).toBe(true)
+    })
+
+    // T18: planLeave DELETES a not-yet-started membership, so the stamp, not a
+    // row, is what remembers a same-day join and leave (spec §8.4).
+    test('true for a player with only leagueJoinedAt and no membership rows', async () => {
+      const t = convexTest(schema, modules)
+      registerBetterAuth(t)
+      await t.run(async (ctx) => {
+        await ctx.db.insert('players', aPlayer({ email: 'l4@example.com', leagueJoinedAt: Date.now() }))
+      })
+      const as = await authenticatedAs(t, 'l4@example.com')
+      expect((await as.query(api.onboarding.getStatus, {}))?.inLeague).toBe(true)
+    })
+
+    test('leagueOfferDismissed is false by default and true after leagues.dismissLeagueOffer', async () => {
+      const t = convexTest(schema, modules)
+      registerBetterAuth(t)
+      await t.run(async (ctx) => {
+        await ctx.db.insert('players', aPlayer({ email: 'l5@example.com' }))
+      })
+      const as = await authenticatedAs(t, 'l5@example.com')
+      expect((await as.query(api.onboarding.getStatus, {}))?.leagueOfferDismissed).toBe(false)
+      await as.mutation(api.leagues.dismissLeagueOffer, {})
+      const status = await as.query(api.onboarding.getStatus, {})
+      expect(status?.leagueOfferDismissed).toBe(true)
+      // Its own fact: dismissing the league offer is not dismissing onboarding.
+      expect(status?.dismissed).toBe(false)
     })
 
     test('true for a player with a membership row', async () => {

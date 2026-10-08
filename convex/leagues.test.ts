@@ -3,12 +3,13 @@ import { convexTest } from 'convex-test'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import type { MutationCtx } from './_generated/server'
-import { internal } from './_generated/api'
+import { api, internal } from './_generated/api'
 import { insightsAccess } from './lib/insightsAccess.ts'
 import { contributionUnlocked } from './lib/league.ts'
-import { aPlayer } from './fixtures.ts'
+import { aPlayer, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
+import { toPuzzleDay } from './lib/puzzleDay.ts'
 import { upsertBoardFor } from './scores.ts'
-import { closeLeagueMonthFor, groupsOf, joinGroupFor, leaguesFor, leaveLeagueFor, myContributionFor, myLeaguesFor, readToday, recomputeLeagueMonthFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor } from './leagues.ts'
+import { closeLeagueMonthFor, dismissLeagueOfferFor, groupsOf, joinGroupFor, leaguesFor, leaveLeagueFor, myContributionFor, myLeaguesFor, readToday, recomputeLeagueMonthFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor } from './leagues.ts'
 import type { DataModel, Id } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 
@@ -379,6 +380,55 @@ describe('membership', () => {
       const rows = await ctx.db.query('leagueMemberships').collect()
       expect(rows.map((r) => [r.playerId, r.toDay])).toEqual([[a, today]])
       expect((await ctx.db.get(group.crane))!.memberCount).toBe(0)
+    })
+  })
+
+  // T18 (spec §8.4): "ever joined" must survive planLeave DELETING a
+  // not-yet-started membership, so a join stamps players.leagueJoinedAt.
+  test('join stamps leagueJoinedAt ONCE: a rejoin after leaving keeps the first stamp', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await joinGroupFor(ctx, playerId, { groupId: group.crane, today })
+      expect((await ctx.db.get(playerId))!.leagueJoinedAt).toBe(NOW.getTime())
+
+      // An hour later: leave (deleting the pending row) and join again. A stamp
+      // that moved would mean "first joined" was being overwritten.
+      vi.setSystemTime(NOW.getTime() + 3_600_000)
+      await leaveLeagueFor(ctx, playerId, { leagueId, today })
+      expect(await ctx.db.query('leagueMemberships').collect()).toEqual([])
+      await joinGroupFor(ctx, playerId, { groupId: group.slate, today })
+      expect((await ctx.db.get(playerId))!.leagueJoinedAt).toBe(NOW.getTime())
+    })
+  })
+
+  test('switch and leave never stamp leagueJoinedAt; a refused join does not either', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      // A member from before the field existed: a row, no stamp.
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-09-01' })
+      await ctx.db.patch(group.crane, { memberCount: 1 })
+      expect(await codeOf(joinGroupFor(ctx, playerId, { groupId: group.slate, today }))).toBe('ALREADY_IN_LEAGUE')
+      await switchGroupFor(ctx, playerId, { groupId: group.slate, today })
+      await leaveLeagueFor(ctx, playerId, { leagueId, today })
+      expect((await ctx.db.get(playerId))!.leagueJoinedAt).toBeUndefined()
+    })
+  })
+
+  test('dismissLeagueOfferFor stamps leagueOfferDismissedAt and is idempotent', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect((await ctx.db.get(playerId))!.leagueOfferDismissedAt).toBeUndefined()
+      await dismissLeagueOfferFor(ctx, playerId)
+      expect((await ctx.db.get(playerId))!.leagueOfferDismissedAt).toBe(NOW.getTime())
+      // A second dismiss just rewrites the stamp, like onboarding.dismiss.
+      vi.setSystemTime(NOW.getTime() + 60_000)
+      await dismissLeagueOfferFor(ctx, playerId)
+      expect((await ctx.db.get(playerId))!.leagueOfferDismissedAt).toBe(NOW.getTime() + 60_000)
     })
   })
 
@@ -1068,5 +1118,45 @@ describe('the Insights trial unlocks the contribution view', () => {
     // The same two calls the wrapper makes, minus the Better Auth session it needs.
     const { trialActive } = insightsAccess({ isPro: false, trialEndsAt, now })
     expect(contributionUnlocked({ isPro: false, trialActive })).toBe(unlocked)
+  })
+})
+
+/**
+ * T18, END TO END through the public wrappers and onboarding.getStatus, with a
+ * real Better Auth session (fixtures.ts's authenticatedAs, as onboarding.test.ts
+ * does). REAL TIME, not NOW: joinGroup checks `today` against the server's day.
+ */
+describe('"ever joined" survives a same-day join and leave', () => {
+  // Supplied here, not in fixtures.ts: see makeRegisterBetterAuth's comment.
+  const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth/**/*.ts'))
+  afterEach(() => vi.unstubAllEnvs())
+
+  test('join then leave the same day deletes the pending row, and getStatus still reports inLeague', async () => {
+    vi.stubEnv('LEAGUES_ENABLED', 'true')
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const { leagueId, group } = await t.run(async (ctx) => {
+      await ctx.db.insert('players', aPlayer({ email: 'sameday@example.com' }))
+      return await seedStartingWords(ctx)
+    })
+    const as = await authenticatedAs(t, 'sameday@example.com')
+    const day = toPuzzleDay(new Date())
+    expect((await as.query(api.onboarding.getStatus, {}))?.inLeague).toBe(false)
+
+    await as.mutation(api.leagues.joinGroup, { groupId: group.crane, today: day })
+    await as.mutation(api.leagues.leaveLeague, { leagueId, today: day })
+
+    // The precondition that made the bug: no membership row is left to find.
+    expect(await t.run((ctx) => ctx.db.query('leagueMemberships').collect())).toEqual([])
+    expect((await as.query(api.onboarding.getStatus, {}))?.inLeague).toBe(true)
+  })
+
+  test('dismissLeagueOffer is refused LEAGUES_DISABLED when dark, and writes nothing', async () => {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer({ email: 'dark@example.com' })))
+    const as = await authenticatedAs(t, 'dark@example.com')
+    await expect(as.mutation(api.leagues.dismissLeagueOffer, {})).rejects.toMatchObject({ data: { code: 'LEAGUES_DISABLED' } })
+    expect(await t.run(async (ctx) => (await ctx.db.get(playerId))?.leagueOfferDismissedAt)).toBeUndefined()
   })
 })
