@@ -8,8 +8,7 @@ type View = { locked: true } | { locked: false; contribution: Contribution | nul
  * The Pro layer (spec §3): free members get the button, never a number. Only
  * the viewer's own average and their group's total ever appear here (§3.2).
  *
- * RAW NUMBERS, NOT toFixed(1): the server already rounds every value to 1dp
- * (meanAttemptsOf, contributionOf), so a whole average reads "4", not "4.0".
+ * ONE DECIMAL, like the standings table, so "4.0" here matches "4.0" there.
  */
 export function ContributionRow({ view, groupName, onUpgrade }: { view: View; groupName: string; onUpgrade: () => void }) {
   if (view.locked) {
@@ -21,12 +20,15 @@ export function ContributionRow({ view, groupName, onUpgrade }: { view: View; gr
     )
   }
   const c = view.contribution
+  const one = (n: number) => n.toFixed(1)
   let text: string
   if (!c || c.mine === null) text = `Play a board to see what you add to ${groupName}.`
-  else if (c.group === null || c.shift === null) text = `Your ${c.mine} — ${groupName} needs more boards to compare.`
-  else if (c.shift < 0) text = `Your ${c.mine} vs ${groupName}'s ${c.group} — you pull ${groupName} down by ${-c.shift} guesses`
-  else if (c.shift > 0) text = `Your ${c.mine} vs ${groupName}'s ${c.group} — you push ${groupName} up by ${c.shift} guesses`
-  else text = `Your ${c.mine} vs ${groupName}'s ${c.group} — right on ${groupName}'s average`
+  else if (c.group === null || c.shift === null) text = `Your ${one(c.mine)} — ${groupName} needs more boards to compare.`
+  else if (c.shift < 0)
+    text = `Your ${one(c.mine)} vs ${groupName}'s ${one(c.group)} — you pull ${groupName} down by ${one(-c.shift)} guesses`
+  else if (c.shift > 0)
+    text = `Your ${one(c.mine)} vs ${groupName}'s ${one(c.group)} — you push ${groupName} up by ${one(c.shift)} guesses`
+  else text = `Your ${one(c.mine)} vs ${groupName}'s ${one(c.group)} — right on ${groupName}'s average`
   return (
     <p data-testid="league-contribution" className="text-sm">
       {text}

@@ -19,7 +19,15 @@ describe('ContributionRow', () => {
   })
   test('positive shift reads as pushing it up', () => {
     render(createElement(ContributionRow, { view: { locked: false, contribution: { mine: 4.4, group: 4, shift: 0.2 } }, groupName: 'SLATE', onUpgrade: vi.fn() }))
-    expect(screen.getByTestId('league-contribution').textContent).toBe("Your 4.4 vs SLATE's 4 — you push SLATE up by 0.2 guesses")
+    expect(screen.getByTestId('league-contribution').textContent).toBe("Your 4.4 vs SLATE's 4.0 — you push SLATE up by 0.2 guesses")
+  })
+  test('whole numbers keep one decimal, like the standings', () => {
+    render(createElement(ContributionRow, { view: { locked: false, contribution: { mine: 4, group: 4, shift: 0 } }, groupName: 'SLATE', onUpgrade: vi.fn() }))
+    expect(screen.getByTestId('league-contribution').textContent).toBe("Your 4.0 vs SLATE's 4.0 — right on SLATE's average")
+  })
+  test('a group below the floor has nothing to compare against', () => {
+    render(createElement(ContributionRow, { view: { locked: false, contribution: { mine: 3, group: null, shift: null } }, groupName: 'SLATE', onUpgrade: vi.fn() }))
+    expect(screen.getByTestId('league-contribution').textContent).toBe('Your 3.0 — SLATE needs more boards to compare.')
   })
   test('no boards yet', () => {
     render(createElement(ContributionRow, { view: { locked: false, contribution: null }, groupName: 'SLATE', onUpgrade: vi.fn() }))
