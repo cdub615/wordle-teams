@@ -247,6 +247,11 @@ export async function joinGroupFor(ctx: WriterCtx, playerId: Id<'players'>, args
   const group = await requireGroup(ctx, args.groupId)
   const rows = await intervalsOf(ctx, playerId, group.leagueId)
   await applyPlan(ctx, playerId, group.leagueId, rows, planJoin(rows, today, group._id))
+  // "EVER JOINED" (spec §8.4), stamped once and never overwritten or cleared:
+  // a leave before the interval opens DELETES the row, so the row alone cannot
+  // remember the join. After applyPlan, so a refused join stamps nothing.
+  const player = await ctx.db.get(playerId)
+  if (player && player.leagueJoinedAt === undefined) await ctx.db.patch(playerId, { leagueJoinedAt: Date.now() })
   await recomputeAfterMembershipChange(ctx, playerId, today)
 }
 
@@ -455,6 +460,26 @@ export const leaveLeague = mutation({
     gate()
     const player = await requirePlayer(ctx)
     await leaveLeagueFor(ctx, player._id, args)
+  },
+})
+
+/**
+ * "Not now" on the dashboard's league offer (spec §8.4). IDEMPOTENT: a repeat
+ * just rewrites the stamp, like onboarding.dismiss. HERE rather than in
+ * onboarding.ts because it is a league fact behind the league gate: the
+ * dashboard card is a league surface, and onboarding.ts's own step already
+ * hides itself through inLeague. getStatus reads it back as leagueOfferDismissed.
+ */
+export async function dismissLeagueOfferFor(ctx: WriterCtx, playerId: Id<'players'>) {
+  await ctx.db.patch(playerId, { leagueOfferDismissedAt: Date.now() })
+}
+
+export const dismissLeagueOffer = mutation({
+  args: {},
+  handler: async (ctx) => {
+    gate()
+    const player = await requirePlayer(ctx)
+    await dismissLeagueOfferFor(ctx, player._id)
   },
 })
 

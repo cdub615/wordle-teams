@@ -1157,6 +1157,7 @@ describe('"ever joined" survives a same-day join and leave', () => {
     const playerId = await t.run((ctx) => ctx.db.insert('players', aPlayer({ email: 'dark@example.com' })))
     const as = await authenticatedAs(t, 'dark@example.com')
     await expect(as.mutation(api.leagues.dismissLeagueOffer, {})).rejects.toMatchObject({ data: { code: 'LEAGUES_DISABLED' } })
-    expect(await t.run(async (ctx) => (await ctx.db.get(playerId))?.leagueOfferDismissedAt)).toBeUndefined()
+    // A boolean out of t.run: it serialises its result, so undefined comes back null.
+    expect(await t.run(async (ctx) => (await ctx.db.get(playerId))?.leagueOfferDismissedAt !== undefined)).toBe(false)
   })
 })

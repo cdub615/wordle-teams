@@ -3,10 +3,11 @@ import { currentPlayer, requirePlayer } from './access'
 import { leaguesEnabled } from './lib/league.ts'
 
 /**
- * The three onboarding facts the client cannot already derive (enteredBoard,
- * dismissed, inLeague), plus leaguesEnabled — not an onboarding fact but a
- * deployment one, read from the environment with no DB access at all, which
- * the app menu uses to decide whether to offer "Leagues".
+ * The onboarding facts the client cannot already derive (enteredBoard,
+ * dismissed, inLeague), the home league card's leagueOfferDismissed, plus
+ * leaguesEnabled — not an onboarding fact but a deployment one, read from the
+ * environment with no DB access at all, which the app menu uses to decide
+ * whether to offer "Leagues".
  *
  * WHY THIS QUERY IS SO SMALL, and why it must stay that way. The card needs
  * hasTeam and hasInvited, which come from data routes/app.tsx ALREADY
@@ -74,11 +75,18 @@ export const getStatus = query({
     // caller's own id like everything else here, so nobody else's activity can
     // invalidate it. Reported as in-league while the feature is dark, so the
     // step never offers something that would refuse.
-    // ANY membership row counts, INCLUDING A LEFT ONE, deliberately: a player who
+    // "EVER JOINED", INCLUDING A PLAYER WHO LEFT, deliberately: a player who
     // left chose to and is not re-offered the step (spec §8.4). Do NOT "fix"
     // this to use membershipOf.
+    // TWO SOURCES, because neither suffices alone. players.leagueJoinedAt is
+    // stamped on the first join and never cleared — it is what survives
+    // planLeave DELETING a not-yet-started membership (join then leave the same
+    // day leaves no row at all). ANY membership row covers members who joined
+    // before that field existed, so no backfill. The field is on the player doc
+    // already in hand, so the row read is skipped whenever it answers.
     const inLeague =
       !leaguesEnabled(process.env.LEAGUES_ENABLED) ||
+      player.leagueJoinedAt !== undefined ||
       (await ctx.db
         .query('leagueMemberships')
         .withIndex('by_player_and_league', (q) => q.eq('playerId', player._id))
@@ -88,6 +96,9 @@ export const getStatus = query({
       enteredBoard,
       dismissed: player.onboardingDismissedAt !== undefined,
       inLeague,
+      // "Not now" on the dashboard's league card (leagues.dismissLeagueOffer).
+      // Off the player doc already read: no extra read, nobody else's activity.
+      leagueOfferDismissed: player.leagueOfferDismissedAt !== undefined,
       // Environment only, NO DB READ, so it cannot widen this query's read set
       // or let anyone else's activity invalidate it. Gates the app menu's
       // "Leagues" item, which would otherwise lead every player on a dark

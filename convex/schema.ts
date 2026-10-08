@@ -220,6 +220,28 @@ export default defineSchema({
     // only thing the UI tests.
     onboardingDismissedAt: v.optional(v.number()),
 
+    // WHEN THIS PLAYER FIRST JOINED A PUBLIC LEAGUE, absent if they never have
+    // (zic8.3, spec §8.4). Stamped by leagues.joinGroupFor after a successful
+    // join, ONLY WHEN ABSENT, and NEVER CLEARED: switchGroupFor and
+    // leaveLeagueFor do not touch it, and a rejoin keeps the first stamp.
+    //
+    // WHY IT EXISTS: "ever joined" (onboarding.getStatus's inLeague, which
+    // decides whether the picker is offered again) used to be "any membership
+    // row". But planLeave DELETES a membership that has not started yet, so a
+    // player who joined (counting from tomorrow) and left the same day had no
+    // row left and was offered the picker again. A row cannot remember what
+    // was deleted; this can. inLeague still ORs in the row read, so members
+    // who joined before this field existed need no backfill.
+    leagueJoinedAt: v.optional(v.number()),
+
+    // WHEN THE PLAYER DISMISSED THE DASHBOARD'S LEAGUE OFFER ("Not now"),
+    // absent if they never did. Written by leagues.dismissLeagueOffer, which
+    // just rewrites the stamp on a repeat; nothing clears it. Server-side and a
+    // timestamp for the same reasons as onboardingDismissedAt above, and
+    // SEPARATE from it: hiding the league offer is not giving up on
+    // onboarding. The Leagues menu item stays either way.
+    leagueOfferDismissedAt: v.optional(v.number()),
+
     /**
      * THE PROVIDER'S OWN URL, mirrored from Better Auth's `user.image` by
      * players.syncSocialImage. Never bytes we host: this is
