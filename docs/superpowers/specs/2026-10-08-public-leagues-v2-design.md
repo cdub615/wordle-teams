@@ -17,9 +17,9 @@ The constraint rules out every source of user-written names. What remains is fle
 
 | Question | Decision |
 | --- | --- |
-| Starting Words groups | **Any of Wordle's answer words** (~2,300), created when first picked. This replaces the five fixed groups. |
+| Starting Words groups | **Any word in NYT's answer pool** (3,158 words, owner decision 2026-10-08 after A1; it includes ADIEU, ORATE and AUDIO), created when first picked. This replaces the five fixed groups. |
 | How players join word groups | **Pick a word.** The join, switch and leave model is unchanged. Automatic grouping by real opener was considered and not chosen. |
-| Word list | **Answer words only.** Common and family-friendly, so no blocklist. Any existing group whose word isn't on the list is grandfathered (§4.2). |
+| Word list | **NYT's 3,158-word answer pool** (alex1770/wordle `wordlist_nyt20230701_hidden`, MIT). Common and family-friendly, so no blocklist. All five v1 words are on it; the grandfathering rule (§4.2) stays as a safety net but applies to none today. Solver-only openers (ROATE, SOARE, SALET, TARES) aren't on it. |
 | More leagues | **Regions** (automatic) and **sports-fan leagues**. |
 | Sports naming | **Team nicknames with safeguards:** plain text, no logos, colours or emoji; a "Not affiliated with any league or team" line; never Pro-gated; never used in marketing. A short IP-lawyer check is recommended before production; nothing in the design depends on it. |
 | Sports at launch | **NFL, NBA, MLB, NHL, MLS.** One league per sport; one team per sport per player. |
