@@ -13,10 +13,13 @@ import { completeProfile } from './complete-profile'
  * at its first assertion rather than passing vacuously.
  *
  * THE JOIN CLICK IS SCOPED TO THE PICKER'S GROUP, NOT A BARE BUTTON NAME.
- * "Pick your opener" is shared: on the standings page the join section's
- * heading and GroupPicker's `role="group"` label both carry it
- * (league-page-view.tsx), and for a TEAM player the dashboard's leagues card
- * does too. Scoping to the group names the one control that joins.
+ * The group names are not unique on the standings page: CRANE is a join
+ * button in the "Choose a group" picker (league-page-view.tsx) and also a row
+ * in the standings table, and for a TEAM player the dashboard's leagues card
+ * carries the same "Choose a group" picker. Scoping to the group names the one
+ * control that joins. "Join the opener wars" (the onboarding step's button
+ * name here) is likewise the join section's heading and the card's title, so
+ * it is matched as a BUTTON, never as bare text.
  *
  * A unique email per run, same as signIn()'s default: every spec shares one
  * Convex backend, so a reused address would arrive already in a league and the
@@ -34,12 +37,12 @@ test('a teamless player joins CRANE from onboarding and sees it on the standings
   await signIn(page, email)
   await completeProfile(page)
 
-  const step = page.getByRole('button', { name: /Pick your opener/ })
+  const step = page.getByRole('button', { name: /Join the opener wars/ })
   await expect(step).toBeVisible(DASHBOARD_READY)
   await step.click()
   await expect(page).toHaveURL(/\/leagues\/starting-words$/, TIMEOUT)
 
-  await page.getByRole('group', { name: 'Pick your opener' }).getByRole('button', { name: 'CRANE', exact: true }).click()
+  await page.getByRole('group', { name: 'Choose a group' }).getByRole('button', { name: 'CRANE', exact: true }).click()
   await expect(page.getByTestId('league-membership')).toContainText('You play for CRANE', TIMEOUT)
   await expect(page.getByTestId('standing-CRANE').getByText('you', { exact: true })).toBeVisible(TIMEOUT)
 
@@ -56,5 +59,5 @@ test('a teamless player joins CRANE from onboarding and sees it on the standings
   const memberRow = page.getByRole('link', { name: /CRANE/ })
   await expect(memberRow).toBeVisible(DASHBOARD_READY)
   await expect(memberRow).toHaveAttribute('href', '/leagues/starting-words')
-  await expect(page.getByRole('button', { name: /Pick your opener/ })).toBeHidden()
+  await expect(page.getByRole('button', { name: /Join the opener wars/ })).toBeHidden()
 })

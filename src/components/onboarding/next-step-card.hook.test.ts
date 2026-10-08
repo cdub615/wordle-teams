@@ -119,13 +119,13 @@ describe('NextStepCard', () => {
     render(
       createElement(NextStepCard, { facts: { ...nothing, inLeague: false }, ...handlers, onLeague }),
     )
-    fireEvent.click(screen.getByRole('button', { name: /Pick your opener/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Join the opener wars/ }))
     expect(onLeague).toHaveBeenCalledTimes(1)
   })
 
   test('no league step once the player has ever joined one', () => {
     render(createElement(NextStepCard, { facts: nothing, ...handlers }))
-    expect(screen.queryByText('Pick your opener')).toBeNull()
+    expect(screen.queryByText('Join the opener wars')).toBeNull()
   })
 
   test('the invite task appears once a team exists', () => {
@@ -401,7 +401,7 @@ describe('NextStepCard', () => {
     // THE FOURTH EDGE (zic8.3): 'league' only renders for a teamless player who
     // has never joined, so it needs its own fixture too.
     render(createElement(NextStepCard, { facts: { ...nothing, inLeague: false }, ...spies }))
-    fireEvent.click(screen.getByRole('button', { name: /Pick your opener/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Join the opener wars/ }))
 
     expect(calls).toEqual(['board', 'team', 'invite', 'league'])
     expect(sent.filter((entry) => entry.startsWith('onboarding_task_click'))).toEqual([

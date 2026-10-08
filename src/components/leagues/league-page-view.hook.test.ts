@@ -77,7 +77,9 @@ describe('LeaguePageView', () => {
     const onJoin = vi.fn()
     show({ onJoin })
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Starting Words')
-    const picker = screen.getByRole('group', { name: 'Pick your opener' })
+    expect(screen.getByRole('heading', { name: 'Join the opener wars' })).toBeTruthy()
+    expect(screen.getByText('Pick a side — your boards count whatever word you start with.')).toBeTruthy()
+    const picker = screen.getByRole('group', { name: 'Choose a group' })
     fireEvent.click(within(picker).getByRole('button', { name: 'SLATE' }))
     expect(onJoin).toHaveBeenCalledWith('g1')
     expect(screen.queryByRole('group', { name: 'Switch group' })).toBeNull()
@@ -109,7 +111,7 @@ describe('LeaguePageView', () => {
     const onSwitch = vi.fn()
     show({ mine: { enabled: true, leagues: [crane] }, onLeave, onSwitch })
     expect(screen.getByTestId('league-membership').textContent).toBe('You play for CRANE')
-    expect(screen.queryByRole('group', { name: 'Pick your opener' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Choose a group' })).toBeNull()
     const picker = screen.getByRole('group', { name: 'Switch group' })
     expect(within(picker).getByRole('button', { name: 'CRANE' }).getAttribute('aria-pressed')).toBe('true')
     expect(within(picker).getByRole('button', { name: 'SLATE' }).getAttribute('aria-pressed')).toBe('false')
@@ -118,6 +120,34 @@ describe('LeaguePageView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Leave league' }))
     expect(onLeave).toHaveBeenCalledWith(crane)
     expect(screen.getByTestId('standing-CRANE').textContent).toContain('you')
+  })
+
+  test('the switch note matches the state: a not-yet-started membership is changed in place, until it starts', () => {
+    // Owner hand test 2026-10-08: joined today (starts tomorrow), a switch
+    // retargets the membership at once, so "takes effect on the 1st" was false.
+    show({ mine: { enabled: true, leagues: [{ ...crane, since: '2026-10-08' }] } })
+    expect(screen.getByText('You can change group until it starts on October 8.')).toBeTruthy()
+    expect(screen.queryByText('A switch takes effect on the 1st.')).toBeNull()
+    cleanup()
+    show({ today: '2026-10-31', mine: { enabled: true, leagues: [{ ...crane, since: '2026-11-01' }] } })
+    expect(screen.getByText('You can change group until it starts on November 1.')).toBeTruthy()
+  })
+
+  test('the switch note for a started membership: a switch takes effect on the 1st', () => {
+    show({ mine: { enabled: true, leagues: [crane] } })
+    expect(screen.getByText('A switch takes effect on the 1st.')).toBeTruthy()
+    expect(screen.queryByText(/You can change group until/)).toBeNull()
+    cleanup()
+    // Starting TODAY has started.
+    show({ today: '2026-10-08', mine: { enabled: true, leagues: [{ ...crane, since: '2026-10-08' }] } })
+    expect(screen.getByText('A switch takes effect on the 1st.')).toBeTruthy()
+  })
+
+  test('Leave is an outlined button, not plain-looking ghost text', () => {
+    // The -insights.hook.test.ts className idiom; border-input is the outline
+    // variant's border (components/ui/button.tsx), absent from ghost.
+    show({ mine: { enabled: true, leagues: [crane] } })
+    expect(screen.getByRole('button', { name: 'Leave league' }).className).toContain('border-input')
   })
 
   test('a pending switch is named, and its group is the pressed one', () => {
@@ -130,7 +160,7 @@ describe('LeaguePageView', () => {
 
   test('a membership of ANOTHER league is not this one', () => {
     show({ mine: { enabled: true, leagues: [{ ...crane, league: { slug: 'other', name: 'Other' } }] } })
-    expect(screen.getByRole('group', { name: 'Pick your opener' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Choose a group' })).toBeTruthy()
   })
 
   test('the contribution row renders only for members', () => {

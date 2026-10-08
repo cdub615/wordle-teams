@@ -23,7 +23,7 @@ const nothing: OnboardingFacts = {
 }
 
 describe('incompleteTasks', () => {
-  // PUBLIC LEAGUES (zic8.3, spec §8.4). The "Pick your opener" offer goes ONLY
+  // PUBLIC LEAGUES (zic8.3, spec §8.4). The "Join the opener wars" offer goes ONLY
   // to a player who has never joined a league, and as an onboarding step only
   // to one with no team — a team player who has never joined gets the
   // dashboard card's picker instead (leagues-card), so offering it here too
@@ -31,7 +31,7 @@ describe('incompleteTasks', () => {
   test('a teamless player not in a league is offered the league', () => {
     expect(incompleteTasks({ ...nothing, inLeague: false })).toEqual([
       { id: 'board', title: "Enter today's board", hint: 'About 10 seconds' },
-      { id: 'league', title: 'Pick your opener', hint: 'No team yet? Play for a group today' },
+      { id: 'league', title: 'Join the opener wars', hint: 'Pick a side — your boards count whatever word you start with.' },
       { id: 'team', title: 'Create a team', hint: 'Where scores get compared' },
     ])
   })
