@@ -41,6 +41,7 @@ const switching = { ...crane, pending: { group: { _id: 'g1', name: 'SLATE' }, fr
 
 const props = (overrides: Record<string, unknown> = {}) => ({
   slug: 'starting-words',
+  today: '2026-10-07',
   standings: { enabled: true as const, view },
   mine: { enabled: true as const, leagues: [] as (typeof crane)[] },
   contribution: { enabled: true as const, locked: true as const },
@@ -82,6 +83,25 @@ describe('LeaguePageView', () => {
     expect(screen.queryByRole('group', { name: 'Switch group' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Leave league' })).toBeNull()
     expect(screen.queryByTestId('league-membership')).toBeNull()
+  })
+
+  test('the join note never promises "tomorrow" alone: a join opens on the 1st after another group this month', () => {
+    show()
+    expect(screen.getByText('Your boards count from tomorrow, or from the 1st if you were in another group this month.')).toBeTruthy()
+    expect(screen.queryByText('Your boards count for your group from tomorrow.')).toBeNull()
+  })
+
+  test('a membership that has not started yet names its start day', () => {
+    show({ mine: { enabled: true, leagues: [{ ...crane, since: '2026-10-08' }] } })
+    expect(screen.getByTestId('league-membership').textContent).toBe('You play for CRANE from October 8')
+    cleanup()
+    show({ today: '2026-10-31', mine: { enabled: true, leagues: [{ ...crane, since: '2026-11-01' }] } })
+    expect(screen.getByTestId('league-membership').textContent).toBe('You play for CRANE from November 1')
+  })
+
+  test('a membership that starts today has started: no start day', () => {
+    show({ today: '2026-10-08', mine: { enabled: true, leagues: [{ ...crane, since: '2026-10-08' }] } })
+    expect(screen.getByTestId('league-membership').textContent).toBe('You play for CRANE')
   })
 
   test('a member sees their group, the switch picker and leave', () => {
