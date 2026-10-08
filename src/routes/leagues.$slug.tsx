@@ -58,9 +58,11 @@ function LeagueFor({ slug }: { slug: string }) {
 
   // useQuery DOES NOT THROW, so without this a failed query would leave the
   // page in skeletons forever. Rethrown during render, it reaches this route's
-  // errorComponent (DashboardError). A failed contribution only hides its row.
-  if (standingsQuery.error) throw standingsQuery.error
-  if (mineQuery.error) throw mineQuery.error
+  // errorComponent (DashboardError). Only WITHOUT data: a page that has loaded
+  // keeps rendering through a transient subscription error. A failed
+  // contribution only hides its row.
+  if (standingsQuery.error && !standingsQuery.data) throw standingsQuery.error
+  if (mineQuery.error && !mineQuery.data) throw mineQuery.error
 
   if (!today || !standingsQuery.data || !mineQuery.data) {
     return (

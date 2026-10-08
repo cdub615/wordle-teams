@@ -5,7 +5,7 @@ import { Button } from '#/components/ui/button.tsx'
 import { GroupPicker, type PickerGroup } from '#/components/leagues/group-picker.tsx'
 import { LeagueStandings, monthName } from '#/components/leagues/league-standings.tsx'
 import { ContributionRow } from '#/components/leagues/contribution-row.tsx'
-import { monthOf, type PuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
+import { addMonths, monthOf, type PuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
 
 /*
  * PLAIN STRUCTURAL SHAPES of api.leagues.standings / myLeagues / myContribution,
@@ -47,12 +47,6 @@ export function membershipIn<M extends LeagueMembership>(mine: { enabled: false 
   return mine.leagues.find((l) => l.league.slug === slug) ?? null
 }
 
-/** 'YYYY-MM' -> the month after it. */
-function nextMonth(month: PuzzleMonth): PuzzleMonth {
-  const [y, m] = month.split('-').map(Number)
-  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
-}
-
 /**
  * The toast after a successful Leave, naming the consequence (planJoin in
  * convex/lib/league.ts): one group per league per month, so a member whose
@@ -62,7 +56,7 @@ function nextMonth(month: PuzzleMonth): PuzzleMonth {
  */
 export function leaveMessage(groupName: string, since: PuzzleDay, today: PuzzleDay): string {
   if (since > today) return `You left ${groupName} before any of your boards counted for it.`
-  return `You left ${groupName}. Rejoin ${groupName} from tomorrow, or join another group from ${monthName(nextMonth(monthOf(today)))} 1.`
+  return `You left ${groupName}. Rejoin ${groupName} from tomorrow, or join another group from ${monthName(addMonths(monthOf(today), 1))} 1.`
 }
 
 /** The page frame every state shares, so a loading → loaded swap does not jump. */
