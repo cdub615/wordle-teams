@@ -8,7 +8,7 @@ vi.mock('@tanstack/react-router', () => ({
     createElement('a', { href: params ? to.replace('$slug', params.slug) : to, ...rest }, children as never),
 }))
 
-import { LeaguesCard } from './leagues-card.tsx'
+import { LeaguesCard, leaguesCardInput } from './leagues-card.tsx'
 
 afterEach(cleanup)
 
@@ -66,5 +66,26 @@ describe('LeaguesCard', () => {
   test('nothing at all when there is no featured league and no membership', () => {
     const { container } = render(createElement(LeaguesCard, { mine: [], featured: null, onJoin: vi.fn(), busy: false }))
     expect(container.innerHTML).toBe('')
+  })
+})
+
+describe('leaguesCardInput', () => {
+  const enabled = { enabled: true as const, leagues: [{ ...featured, slug: 'other', featured: false }, featured] }
+  test('dark or unanswered myLeagues: nothing', () => {
+    expect(leaguesCardInput({ enabled: false }, enabled)).toBeNull()
+    expect(leaguesCardInput(undefined, enabled)).toBeNull()
+  })
+  test('a member gets their rows and no featured league, whatever the list says', () => {
+    const mine = [row('starting-words', 1)]
+    expect(leaguesCardInput({ enabled: true, leagues: mine }, undefined)).toEqual({ mine, featured: null })
+    expect(leaguesCardInput({ enabled: true, leagues: mine }, enabled)).toEqual({ mine, featured: null })
+  })
+  test('a non-member with an enabled list is offered the featured league', () => {
+    expect(leaguesCardInput({ enabled: true, leagues: [] }, enabled)).toEqual({ mine: [], featured })
+  })
+  test('a non-member with a dark, failed or featureless list: nothing', () => {
+    expect(leaguesCardInput({ enabled: true, leagues: [] }, { enabled: false })).toBeNull()
+    expect(leaguesCardInput({ enabled: true, leagues: [] }, undefined)).toBeNull()
+    expect(leaguesCardInput({ enabled: true, leagues: [] }, { enabled: true, leagues: [{ ...featured, featured: false }] })).toBeNull()
   })
 })

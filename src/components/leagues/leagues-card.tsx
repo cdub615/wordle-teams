@@ -14,10 +14,32 @@ type MyLeague = {
 
 type Props = {
   mine: MyLeague[]
-  featured: { slug: string; name: string; groups: PickerGroup[] } | null
+  featured: FeaturedLeague | null
   onJoin: (groupId: string) => void
   busy: boolean
   className?: string
+}
+
+type FeaturedLeague = { slug: string; name: string; groups: PickerGroup[] }
+type MyLeaguesResult<M extends MyLeague> = { enabled: false } | { enabled: true; leagues: M[] }
+type LeaguesResult<L extends FeaturedLeague & { featured: boolean }> = { enabled: false } | { enabled: true; leagues: L[] }
+
+/**
+ * THE CARD'S GATING, as a pure function of the two query results (each
+ * `undefined` while loading, skipped or failed). Null means "render nothing":
+ * leagues dark, myLeagues not answered, or a non-member with no featured league
+ * to offer. A member's rows never depend on the leagues list, which app.tsx only
+ * subscribes to for a non-member (its group member counts change on every join
+ * anywhere, so subscribing every dashboard to it would fan out).
+ */
+export function leaguesCardInput<M extends MyLeague, L extends FeaturedLeague & { featured: boolean }>(
+  myLeagues: MyLeaguesResult<M> | undefined,
+  allLeagues: LeaguesResult<L> | undefined,
+): { mine: M[]; featured: L | null } | null {
+  if (!myLeagues?.enabled) return null
+  if (myLeagues.leagues.length > 0) return { mine: myLeagues.leagues, featured: null }
+  const featured = allLeagues?.enabled ? (allLeagues.leagues.find((l) => l.featured) ?? null) : null
+  return featured ? { mine: [], featured } : null
 }
 
 /**

@@ -36,7 +36,7 @@ import { PasskeyOffer } from '#/components/passkey-offer.tsx'
 import { BoardEntryButton, BoardEntrySurface } from '#/components/board-entry/button.tsx'
 import { NextStepCard } from '#/components/onboarding/next-step-card.tsx'
 import { ChallengeNudge } from '#/components/challenges/challenge-nudge.tsx'
-import { LeaguesCard } from '#/components/leagues/leagues-card.tsx'
+import { LeaguesCard, leaguesCardInput } from '#/components/leagues/leagues-card.tsx'
 import { onboardingFactsFrom } from '#/lib/onboarding-facts.ts'
 import { DashboardError } from '#/components/dashboard-error.tsx'
 import { Button } from '#/components/ui/button.tsx'
@@ -601,14 +601,20 @@ function Dashboard() {
   const { data: myLeagues } = useQuery(
     convexQuery(api.leagues.myLeagues, leagueToday ? { today: leagueToday } : 'skip'),
   )
-  const { data: allLeagues } = useQuery(convexQuery(api.leagues.leagues, {}))
+  // ONLY A NON-MEMBER SUBSCRIBES TO THE LEAGUES LIST: it carries every group's
+  // memberCount, which changes on every join/switch/leave anywhere, so an
+  // unconditional subscription would fan each one out to every dashboard.
+  const { data: allLeagues } = useQuery(
+    convexQuery(api.leagues.leagues, myLeagues?.enabled && myLeagues.leagues.length === 0 ? {} : 'skip'),
+  )
   const joinLeague = useMutation({ mutationFn: useConvexMutation(api.leagues.joinGroup) })
+  const leaguesInput = leagueToday ? leaguesCardInput(myLeagues, allLeagues) : null
   const leaguesCard = (className?: string) =>
-    leagueToday && myLeagues?.enabled ? (
+    leaguesInput ? (
       <LeaguesCard
         className={className}
-        mine={myLeagues.leagues}
-        featured={allLeagues?.enabled ? (allLeagues.leagues.find((l) => l.featured) ?? null) : null}
+        mine={leaguesInput.mine}
+        featured={leaguesInput.featured}
         busy={joinLeague.isPending}
         // `mutate` WITH onError, the dismissOnboarding idiom below: a failure is
         // toasted rather than left as an unhandled rejection, and the success
