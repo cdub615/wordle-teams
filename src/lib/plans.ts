@@ -87,13 +87,13 @@ export const PRO_PRICE_LINE = `Pro is ${annual.label}`
 export const MONTHLY_FINE_PRINT = `or ${monthly.label}`
 
 /**
- * Where an upgrade was asked for. Eight lines over eight affordances, and the
+ * Where an upgrade was asked for. Nine lines over nine affordances, and the
  * `trial-active` one opens from a state rather than a feature reached for.
  *
  * THE HEADLINE VARIES AND THE BODY DOES NOT. Someone who clicked "Import from a
  * screenshot" has demonstrated interest in import specifically, and a generic
  * Pro pitch wastes the one moment they created. The benefits list beneath is
- * PRO_BENEFITS in full for every origin — one inventory, eight openings.
+ * PRO_BENEFITS in full for every origin — one inventory, nine openings.
  *
  * A HEADLINE NAMES THE THING THE PLAYER JUST REACHED FOR. It does not summarize
  * the benefit, because the benefit is three lines below it: the dialog draws
@@ -120,6 +120,7 @@ export type UpgradeOrigin =
   | 'import'
   | 'insights'
   | 'challenges'
+  | 'leagues'
   | 'trial-ended'
   | 'trial-active'
 
@@ -132,8 +133,10 @@ export const UPGRADE_HEADLINES: Record<UpgradeOrigin, string> = {
   // Reached from the Challenges card: its free "Challenge a team" button and
   // the scoreboard's hint where the per-player rows would be.
   challenges: 'Your team against theirs, player by player',
+  // Reached from the league page's locked contribution row.
+  leagues: 'Know exactly what you add to your group',
   'trial-ended': 'Pick up where your trial left off',
-  // THE ONLY ORIGIN NOT NAMED FOR A CLICK. The other seven are reached by pressing
+  // THE ONLY ORIGIN NOT NAMED FOR A CLICK. The other eight are reached by pressing
   // something, so each names what the player reached for; this one is reached
   // from a card that appeared on its own, mid-trial, so the line is about the
   // trial rather than about an affordance. 39 characters, and it shares at most

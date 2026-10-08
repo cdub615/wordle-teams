@@ -55,6 +55,12 @@
 #                     to accept somebody's challenge, and the page reveals
 #                     nothing to a signed-out crawler anyway. A prefix rule, so
 #                     it covers every token under it.
+#   /leagues          public leagues (zic8.3): the /leagues index and each
+#                     /leagues/<slug> standings page. Signed-in only, behind the
+#                     same beforeLoad redirect-to-/login as /app, and every
+#                     query goes through requirePlayer, so a signed-out crawler
+#                     gets nothing worth indexing. A prefix rule, so it covers
+#                     every league under it.
 #   /api              /api/auth/$ is Better Auth's proxy to Convex and
 #                     /api/funnel takes analytics beacons. Neither speaks HTML.
 #
@@ -84,6 +90,7 @@ Disallow: /insights
 Disallow: /complete-profile
 Disallow: /join
 Disallow: /challenge
+Disallow: /leagues
 Disallow: /api
 
 Sitemap: https://wordleteams.com/sitemap.xml

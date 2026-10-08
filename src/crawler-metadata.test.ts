@@ -194,6 +194,10 @@ describe('public/robots.txt', () => {
     // /challenge JOINED WITH CHALLENGE LINKS (zic8.2.13), for /join's reason:
     // the token is in the path, so an indexed /challenge/<token> hands a
     // stranger's team the right to accept.
+    //
+    // /leagues JOINED WITH PUBLIC LEAGUES (zic8.3), for the /chat reason: a
+    // signed-in-only sibling top-level route whose queries sit behind
+    // requirePlayer. Its prefix covers /leagues/$slug.
     expect([...robots.groups[0].disallow].sort()).toEqual([
       '/api',
       '/app',
@@ -202,6 +206,7 @@ describe('public/robots.txt', () => {
       '/complete-profile',
       '/insights',
       '/join',
+      '/leagues',
       '/me',
       '/team',
     ])

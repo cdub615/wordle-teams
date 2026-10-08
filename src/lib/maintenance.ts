@@ -73,9 +73,10 @@ export const MAINTENANCE_PATH = '/maintenance'
 /**
  * The route subtrees whose descendants are gated as well as their own path.
  *
- * ONLY `/join` AND `/challenge` HAVE CHILD ROUTES TODAY — src/routeTree.gen.ts
- * lists `/app`, `/team`, `/me`, `/chat` and `/complete-profile` bare, and
- * `/join/$token` and `/challenge/$token` under the other two. The other five are matched as subtrees anyway because v1's
+ * ONLY `/join`, `/challenge` AND `/leagues` HAVE CHILD ROUTES TODAY —
+ * src/routeTree.gen.ts lists `/app`, `/team`, `/me`, `/chat` and
+ * `/complete-profile` bare, and `/join/$token`, `/challenge/$token`,
+ * `/leagues/` and `/leagues/$slug` under the other three. The other five are matched as subtrees anyway because v1's
  * matcher did the same thing for the
  * same reason: it lists `'/me'` next to `'/me/:path*'` and
  * `'/complete-profile'` next to its `:path*` form "rather than relying on
@@ -127,6 +128,11 @@ export const MAINTENANCE_PATH = '/maintenance'
  * and then asks the same Convex deployment for the holder's teams. The same
  * trade is accepted — the gate answers first, so nothing is stashed, and the
  * link in the chat message still works afterwards.
+ *
+ * `/leagues` JOINED THE DAY IT WAS ADDED (zic8.3), for the /insights reason:
+ * the index and every /leagues/$slug standings page read and write through
+ * api.leagues on the same Convex deployment, so during an outage they are
+ * exactly as broken as the dashboard.
  */
 const GATED_SUBTREES = [
   '/app',
@@ -137,6 +143,7 @@ const GATED_SUBTREES = [
   '/complete-profile',
   '/join',
   '/challenge',
+  '/leagues',
 ] as const
 
 /**

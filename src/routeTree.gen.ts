@@ -25,6 +25,8 @@ import { Route as ChatRouteImport } from './routes/chat'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LeaguesIndexRouteImport } from './routes/leagues.index'
+import { Route as LeaguesSlugRouteImport } from './routes/leagues.$slug'
 import { Route as JoinTokenRouteImport } from './routes/join.$token'
 import { Route as ChallengeTokenRouteImport } from './routes/challenge.$token'
 import { Route as ApiFunnelRouteImport } from './routes/api/funnel'
@@ -110,6 +112,16 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LeaguesIndexRoute = LeaguesIndexRouteImport.update({
+  id: '/leagues/',
+  path: '/leagues/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LeaguesSlugRoute = LeaguesSlugRouteImport.update({
+  id: '/leagues/$slug',
+  path: '/leagues/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const JoinTokenRoute = JoinTokenRouteImport.update({
   id: '/join/$token',
   path: '/join/$token',
@@ -151,6 +163,8 @@ export interface FileRoutesByFullPath {
   '/api/funnel': typeof ApiFunnelRoute
   '/challenge/$token': typeof ChallengeTokenRoute
   '/join/$token': typeof JoinTokenRoute
+  '/leagues/$slug': typeof LeaguesSlugRoute
+  '/leagues/': typeof LeaguesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
@@ -173,6 +187,8 @@ export interface FileRoutesByTo {
   '/api/funnel': typeof ApiFunnelRoute
   '/challenge/$token': typeof ChallengeTokenRoute
   '/join/$token': typeof JoinTokenRoute
+  '/leagues/$slug': typeof LeaguesSlugRoute
+  '/leagues': typeof LeaguesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
@@ -196,6 +212,8 @@ export interface FileRoutesById {
   '/api/funnel': typeof ApiFunnelRoute
   '/challenge/$token': typeof ChallengeTokenRoute
   '/join/$token': typeof JoinTokenRoute
+  '/leagues/$slug': typeof LeaguesSlugRoute
+  '/leagues/': typeof LeaguesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
@@ -220,6 +238,8 @@ export interface FileRouteTypes {
     | '/api/funnel'
     | '/challenge/$token'
     | '/join/$token'
+    | '/leagues/$slug'
+    | '/leagues/'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -242,6 +262,8 @@ export interface FileRouteTypes {
     | '/api/funnel'
     | '/challenge/$token'
     | '/join/$token'
+    | '/leagues/$slug'
+    | '/leagues'
     | '/api/auth/$'
   id:
     | '__root__'
@@ -264,6 +286,8 @@ export interface FileRouteTypes {
     | '/api/funnel'
     | '/challenge/$token'
     | '/join/$token'
+    | '/leagues/$slug'
+    | '/leagues/'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
@@ -287,6 +311,8 @@ export interface RootRouteChildren {
   ApiFunnelRoute: typeof ApiFunnelRoute
   ChallengeTokenRoute: typeof ChallengeTokenRoute
   JoinTokenRoute: typeof JoinTokenRoute
+  LeaguesSlugRoute: typeof LeaguesSlugRoute
+  LeaguesIndexRoute: typeof LeaguesIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -404,6 +430,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/leagues/': {
+      id: '/leagues/'
+      path: '/leagues'
+      fullPath: '/leagues/'
+      preLoaderRoute: typeof LeaguesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/leagues/$slug': {
+      id: '/leagues/$slug'
+      path: '/leagues/$slug'
+      fullPath: '/leagues/$slug'
+      preLoaderRoute: typeof LeaguesSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/join/$token': {
       id: '/join/$token'
       path: '/join/$token'
@@ -455,6 +495,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiFunnelRoute: ApiFunnelRoute,
   ChallengeTokenRoute: ChallengeTokenRoute,
   JoinTokenRoute: JoinTokenRoute,
+  LeaguesSlugRoute: LeaguesSlugRoute,
+  LeaguesIndexRoute: LeaguesIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
