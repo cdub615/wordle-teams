@@ -78,7 +78,10 @@ let reducedMotion: boolean
  * around "Show getting started" rather than merely re-proving the query's
  * skip idiom (a separate, and separately tested, guard).
  */
-let onboardingStatus: { enteredBoard: boolean; dismissed: boolean } | null | undefined
+let onboardingStatus:
+  | { enteredBoard: boolean; dismissed: boolean; leaguesEnabled?: boolean }
+  | null
+  | undefined
 /** The `args` the component last passed for `api.onboarding.getStatus`. */
 let onboardingQueryArgs: unknown
 
@@ -273,7 +276,9 @@ beforeEach(() => {
   // file that does not care about onboarding — "Show getting started" must
   // stay absent from the full item-set assertions below unless a test opts
   // in by setting `dismissed: true`.
-  onboardingStatus = { enteredBoard: true, dismissed: false }
+  // `leaguesEnabled: true` so the full item-set assertions below include
+  // "Leagues"; the gated-off states are opted into in the Leagues block.
+  onboardingStatus = { enteredBoard: true, dismissed: false, leaguesEnabled: true }
   onboardingQueryArgs = undefined
 
   vi.stubGlobal('localStorage', memoryStorage())
@@ -366,6 +371,7 @@ describe('the menu offers a signed-out visitor navigation and nothing else', () 
     expect(openMenu()).toEqual([
       'Dashboard',
       'Insights',
+      'Leagues',
       'Settings',
       'Theme',
       'Billing',
@@ -400,6 +406,7 @@ describe('the menu offers a signed-out visitor navigation and nothing else', () 
       '---',
       'Dashboard',
       'Insights',
+      'Leagues',
       'Settings',
       'Theme',
       'Billing',
@@ -883,6 +890,36 @@ describe('the avatar sits after the menu trigger, ringed, and only for a session
       'Main menu',
     ])
     expect(ring()?.closest('button')).toBeNull()
+  })
+})
+
+describe('Leagues (zic8.3) is offered only where leagues are switched on', () => {
+  // GATED ON getStatus.leaguesEnabled. Ungated, every production player would
+  // be offered an entry that lands on "Leagues aren't available yet" for as
+  // long as LEAGUES_ENABLED is unset there.
+  test('links /leagues when the deployment has leagues enabled', () => {
+    render(createElement(AppMenu))
+    openMenu()
+    expect(screen.getByRole('menuitem', { name: 'Leagues' }).getAttribute('href')).toBe('/leagues')
+  })
+
+  test('is absent when leagues are disabled, or before the status has loaded', () => {
+    onboardingStatus = { enteredBoard: true, dismissed: false, leaguesEnabled: false }
+    const off = render(createElement(AppMenu))
+    expect(openMenu()).not.toContain('Leagues')
+    off.unmount()
+
+    onboardingStatus = undefined
+    render(createElement(AppMenu))
+    expect(openMenu()).not.toContain('Leagues')
+  })
+
+  test('a signed-out visitor is never offered it, however the query answers', () => {
+    // Same shape as the replay item's test below: the mock answers getStatus
+    // even when skipped, so this pins the component's own `isAuthenticated &&`.
+    isAuthenticated = false
+    render(createElement(AppMenu))
+    expect(openMenu()).not.toContain('Leagues')
   })
 })
 

@@ -76,6 +76,7 @@ const graduated: OnboardingFacts = {
   hasTeam: true,
   hasInvited: true,
   dismissed: false,
+  inLeague: true,
 }
 
 const nothing: OnboardingFacts = {
@@ -83,10 +84,11 @@ const nothing: OnboardingFacts = {
   hasTeam: false,
   hasInvited: false,
   dismissed: false,
+  inLeague: true,
 }
 
 const noop = () => {}
-const handlers = { onBoard: noop, onTeam: noop, onInvite: noop, onDismiss: noop }
+const handlers = { onBoard: noop, onTeam: noop, onLeague: noop, onInvite: noop, onDismiss: noop }
 
 beforeEach(() => {
   sent.length = 0
@@ -108,6 +110,22 @@ describe('NextStepCard', () => {
     // because this is the level a reader checks when they ask "what does a new
     // signup actually see".
     expect(screen.queryByText('Invite someone')).toBeNull()
+  })
+
+  test('a teamless player who never joined a league can pick an opener from here', () => {
+    // PUBLIC LEAGUES (zic8.3, spec §8.4): this step is THE teamless offer — the
+    // dashboard's leagues card never shows its picker on the team-less branch.
+    const onLeague = vi.fn()
+    render(
+      createElement(NextStepCard, { facts: { ...nothing, inLeague: false }, ...handlers, onLeague }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Pick your opener/ }))
+    expect(onLeague).toHaveBeenCalledTimes(1)
+  })
+
+  test('no league step once the player has ever joined one', () => {
+    render(createElement(NextStepCard, { facts: nothing, ...handlers }))
+    expect(screen.queryByText('Pick your opener')).toBeNull()
   })
 
   test('the invite task appears once a team exists', () => {
@@ -306,7 +324,7 @@ describe('NextStepCard', () => {
     // Every activated player mounts this on every /app load with zero tasks.
     // Firing here would emit one completion per page view for the whole
     // activated population and destroy the metric this epic is measured by.
-    const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
+    const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false, inLeague: true }
     render(createElement(NextStepCard, { facts: done, ...handlers }))
     expect(sent.filter((entry) => entry.startsWith('onboarding_complete'))).toEqual([])
   })
@@ -320,7 +338,7 @@ describe('NextStepCard', () => {
     )
     rerender(
       createElement(NextStepCard, {
-        facts: { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false },
+        facts: { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false, inLeague: true },
         ...handlers,
       }),
     )
@@ -339,7 +357,7 @@ describe('NextStepCard', () => {
     // again. Without the latch that player is counted as activated twice, and
     // the activation number is the one thing this epic is measured by.
     const oneLeft = { ...nothing, hasTeam: true, hasInvited: true }
-    const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
+    const done = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false, inLeague: true }
     const { rerender } = render(createElement(NextStepCard, { facts: oneLeft, ...handlers }))
     rerender(createElement(NextStepCard, { facts: done, ...handlers }))
     rerender(createElement(NextStepCard, { facts: { ...done, hasTeam: false }, ...handlers }))
@@ -367,6 +385,7 @@ describe('NextStepCard', () => {
       onBoard: () => calls.push('board'),
       onTeam: () => calls.push('team'),
       onInvite: () => calls.push('invite'),
+      onLeague: () => calls.push('league'),
       onDismiss: noop,
     }
 
@@ -377,12 +396,19 @@ describe('NextStepCard', () => {
 
     render(createElement(NextStepCard, { facts: { ...nothing, hasTeam: true }, ...spies }))
     fireEvent.click(screen.getByRole('button', { name: /Invite someone/ }))
+    cleanup()
 
-    expect(calls).toEqual(['board', 'team', 'invite'])
+    // THE FOURTH EDGE (zic8.3): 'league' only renders for a teamless player who
+    // has never joined, so it needs its own fixture too.
+    render(createElement(NextStepCard, { facts: { ...nothing, inLeague: false }, ...spies }))
+    fireEvent.click(screen.getByRole('button', { name: /Pick your opener/ }))
+
+    expect(calls).toEqual(['board', 'team', 'invite', 'league'])
     expect(sent.filter((entry) => entry.startsWith('onboarding_task_click'))).toEqual([
       'onboarding_task_click:board',
       'onboarding_task_click:team',
       'onboarding_task_click:invite',
+      'onboarding_task_click:league',
     ])
   })
 

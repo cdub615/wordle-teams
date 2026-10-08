@@ -109,6 +109,15 @@ describe('onboarding events', () => {
     expect(payload?.tags.task).toBe('invite')
   })
 
+  test('the league task (zic8.3) is a known task id, alone and inside a set', () => {
+    // MUST STAY IN STEP WITH OnboardingTaskId. A task the card emits but
+    // TASK_IDS drops arrives with no tag, which is silent rather than an error.
+    expect(toLogSnagPayload({ name: 'onboarding_task_click', task: 'league' }, 'beta')?.tags.task).toBe('league')
+    expect(
+      toLogSnagPayload({ name: 'onboarding_view', tasks: 'board,league,team' }, 'beta')?.tags.tasks,
+    ).toBe('board,league,team')
+  })
+
   test('onboarding_complete and onboarding_dismiss are allowed', () => {
     expect(toLogSnagPayload({ name: 'onboarding_complete' }, 'beta')?.event).toBe(
       'Onboarding complete',

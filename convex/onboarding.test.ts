@@ -30,6 +30,7 @@ describe('onboarding.getStatus', () => {
       enteredBoard: false,
       dismissed: false,
       inLeague: true,
+      leaguesEnabled: false,
     })
   })
 
@@ -45,6 +46,16 @@ describe('onboarding.getStatus', () => {
       })
       const as = await authenticatedAs(t, 'l1@example.com')
       expect((await as.query(api.onboarding.getStatus, {}))?.inLeague).toBe(false)
+    })
+
+    test('reports leaguesEnabled, which gates the app menu entry', async () => {
+      const t = convexTest(schema, modules)
+      registerBetterAuth(t)
+      await t.run(async (ctx) => {
+        await ctx.db.insert('players', aPlayer({ email: 'l3@example.com' }))
+      })
+      const as = await authenticatedAs(t, 'l3@example.com')
+      expect((await as.query(api.onboarding.getStatus, {}))?.leaguesEnabled).toBe(true)
     })
 
     test('true for a player with a membership row', async () => {

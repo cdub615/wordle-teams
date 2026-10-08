@@ -14,11 +14,12 @@ describe('onboardingFactsFrom', () => {
       hasTeam: false,
       hasInvited: false,
       dismissed: false,
+      inLeague: true,
     })
   })
 
   test('a solo team with no invite satisfies hasTeam only', () => {
-    const facts = onboardingFactsFrom([team()], { enteredBoard: false, dismissed: false })
+    const facts = onboardingFactsFrom([team()], { enteredBoard: false, dismissed: false, inLeague: true })
     expect(facts.hasTeam).toBe(true)
     expect(facts.hasInvited).toBe(false)
   })
@@ -26,7 +27,7 @@ describe('onboardingFactsFrom', () => {
   test('a second member satisfies hasInvited', () => {
     const facts = onboardingFactsFrom(
       [team({ members: [{ id: 'p1' }, { id: 'p2' }] })],
-      { enteredBoard: false, dismissed: false },
+      { enteredBoard: false, dismissed: false, inLeague: true },
     )
     expect(facts.hasInvited).toBe(true)
   })
@@ -35,6 +36,7 @@ describe('onboardingFactsFrom', () => {
     const facts = onboardingFactsFrom([team({ hasPendingInvite: true })], {
       enteredBoard: false,
       dismissed: false,
+      inLeague: true,
     })
     expect(facts.hasInvited).toBe(true)
   })
@@ -47,15 +49,16 @@ describe('onboardingFactsFrom', () => {
     // populated team first, a per-team check that only ever looked at teams[0]
     // returns true and this test passes while the rule is broken; only the
     // solo-first arrangement kills that mutant. Do not drop either line.
-    const status = { enteredBoard: false, dismissed: false }
+    const status = { enteredBoard: false, dismissed: false, inLeague: true }
     const populated = team({ members: [{ id: 'p1' }, { id: 'p2' }] })
     expect(onboardingFactsFrom([populated, team()], status).hasInvited).toBe(true)
     expect(onboardingFactsFrom([team(), populated], status).hasInvited).toBe(true)
   })
 
   test('status flows straight through', () => {
-    const facts = onboardingFactsFrom([], { enteredBoard: true, dismissed: true })
+    const facts = onboardingFactsFrom([], { enteredBoard: true, dismissed: true, inLeague: false })
     expect(facts.enteredBoard).toBe(true)
     expect(facts.dismissed).toBe(true)
+    expect(facts.inLeague).toBe(false)
   })
 })

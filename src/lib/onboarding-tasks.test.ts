@@ -19,9 +19,32 @@ const nothing: OnboardingFacts = {
   hasTeam: false,
   hasInvited: false,
   dismissed: false,
+  inLeague: true,
 }
 
 describe('incompleteTasks', () => {
+  // PUBLIC LEAGUES (zic8.3, spec §8.4). The "Pick your opener" offer goes ONLY
+  // to a player who has never joined a league, and as an onboarding step only
+  // to one with no team — a team player who has never joined gets the
+  // dashboard card's picker instead (leagues-card), so offering it here too
+  // would be the duplicate the owner ruled out.
+  test('a teamless player not in a league is offered the league', () => {
+    expect(incompleteTasks({ ...nothing, inLeague: false })).toEqual([
+      { id: 'board', title: "Enter today's board", hint: 'About 10 seconds' },
+      { id: 'league', title: 'Pick your opener', hint: 'No team yet? Play for a group today' },
+      { id: 'team', title: 'Create a team', hint: 'Where scores get compared' },
+    ])
+  })
+
+  test('the league step disappears once in a league, and is never offered to a player with a team', () => {
+    expect(
+      incompleteTasks({ ...nothing, enteredBoard: true, inLeague: true }).map((t) => t.id),
+    ).toEqual(['team'])
+    expect(
+      incompleteTasks({ enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false, inLeague: false }),
+    ).toEqual([])
+  })
+
   test('an invited joiner owes only the board', () => {
     // completeProfileFor auto-joins them to a populated team, so create and
     // invite are both already satisfied on arrival. See convex/players.ts:226.
@@ -76,7 +99,7 @@ describe('incompleteTasks', () => {
     for (const enteredBoard of [false, true]) {
       for (const hasTeam of [false, true]) {
         for (const hasInvited of [false, true]) {
-          const ids = incompleteTasks({ enteredBoard, hasTeam, hasInvited, dismissed: false }).map(
+          const ids = incompleteTasks({ enteredBoard, hasTeam, hasInvited, dismissed: false, inLeague: true }).map(
             (t) => t.id,
           )
           expect(ids.length).toBeLessThanOrEqual(2)
@@ -107,6 +130,7 @@ describe('shouldShowCard', () => {
       hasTeam: true,
       hasInvited: true,
       dismissed: false,
+      inLeague: true,
     }
     expect(shouldShowCard(done)).toBe(true)
     expect(shouldShowGraduation(done)).toBe(true)
@@ -145,6 +169,7 @@ describe('shouldShowCard', () => {
       hasTeam: false,
       hasInvited: false,
       dismissed: true,
+      inLeague: true,
     }
     expect(shouldShowCard(stranded)).toBe(true)
   })
@@ -156,8 +181,8 @@ describe('shouldShowCard', () => {
     for (const enteredBoard of [false, true]) {
       for (const hasTeam of [false, true]) {
         for (const hasInvited of [false, true]) {
-          expect(shouldShowCard({ enteredBoard, hasTeam, hasInvited, dismissed: false })).toBe(true)
-          const dismissed = { enteredBoard, hasTeam, hasInvited, dismissed: true }
+          expect(shouldShowCard({ enteredBoard, hasTeam, hasInvited, dismissed: false, inLeague: true })).toBe(true)
+          const dismissed = { enteredBoard, hasTeam, hasInvited, dismissed: true, inLeague: true }
           expect(shouldShowCard(dismissed)).toBe(!canDismissCard(dismissed))
         }
       }
@@ -213,6 +238,7 @@ describe('shouldShowGraduation', () => {
     hasTeam: true,
     hasInvited: true,
     dismissed: false,
+    inLeague: true,
   }
 
   test('true once nothing is outstanding', () => {
@@ -226,7 +252,7 @@ describe('shouldShowGraduation', () => {
     for (const enteredBoard of [false, true]) {
       for (const hasTeam of [false, true]) {
         for (const hasInvited of [false, true]) {
-          const facts = { enteredBoard, hasTeam, hasInvited, dismissed: false }
+          const facts = { enteredBoard, hasTeam, hasInvited, dismissed: false, inLeague: true }
           const remaining = incompleteTasks(facts).length
           expect(shouldShowGraduation(facts)).toBe(remaining === 0)
           expect(shouldShowGraduation(facts)).toBe(shouldShowCard(facts) && remaining === 0)
@@ -292,7 +318,7 @@ describe('cardHeading', () => {
     // graduation heading (GRADUATION_TITLE) instead of calling this, so this
     // pins the fallback branch for any future caller rather than a screen.
 
-    const done: OnboardingFacts = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false }
+    const done: OnboardingFacts = { enteredBoard: true, hasTeam: true, hasInvited: true, dismissed: false, inLeague: true }
     expect(cardHeading(done)).toBe('Get started')
   })
 })
@@ -316,5 +342,6 @@ describe('taskSetKey', () => {
     // invite task now waits for a team. See the prerequisite test above.
     expect(taskSetKey(incompleteTasks(nothing))).toBe('board,team')
     expect(taskSetKey(incompleteTasks({ ...nothing, hasTeam: true }))).toBe('board,invite')
+    expect(taskSetKey(incompleteTasks({ ...nothing, inLeague: false }))).toBe('board,league,team')
   })
 })
