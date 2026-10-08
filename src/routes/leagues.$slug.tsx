@@ -91,6 +91,7 @@ function LeagueFor({ slug }: { slug: string }) {
   return (
     <LeaguePageView
       slug={slug}
+      today={today}
       standings={standingsQuery.data}
       mine={mineQuery.data}
       contribution={contribution}

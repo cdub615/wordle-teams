@@ -5,7 +5,7 @@ import { Button } from '#/components/ui/button.tsx'
 import { GroupPicker, type PickerGroup } from '#/components/leagues/group-picker.tsx'
 import { LeagueStandings, monthName } from '#/components/leagues/league-standings.tsx'
 import { ContributionRow } from '#/components/leagues/contribution-row.tsx'
-import { addMonths, monthOf, type PuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
+import { addMonths, fromPuzzleDay, monthOf, type PuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
 
 /*
  * PLAIN STRUCTURAL SHAPES of api.leagues.standings / myLeagues / myContribution,
@@ -78,8 +78,15 @@ export function LeagueFrame({ title, children }: { title: ReactNode; children?: 
   )
 }
 
+/** 'October 8': a day as the membership line names it. */
+function dayName(day: PuzzleDay): string {
+  return `${monthName(monthOf(day))} ${fromPuzzleDay(day).getDate()}`
+}
+
 type Props = {
   slug: string
+  /** The viewer's local day: a membership whose `since` is after it has not started. */
+  today: PuzzleDay
   standings: StandingsResult
   mine: MyLeaguesResult
   /** Undefined while loading, or when the viewer is not a member (the route skips it). */
@@ -96,7 +103,7 @@ type Props = {
  * PRESENTATIONAL: the route owns the queries, mutations and toasts. Group
  * totals only, never a player (§3.2).
  */
-export function LeaguePageView({ slug, standings, mine, contribution, busy, onJoin, onSwitch, onLeave, onUpgrade }: Props) {
+export function LeaguePageView({ slug, today, standings, mine, contribution, busy, onJoin, onSwitch, onLeave, onUpgrade }: Props) {
   if (!standings.enabled || !mine.enabled) {
     return (
       <LeagueFrame title="Leagues">
@@ -123,6 +130,7 @@ export function LeaguePageView({ slug, standings, mine, contribution, busy, onJo
       {membership ? (
         <p data-testid="league-membership" className="text-sm">
           You play for <span className="font-mono tracking-widest">{membership.group.name}</span>
+          {membership.since > today && ` from ${dayName(membership.since)}`}
           {membership.pending &&
             ` · switching to ${membership.pending.group.name} on ${monthName(monthOf(membership.pending.from))} 1`}
         </p>
@@ -132,7 +140,10 @@ export function LeaguePageView({ slug, standings, mine, contribution, busy, onJo
             Pick your opener
           </h2>
           <GroupPicker groups={view.groups} currentGroupId={null} disabled={busy} label="Pick your opener" onPick={onJoin} />
-          <p className="text-xs text-muted-foreground">Your boards count for your group from tomorrow.</p>
+          {/* planJoin: tomorrow, or the 1st if a DIFFERENT group already counted this month. */}
+          <p className="text-xs text-muted-foreground">
+            Your boards count from tomorrow, or from the 1st if you were in another group this month.
+          </p>
         </section>
       )}
       <LeagueStandings
