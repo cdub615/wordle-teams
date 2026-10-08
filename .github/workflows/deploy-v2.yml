@@ -229,6 +229,8 @@ jobs:
           pnpm exec convex env set E2E_TEST_MODE true
           # Challenges are dark wherever this is unset; e2e/challenge.spec.ts needs them lit.
           pnpm exec convex env set CHALLENGES_ENABLED true
+          # Leagues likewise; e2e/leagues.spec.ts needs the onboarding step and /leagues lit.
+          pnpm exec convex env set LEAGUES_ENABLED true
 
           pnpm exec convex dev > /tmp/convex-dev.log 2>&1 &
 

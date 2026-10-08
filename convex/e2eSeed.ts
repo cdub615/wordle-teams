@@ -2,6 +2,7 @@ import { mutation, query } from './_generated/server'
 import { v } from 'convex/values'
 import { e2eTeamLegacyId, isE2eTraffic } from './lib/e2e.ts'
 import { rollupTeamMonth } from './teamStats.ts'
+import { seedLeagueFor, STARTING_WORDS } from './leagues.ts'
 
 /**
  * Gives an e2e test account a team, so the dashboard clears its "not on a
@@ -474,5 +475,24 @@ export const teamsFor = query({
     return teams
       .filter((team) => team.playerIds.includes(player._id))
       .map((team) => ({ name: team.name, memberCount: team.playerIds.length }))
+  },
+})
+
+/**
+ * Seeds Starting Words on the e2e backend (zic8.3), so e2e/leagues.spec.ts has
+ * a league to join. Guarded like ensureTeamFor: E2E_TEST_MODE must be 'true'
+ * and the caller must name an e2e+* address. The plain Error is deliberate, as
+ * there: this is test-only plumbing, not a user-facing refusal.
+ *
+ * Idempotent — seedLeagueFor matches the league and its groups by slug, so
+ * every spec run can call it.
+ */
+export const ensureLeagueFor = mutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    if (!isE2eTraffic(email, process.env.E2E_TEST_MODE)) {
+      throw new Error('e2eSeed.ensureLeagueFor is only available in E2E test mode for e2e+* addresses')
+    }
+    await seedLeagueFor(ctx, STARTING_WORDS, Date.now())
   },
 })
