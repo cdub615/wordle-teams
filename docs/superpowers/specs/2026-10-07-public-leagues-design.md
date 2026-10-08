@@ -343,7 +343,13 @@ sheet above that. Used by the standings page, the home card and onboarding.
   has NEVER joined a league, and only on a team player's dashboard** (owner decision
   2026-10-08): a teamless never-joined player gets the offer once, as the onboarding step
   below, so the card hides its picker there; anyone who has ever joined, leavers included,
-  sees only their current league rows or no card. "Ever joined" is `getStatus.inLeague`.
+  sees only their current league rows or no card. "Ever joined" is `getStatus.inLeague`, which is
+  `players.leagueJoinedAt` (set on the first join, never cleared) OR any membership row,
+  so leaving a not-yet-started membership (which deletes its row) cannot reset it. The
+  card is **dismissible** ("Not now", owner decision 2026-10-08): dismissing sets
+  `players.leagueOfferDismissedAt` and the card never offers again; the Leagues menu item
+  remains. Copy frames groups as sides to play for, not a claim about the player's opener:
+  "Join the opener wars" / "Pick a side — your boards count whatever word you start with."
   Built on `myLeagues` (+ `leagues`, read only while a picker could show), both keyed so
   that team changes do not invalidate them. This respects `onboarding.ts`'s rule against
   adding a second full-team-scan subscription.
