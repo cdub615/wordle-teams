@@ -67,7 +67,11 @@ export async function seedLeagueFor(ctx: WriterCtx, spec: LeagueSpec, now: numbe
 }
 
 /**
- * Run once per deployment: `pnpm exec convex run leagues:seedLeague '{"slug":"starting-words"}'`.
+ * Run once per deployment with scripts/seed-league.mjs (CONVEX_URL and
+ * CONVEX_MIGRATION_KEY set explicitly, plus --confirm-host=<host>). NOT
+ * `convex run leagues:seedLeague`: on this machine `convex run` silently targets
+ * the LOCAL backend, even with --prod, and has no permission on beta — it would
+ * report success having seeded nothing that matters.
  *
  * SEED EARLY IN A MONTH. Seeding late on a month's last UTC day makes that month
  * closeable (joins count from tomorrow), so the sweep writes one empty "no
@@ -343,7 +347,7 @@ export async function recomputeLeagueMonthFor(ctx: WriterCtx, playerId: Id<'play
 }
 
 /** Add a delta to one group-month row, creating it on first contribution. */
-export async function moveGroup(
+async function moveGroup(
   ctx: WriterCtx,
   leagueId: Id<'leagues'>,
   groupId: GroupId,
@@ -351,8 +355,9 @@ export async function moveGroup(
   month: number,
   d: { boards: number; attempts: number; contributors: number },
 ) {
-  // recomputeLeagueMonthFor never reaches this (equal totals `continue` first),
-  // but pruneLeagueRowsFor and any other caller may.
+  // DEFENSIVE: recomputeLeagueMonthFor, the only caller, never passes a zero
+  // delta (equal totals `continue` first; an add or a remove moves contributors).
+  // pruneLeagueRowsFor does not come here — it uses subtractGroup.
   if (d.boards === 0 && d.attempts === 0 && d.contributors === 0) return
   const row = await ctx.db
     .query('leagueGroupMonth')
