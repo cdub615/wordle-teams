@@ -12,10 +12,11 @@ import { completeProfile } from './complete-profile'
  * E2E_TEST_MODE). Without it the onboarding step never appears and this fails
  * at its first assertion rather than passing vacuously.
  *
- * SCOPED TO THE PICKER'S GROUP, NOT A BARE BUTTON NAME. The dashboard's leagues
- * card titles itself "Pick your opener" too, and the group names are short
- * words; `role="group"` named "Pick your opener" is GroupPicker's own label on
- * the standings page (league-page-view.tsx).
+ * THE JOIN CLICK IS SCOPED TO THE PICKER'S GROUP, NOT A BARE BUTTON NAME.
+ * "Pick your opener" is shared: on the standings page the join section's
+ * heading and GroupPicker's `role="group"` label both carry it
+ * (league-page-view.tsx), and for a TEAM player the dashboard's leagues card
+ * does too. Scoping to the group names the one control that joins.
  *
  * A unique email per run, same as signIn()'s default: every spec shares one
  * Convex backend, so a reused address would arrive already in a league and the
@@ -40,5 +41,20 @@ test('a teamless player joins CRANE from onboarding and sees it on the standings
 
   await page.getByRole('group', { name: 'Pick your opener' }).getByRole('button', { name: 'CRANE', exact: true }).click()
   await expect(page.getByTestId('league-membership')).toContainText('You play for CRANE', TIMEOUT)
-  await expect(page.getByTestId('standing-CRANE')).toContainText('you', TIMEOUT)
+  await expect(page.getByTestId('standing-CRANE').getByText('you', { exact: true })).toBeVisible(TIMEOUT)
+
+  // BACK ON THE DASHBOARD, STILL TEAMLESS. The leagues card's member row must
+  // render on the teamless branch, and the onboarding step must be gone: the
+  // absence is asserted AFTER the row is on screen, so it means "the page
+  // rendered and stopped offering it", not "nothing rendered yet".
+  //
+  // BY THE IN-APP LINK, NOT page.goto('/app'). A hard load of /app by a
+  // teamless player hangs server-side rendering (wordle-teams-vrtk; predates
+  // leagues). When that is fixed, a goto here would cover it too.
+  await page.getByRole('link', { name: 'Back to dashboard' }).click()
+  await expect(page).toHaveURL(/\/app(\?|$)/, TIMEOUT)
+  const memberRow = page.getByRole('link', { name: /CRANE/ })
+  await expect(memberRow).toBeVisible(DASHBOARD_READY)
+  await expect(memberRow).toHaveAttribute('href', '/leagues/starting-words')
+  await expect(page.getByRole('button', { name: /Pick your opener/ })).toBeHidden()
 })
