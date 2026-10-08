@@ -601,16 +601,30 @@ function Dashboard() {
   const { data: myLeagues } = useQuery(
     convexQuery(api.leagues.myLeagues, leagueToday ? { today: leagueToday } : 'skip'),
   )
-  // ONLY A NON-MEMBER SUBSCRIBES TO THE LEAGUES LIST: it carries every group's
-  // memberCount, which changes on every join/switch/leave anywhere, so an
-  // unconditional subscription would fan each one out to every dashboard.
+  // THE PICKER IS FOR A NEVER-JOINED TEAM PLAYER ONLY (spec §8.4, owner
+  // decision 2026-10-08). `inLeague` counts a LEFT membership too, so a leaver
+  // is never re-offered it; it is also true while leagues are dark. A missing
+  // status errs towards not offering.
+  const everJoinedLeague = onboardingStatus?.inLeague ?? true
+  // THE LEAGUES LIST IS READ ONLY WHILE THE PICKER COULD SHOW: it carries every
+  // group's memberCount, which changes on every join/switch/leave anywhere, so
+  // an unconditional subscription would fan each one out to every dashboard.
+  // Not for a member, a leaver, or a teamless player (whose offer is the
+  // onboarding step's, not this card's).
   const { data: allLeagues } = useQuery(
-    convexQuery(api.leagues.leagues, myLeagues?.enabled && myLeagues.leagues.length === 0 ? {} : 'skip'),
+    convexQuery(
+      api.leagues.leagues,
+      !everJoinedLeague && teams.length > 0 && myLeagues?.enabled && myLeagues.leagues.length === 0 ? {} : 'skip',
+    ),
   )
   const joinLeague = useMutation({ mutationFn: useConvexMutation(api.leagues.joinGroup) })
-  const leaguesInput = leagueToday ? leaguesCardInput(myLeagues, allLeagues) : null
-  const leaguesCard = (className?: string) =>
-    leaguesInput ? (
+  // `offerPicker` is the CALL SITE's: true on the team grid, false on the
+  // teamless branch. A member sees their rows on both.
+  const leaguesCard = (className: string, offerPicker: boolean) => {
+    const leaguesInput = leagueToday
+      ? leaguesCardInput(myLeagues, allLeagues, { everJoined: everJoinedLeague, offerPicker })
+      : null
+    return leaguesInput ? (
       <LeaguesCard
         className={className}
         mine={leaguesInput.mine}
@@ -627,6 +641,7 @@ function Dashboard() {
         }
       />
     ) : null
+  }
 
   /*
     A FAILURE HERE IS INVISIBLE WITHOUT THIS, AND IT COSTS A PRO SUBSCRIBER THEIR
@@ -1012,7 +1027,9 @@ function Dashboard() {
             dashboard branch wants the opposite — full width, in a grid — which
             is exactly why this class is the caller's and not the card's. */}
         {onboardingCard('mx-auto mb-4 max-w-md')}
-        {leaguesCard('mx-auto mb-4 max-w-md')}
+        {/* Rows for a member only: a teamless never-joined player is offered a
+            league by the onboarding step above, never by this card. */}
+        {leaguesCard('mx-auto mb-4 max-w-md', false)}
         {boardSurface}
         <CreateTeamDialog
           open={createOpen}
@@ -1483,8 +1500,9 @@ function Dashboard() {
         className="md:col-span-3"
       />
       {/* Below the nudge: optional, and absent entirely when leagues are dark,
-          a query failed, or there is neither a membership nor a featured league. */}
-      {leaguesCard('md:col-span-3')}
+          a query failed, or there are no rows and no picker to offer. The only
+          placement that may offer the picker (`true`). */}
+      {leaguesCard('md:col-span-3', true)}
       {/*
         THE BOUNDARY IS WHY THE GRID NO LONGER BLANKS (wordle-teams-9ahw).
         ScoresTable (whose `footer` prop renders ScoringLegend, folded in

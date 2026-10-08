@@ -26,18 +26,27 @@ type LeaguesResult<L extends FeaturedLeague & { featured: boolean }> = { enabled
 
 /**
  * THE CARD'S GATING, as a pure function of the two query results (each
- * `undefined` while loading, skipped or failed). Null means "render nothing":
- * leagues dark, myLeagues not answered, or a non-member with no featured league
- * to offer. A member's rows never depend on the leagues list, which app.tsx only
- * subscribes to for a non-member (its group member counts change on every join
- * anywhere, so subscribing every dashboard to it would fan out).
+ * `undefined` while loading, skipped or failed) and two facts about the viewer.
+ * Null means "render nothing".
+ *
+ * - A MEMBER always gets their current rows, and never the picker.
+ * - THE PICKER is offered only to a player who has NEVER joined a league
+ *   (`everJoined` is getStatus.inLeague, which counts a left membership: a
+ *   leaver chose to leave and is not re-offered it) AND only where the caller
+ *   says it may be (`offerPicker`: the team dashboard, not the teamless branch,
+ *   whose onboarding step makes the offer instead). Spec §8.4, owner decision
+ *   2026-10-08.
+ * - Otherwise nothing: leagues dark, myLeagues not answered, or no featured
+ *   league to offer.
  */
 export function leaguesCardInput<M extends MyLeague, L extends FeaturedLeague & { featured: boolean }>(
   myLeagues: MyLeaguesResult<M> | undefined,
   allLeagues: LeaguesResult<L> | undefined,
+  viewer: { everJoined: boolean; offerPicker: boolean },
 ): { mine: M[]; featured: L | null } | null {
   if (!myLeagues?.enabled) return null
   if (myLeagues.leagues.length > 0) return { mine: myLeagues.leagues, featured: null }
+  if (viewer.everJoined || !viewer.offerPicker) return null
   const featured = allLeagues?.enabled ? (allLeagues.leagues.find((l) => l.featured) ?? null) : null
   return featured ? { mine: [], featured } : null
 }

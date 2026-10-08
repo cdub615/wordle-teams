@@ -71,21 +71,31 @@ describe('LeaguesCard', () => {
 
 describe('leaguesCardInput', () => {
   const enabled = { enabled: true as const, leagues: [{ ...featured, slug: 'other', featured: false }, featured] }
+  const team = { everJoined: false, offerPicker: true }
+  const mine = [row('starting-words', 1)]
   test('dark or unanswered myLeagues: nothing', () => {
-    expect(leaguesCardInput({ enabled: false }, enabled)).toBeNull()
-    expect(leaguesCardInput(undefined, enabled)).toBeNull()
+    expect(leaguesCardInput({ enabled: false }, enabled, team)).toBeNull()
+    expect(leaguesCardInput(undefined, enabled, team)).toBeNull()
   })
-  test('a member gets their rows and no featured league, whatever the list says', () => {
-    const mine = [row('starting-words', 1)]
-    expect(leaguesCardInput({ enabled: true, leagues: mine }, undefined)).toEqual({ mine, featured: null })
-    expect(leaguesCardInput({ enabled: true, leagues: mine }, enabled)).toEqual({ mine, featured: null })
+  test('a member gets their rows and no picker, wherever the card is and whatever the list says', () => {
+    for (const offerPicker of [true, false]) {
+      expect(leaguesCardInput({ enabled: true, leagues: mine }, undefined, { everJoined: true, offerPicker })).toEqual({ mine, featured: null })
+      expect(leaguesCardInput({ enabled: true, leagues: mine }, enabled, { everJoined: true, offerPicker })).toEqual({ mine, featured: null })
+    }
   })
-  test('a non-member with an enabled list is offered the featured league', () => {
-    expect(leaguesCardInput({ enabled: true, leagues: [] }, enabled)).toEqual({ mine: [], featured })
+  test('a never-joined TEAM player is offered the featured league', () => {
+    expect(leaguesCardInput({ enabled: true, leagues: [] }, enabled, team)).toEqual({ mine: [], featured })
   })
-  test('a non-member with a dark, failed or featureless list: nothing', () => {
-    expect(leaguesCardInput({ enabled: true, leagues: [] }, { enabled: false })).toBeNull()
-    expect(leaguesCardInput({ enabled: true, leagues: [] }, undefined)).toBeNull()
-    expect(leaguesCardInput({ enabled: true, leagues: [] }, { enabled: true, leagues: [{ ...featured, featured: false }] })).toBeNull()
+  test('a never-joined TEAMLESS player gets no card: onboarding makes the offer', () => {
+    expect(leaguesCardInput({ enabled: true, leagues: [] }, enabled, { everJoined: false, offerPicker: false })).toBeNull()
+  })
+  test('a leaver (ever joined, no current rows) is never re-offered the picker', () => {
+    expect(leaguesCardInput({ enabled: true, leagues: [] }, enabled, { everJoined: true, offerPicker: true })).toBeNull()
+    expect(leaguesCardInput({ enabled: true, leagues: [] }, enabled, { everJoined: true, offerPicker: false })).toBeNull()
+  })
+  test('a never-joined team player with a dark, failed or featureless list: nothing', () => {
+    expect(leaguesCardInput({ enabled: true, leagues: [] }, { enabled: false }, team)).toBeNull()
+    expect(leaguesCardInput({ enabled: true, leagues: [] }, undefined, team)).toBeNull()
+    expect(leaguesCardInput({ enabled: true, leagues: [] }, { enabled: true, leagues: [{ ...featured, featured: false }] }, team)).toBeNull()
   })
 })
