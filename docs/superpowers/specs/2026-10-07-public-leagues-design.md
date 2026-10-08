@@ -63,7 +63,7 @@ Settled in the brainstorm of 2026-10-07 and not to be re-litigated during implem
 | Switching | Allowed; takes effect on the 1st of next month |
 | Leaving | Effective today; boards already counted this month stay counted |
 | Teams vs league | Independent. Every board counts for your teams AND your group |
-| Free vs Pro | Joining, standings, winners and history free. Pro: personal contribution view |
+| Free vs Pro | Joining, standings, winners and history free. Personal contribution view: Pro OR an active Insights trial (owner decision 2026-10-08 — the one Pro feature the trial unlocks; challenges and the month window stay Pro-only) |
 | Entry points | `/leagues` index + `/leagues/$slug`, home card, onboarding step for teamless players, app menu |
 | Many leagues later | Routes, home card, picker and onboarding are multi-league-ready in v1 (§8.5) |
 | Notifications | None in v1 |
