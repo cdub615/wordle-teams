@@ -1,10 +1,11 @@
 import { v } from 'convex/values'
 import { internal } from './_generated/api'
 import { internalMutation, mutation, query } from './_generated/server'
-import { accessError, insightsAccessFor, isProFor, requirePlausibleToday, requirePlayer } from './access.ts'
+import { accessError, isProFor, requirePlausibleToday, requirePlayer } from './access.ts'
 import { isMonth } from './lib/monthWindow.ts'
 import { attemptsFor } from './lib/board.ts'
 import { addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
+import { insightsAccess } from './lib/insightsAccess.ts'
 import { contributionOf, contributionUnlocked, groupDelta, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
 import type { MembershipPlan, Standing } from './lib/league.ts'
@@ -576,10 +577,11 @@ export const myContribution = query({
   handler: async (ctx, { slug, today }) => {
     if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }
     const player = await requirePlayer(ctx)
-    // Pro OR an active Insights trial (owner decision 2026-10-08, spec §3). insightsAccessFor
-    // owns the trial arithmetic; isPro is read separately because InsightsAccess does not expose it.
-    const [isPro, access] = await Promise.all([isProFor(ctx, player._id), insightsAccessFor(ctx, player._id)])
-    if (!contributionUnlocked({ isPro, trialActive: access.trialActive })) return { enabled: true as const, locked: true as const }
+    // Pro OR an active Insights trial (owner decision 2026-10-08, spec §3). lib/insightsAccess.ts
+    // owns the trial arithmetic; requirePlayer already returned the player, so no second read.
+    const isPro = await isProFor(ctx, player._id)
+    const { trialActive } = insightsAccess({ isPro, trialEndsAt: player.insightsTrialEndsAt, now: Date.now() })
+    if (!contributionUnlocked({ isPro, trialActive })) return { enabled: true as const, locked: true as const }
     return {
       enabled: true as const,
       locked: false as const,

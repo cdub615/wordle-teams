@@ -196,7 +196,9 @@ export function contributionOf(
  * to a caller. OWNER DECISION 2026-10-08 (spec §3): Pro OR an active Insights
  * trial. It is the ONE Pro feature the trial unlocks: challenges and the month
  * window stay Pro-only. The trial arithmetic (`now < trialEndsAt`) lives only in
- * lib/insightsAccess.ts; this takes its verdict as `trialActive`.
+ * lib/insightsAccess.ts; this takes its verdict as `trialActive`. A query evaluates the trial when it runs,
+ * so a trial expiring while the page is open flips the row to locked at the
+ * subscription's next re-run (same as Insights).
  */
 export function contributionUnlocked({ isPro, trialActive }: { isPro: boolean; trialActive: boolean }): boolean {
   return isPro || trialActive
