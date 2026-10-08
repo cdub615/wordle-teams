@@ -36,6 +36,7 @@ import { PasskeyOffer } from '#/components/passkey-offer.tsx'
 import { BoardEntryButton, BoardEntrySurface } from '#/components/board-entry/button.tsx'
 import { NextStepCard } from '#/components/onboarding/next-step-card.tsx'
 import { ChallengeNudge } from '#/components/challenges/challenge-nudge.tsx'
+import { LeaguesCard } from '#/components/leagues/leagues-card.tsx'
 import { onboardingFactsFrom } from '#/lib/onboarding-facts.ts'
 import { DashboardError } from '#/components/dashboard-error.tsx'
 import { Button } from '#/components/ui/button.tsx'
@@ -581,6 +582,47 @@ function Dashboard() {
   )
 
   /*
+    PUBLIC LEAGUES HOME CARD (zic8.3, spec §8.4). Keyed to the CALLER, not the
+    team scan, so a team change elsewhere does not invalidate them
+    (onboarding.ts's banner rule); `leagues` is a handful of rows.
+
+    useQuery, NOT useSuspenseQuery, like the nudge above: the card is optional
+    and must never block the dashboard. AND NEVER RETHROWN: a failed or dark
+    query leaves `data` undefined or `{ enabled: false }` and the card renders
+    nothing, rather than taking the whole dashboard to DashboardError the way
+    /leagues/$slug (where the league IS the page) does.
+
+    `leagueToday` IS READ ONLY ONCE HYDRATED (the clockMonth rule above), and
+    only feeds the query argument and the render gate. The JOIN reads the clock
+    again at the click: the server refuses an implausible day, and a tab left
+    open past midnight would otherwise send yesterday.
+  */
+  const leagueToday = hydrated ? toPuzzleDay(new Date()) : null
+  const { data: myLeagues } = useQuery(
+    convexQuery(api.leagues.myLeagues, leagueToday ? { today: leagueToday } : 'skip'),
+  )
+  const { data: allLeagues } = useQuery(convexQuery(api.leagues.leagues, {}))
+  const joinLeague = useMutation({ mutationFn: useConvexMutation(api.leagues.joinGroup) })
+  const leaguesCard = (className?: string) =>
+    leagueToday && myLeagues?.enabled ? (
+      <LeaguesCard
+        className={className}
+        mine={myLeagues.leagues}
+        featured={allLeagues?.enabled ? (allLeagues.leagues.find((l) => l.featured) ?? null) : null}
+        busy={joinLeague.isPending}
+        // `mutate` WITH onError, the dismissOnboarding idiom below: a failure is
+        // toasted rather than left as an unhandled rejection, and the success
+        // needs no UI because myLeagues answers with the new membership.
+        onJoin={(groupId) =>
+          joinLeague.mutate(
+            { groupId: groupId as Id<'leagueGroups'>, today: toPuzzleDay(new Date()) },
+            { onError: (error: unknown) => toast.error(mutationErrorMessage(error, 'Could not join that group')) },
+          )
+        }
+      />
+    ) : null
+
+  /*
     A FAILURE HERE IS INVISIBLE WITHOUT THIS, AND IT COSTS A PRO SUBSCRIBER THEIR
     HISTORY (wordle-teams-fkbh).
 
@@ -964,6 +1006,7 @@ function Dashboard() {
             dashboard branch wants the opposite — full width, in a grid — which
             is exactly why this class is the caller's and not the card's. */}
         {onboardingCard('mx-auto mb-4 max-w-md')}
+        {leaguesCard('mx-auto mb-4 max-w-md')}
         {boardSurface}
         <CreateTeamDialog
           open={createOpen}
@@ -1433,6 +1476,9 @@ function Dashboard() {
         incoming={challengedIncoming}
         className="md:col-span-3"
       />
+      {/* Below the nudge: optional, and absent entirely when leagues are dark,
+          a query failed, or there is neither a membership nor a featured league. */}
+      {leaguesCard('md:col-span-3')}
       {/*
         THE BOUNDARY IS WHY THE GRID NO LONGER BLANKS (wordle-teams-9ahw).
         ScoresTable (whose `footer` prop renders ScoringLegend, folded in
