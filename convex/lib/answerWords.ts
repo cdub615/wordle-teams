@@ -3,8 +3,7 @@
  * (spec v2 §2, owner decision 2026-10-08: common, family-friendly, no blocklist).
  *
  * SOURCE: https://github.com/alex1770/wordle/blob/8fd3f1bdf884ff6757c24ad1227dc561fab7787d/wordlist_nyt20230701_hidden
- * LICENCE: MIT, "Copyright (c) 2022 Alex Selby (github alex1770)", per the
- * repository's LICENSE file at the same commit:
+ * LICENCE: MIT, per the repository's LICENSE file at the same commit:
  * https://github.com/alex1770/wordle/blob/8fd3f1bdf884ff6757c24ad1227dc561fab7787d/LICENSE
  * RETRIEVED: 2026-10-08. 3158 words: NYT's answer pool as of 2023-07-01, the
  * larger pool chosen by the owner (2026-10-08) over the 2,309-word NYT-edited
@@ -14,7 +13,36 @@
  * All five v1 group words (CRANE, SLATE, ADIEU, STARE, ORATE) are on this list,
  * so none needs grandfathering (§4.2).
  *
+ * THE NOTICE TRAVELS TWICE. MIT requires the copyright and permission notice in
+ * every copy, and Vite strips comments from client bundles, so the full text is
+ * both here (for the source) and in public/third-party-notices.txt (served at
+ * /third-party-notices.txt, for the bundle). answerWords.test.ts checks both.
+ *
  * Client-safe: no imports. A static Set, so a lookup is O(1). About 19 KB raw.
+ *
+ * ---- LICENSE, verbatim from the source repository ----
+ *
+ * MIT License
+ *
+ * Copyright (c) 2022 Alex Selby (github alex1770)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  */
 const WORDS = `
 aback abase abash abate abbey abbot abhor abide abled abode aboil abort about above abuse abuzz
@@ -214,14 +242,24 @@ willy wimpy wince winch windy wined wiped wiper wired wiser wispy witch witty wo
 wonky woody wooed wooer wooly woozy wordy world wormy worry worse worst worth would wound woven
 wowed wrack wrath wreak wreck wrest wring wrist write wrong wrote wrung wryly wurst xenon xerox
 yacht yahoo yappy yearn yeast yeesh yield yodel yoked yokel young youth yucca yucky yummy zebra
-zesty zilch zippy zonal zoned zowie          
+zesty zilch zippy zonal zoned zowie
 `
 
 export const ANSWER_WORDS: ReadonlySet<string> = new Set(WORDS.trim().split(/\s+/))
 
-/** Trimmed, lowercased, A-Z only. Returns null for anything that can't be a word. */
+/**
+ * Trimmed, lowercased, A-Z only. Returns null for anything that can't be a word.
+ *
+ * TOLERANT OF WHAT KEYBOARDS AND PASTES ADD: NFKC folds fullwidth letters
+ * (ＣＲＡＮＥ) to ASCII, and zero-width spaces/joiners and the BOM are dropped.
+ * Accented letters survive NFKC as accented letters, so they are still refused.
+ */
 export function normalizeWord(input: string): string | null {
-  const w = input.trim().toLowerCase()
+  const w = input
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim()
+    .toLowerCase()
   return /^[a-z]{5}$/.test(w) ? w : null
 }
 
