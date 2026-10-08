@@ -31,13 +31,21 @@ type WriterCtx = { db: GenericDatabaseWriter<DataModel> }
 type SchedulingCtx = WriterCtx & { scheduler: Scheduler }
 type ReaderCtx = { db: GenericDatabaseReader<DataModel> }
 
-export type LeagueSpec = { slug: string; name: string; featured: boolean; groups: { slug: string; name: string }[] }
+export type LeagueSpec = {
+  slug: string
+  name: string
+  featured: boolean
+  /** Absent leaves a stored value alone on re-seed; a stored absence means 'fixed'. */
+  groupSource?: 'fixed' | 'answer-words'
+  groups: { slug: string; name: string }[]
+}
 
 /** v1's one league (§1). Seeded per deployment by `seedLeague`. */
 export const STARTING_WORDS: LeagueSpec = {
   slug: 'starting-words',
   name: 'Starting Words',
   featured: true,
+  groupSource: 'answer-words',
   groups: ['CRANE', 'SLATE', 'ADIEU', 'STARE', 'ORATE'].map((name) => ({ slug: name.toLowerCase(), name })),
 }
 
@@ -54,8 +62,20 @@ export async function seedLeagueFor(ctx: WriterCtx, spec: LeagueSpec, now: numbe
   const found = await ctx.db.query('leagues').withIndex('by_slug', (q) => q.eq('slug', spec.slug)).unique()
   const leagueId =
     found?._id ??
-    (await ctx.db.insert('leagues', { slug: spec.slug, name: spec.name, featured: spec.featured, createdAt: now }))
-  if (found) await ctx.db.patch(found._id, { name: spec.name, featured: spec.featured })
+    (await ctx.db.insert('leagues', {
+      slug: spec.slug,
+      name: spec.name,
+      featured: spec.featured,
+      ...(spec.groupSource ? { groupSource: spec.groupSource } : {}),
+      createdAt: now,
+    }))
+  if (found) {
+    await ctx.db.patch(found._id, {
+      name: spec.name,
+      featured: spec.featured,
+      ...(spec.groupSource ? { groupSource: spec.groupSource } : {}),
+    })
+  }
 
   const existing = await ctx.db.query('leagueGroups').withIndex('by_league', (q) => q.eq('leagueId', leagueId)).collect()
   for (const [order, group] of spec.groups.entries()) {

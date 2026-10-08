@@ -70,7 +70,8 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'UNKNOWN_LEAGUE' ||
     code === 'UNKNOWN_GROUP' ||
     code === 'ALREADY_IN_LEAGUE' ||
-    code === 'NOT_IN_LEAGUE'
+    code === 'NOT_IN_LEAGUE' ||
+    code === 'UNKNOWN_WORD'
   ) {
     return code
   }
@@ -316,6 +317,8 @@ export function typedCodeMessage(code: AccessCode): string {
       return "You're already in this league. Use Switch group to change."
     case 'NOT_IN_LEAGUE':
       return "You're not in this league."
+    case 'UNKNOWN_WORD':
+      return "That isn't a Wordle answer word."
     default: {
       const _exhaustive: never = code
       return _exhaustive

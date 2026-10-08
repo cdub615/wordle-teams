@@ -878,6 +878,11 @@ export default defineSchema({
     name: v.string(),
     // The league onboarding and the empty home card offer. Starting Words today.
     featured: v.boolean(),
+    // Where the league's groups come from: 'fixed' is the seeded list alone,
+    // 'answer-words' lets a player's own starting word create its group.
+    // ABSENT MEANS 'fixed' (rows seeded before this field existed); a re-seed
+    // patches it in place (seedLeagueFor).
+    groupSource: v.optional(v.union(v.literal('fixed'), v.literal('answer-words'))),
     createdAt: v.number(),
   }).index('by_slug', ['slug']),
 
@@ -889,7 +894,15 @@ export default defineSchema({
     // MAINTAINED at join/switch/leave from lib/league.ts's countFrom/countTo,
     // never counted on read. A pending switcher counts for their NEW group.
     memberCount: v.number(),
-  }).index('by_league', ['leagueId']),
+  })
+    .index('by_league', ['leagueId'])
+    // The word-group lookup (leagues.ts resolveWordGroupFor): a typed word
+    // resolves to its group by slug within one league.
+    .index('by_league_and_slug', ['leagueId', 'slug'])
+    // The group picker and the grandfathering / pruning reads: a league's
+    // groups ordered by size, so the biggest (or empty) come off the index
+    // instead of a collect-and-sort.
+    .index('by_league_and_memberCount', ['leagueId', 'memberCount']),
 
   // ONE ROW PER INTERVAL, both bounds inclusive. toDay ABSENT MEANS OPEN.
   // Switches only ever land on a month boundary, so a player is in exactly one

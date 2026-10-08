@@ -168,6 +168,8 @@ export type AccessCode =
   | 'ALREADY_IN_LEAGUE'
   // convex/leagues.ts switchGroup and leaveLeague: the caller has no live membership.
   | 'NOT_IN_LEAGUE'
+  // convex/leagues.ts resolveWordGroupFor (Task A3): the typed word is not on the answer list.
+  | 'UNKNOWN_WORD'
 
 /**
  * Throws a ConvexError carrying `{ code }`.
