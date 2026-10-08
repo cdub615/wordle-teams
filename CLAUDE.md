@@ -83,6 +83,14 @@ E2E takes ~11 minutes and exceeds the default foreground command timeout; run it
 in the background. It needs a Convex backend on :3210 — `CONVEX_AGENT_MODE=anonymous`
 provisions a local one that requires no secrets.
 
+That local backend must have `E2E_TEST_MODE`, `CHALLENGES_ENABLED` and
+`LEAGUES_ENABLED` set to `true`, as CI sets them in `deploy-v2.yml`. Without the
+last two, `challenge.spec.ts` and `leagues.spec.ts` fail at their first assertion.
+`.env.local` holds the production `CONVEX_DEPLOY_KEY`, which the CLI prefers over
+`CONVEX_DEPLOYMENT`, so target the local backend only through `--env-file` with a
+file containing just `CONVEX_DEPLOYMENT=anonymous:anonymous-v2`, e.g.
+`pnpm exec convex env set LEAGUES_ENABLED true --env-file <that file>`.
+
 ## Architecture Overview
 
 _Add a brief overview of your project architecture_
