@@ -22,10 +22,10 @@
  * poisons the denominator this epic is measured by. See incompleteTasks.
  */
 
-export type OnboardingTaskId = 'board' | 'team' | 'invite'
+export type OnboardingTaskId = 'board' | 'league' | 'team' | 'invite'
 
 /**
- * The four booleans the card renders from.
+ * The five booleans the card renders from.
  *
  * Deliberately primitives rather than Convex documents, so this module — and
  * its test — stay independent of codegen, matching lib/celebration.ts's
@@ -38,6 +38,14 @@ export type OnboardingFacts = {
   /** On a team with another member, OR holding a pending invite. */
   hasInvited: boolean
   dismissed: boolean
+  /**
+   * PUBLIC LEAGUES (zic8.3): has EVER joined a league — any membership row,
+   * a left one included (spec §8.4). The server reports true while the feature
+   * is dark, so the step never offers something that would refuse, and
+   * onboarding-facts.ts defaults it to true while the status is loading so the
+   * step does not flash in and out.
+   */
+  inLeague: boolean
 }
 
 export type OnboardingTask = {
@@ -65,6 +73,7 @@ export const MODEL_LINE =
 
 const TASK_COPY: Record<OnboardingTaskId, { title: string; hint: string }> = {
   board: { title: "Enter today's board", hint: 'About 10 seconds' },
+  league: { title: 'Pick your opener', hint: 'No team yet? Play for a group today' },
   team: { title: 'Create a team', hint: 'Where scores get compared' },
   invite: { title: 'Invite someone', hint: 'A scoreboard needs someone to score against' },
 }
@@ -84,12 +93,20 @@ const TASK_COPY: Record<OnboardingTaskId, { title: string; hint: string }> = {
  *
  * A CONSEQUENCE WORTH KNOWING: 'team' and 'invite' are now mutually exclusive —
  * one needs hasTeam false and the other needs it true — so this returns at most
- * TWO tasks, never three. cardHeading's "One more thing" therefore triggers at
- * one remaining as before, but the largest set a card can show is two.
+ * TWO of those, never three. cardHeading's "One more thing" therefore triggers
+ * at one remaining as before.
+ *
+ * 'league' (zic8.3, spec §8.4) IS THE TEAMLESS OFFER OF A PUBLIC LEAGUE, shown
+ * only to a player with no team who has never joined one. It is gated on
+ * `!hasTeam` because a team player who has never joined is offered the picker on
+ * the dashboard's leagues card instead, and showing it in both places is the
+ * duplicate the owner ruled out. So the largest set a card can show is three:
+ * board, league, team.
  */
 export function incompleteTasks(facts: OnboardingFacts): OnboardingTask[] {
   const ids: OnboardingTaskId[] = []
   if (!facts.enteredBoard) ids.push('board')
+  if (!facts.hasTeam && !facts.inLeague) ids.push('league')
   if (!facts.hasTeam) ids.push('team')
   if (facts.hasTeam && !facts.hasInvited) ids.push('invite')
   return ids.map((id) => ({ id, ...TASK_COPY[id] }))

@@ -22,6 +22,7 @@ import {
   Sparkles,
   Sun,
   SunMoon,
+  Trophy,
   User as UserIcon,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -356,6 +357,22 @@ export function AppMenu() {
                     <span>Insights</span>
                   </Link>
                 </DropdownMenuItem>
+                {/*
+                  PUBLIC LEAGUES (zic8.3). GATED ON getStatus.leaguesEnabled,
+                  not shown unconditionally: until LEAGUES_ENABLED is set on a
+                  deployment, /leagues only says "Leagues aren't available yet",
+                  and an entry that leads every player there is a broken promise.
+                  The flag rides on getStatus because this menu already
+                  subscribes to it and it costs that query no DB read.
+                */}
+                {onboardingStatus?.leaguesEnabled && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/leagues">
+                      <Trophy className="mr-2 h-4 w-4" aria-hidden="true" />
+                      <span>Leagues</span>
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 {/*
                   THE WAY BACK, AND WHY IT MUST EXIST AT ALL. Dismissing
                   onboarding/next-step-card.tsx writes onboardingDismissedAt

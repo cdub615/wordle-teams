@@ -46,7 +46,7 @@ const METHODS = new Set(['oauth', 'otp', 'passkey'])
  * lib/onboarding-tasks.ts — a Set literal rather than an import because this
  * module is also reached from the Worker route and stays dependency-free.
  */
-const TASK_IDS = new Set(['board', 'team', 'invite'])
+const TASK_IDS = new Set(['board', 'league', 'team', 'invite'])
 
 export type LogSnagPayload = {
   event: string
@@ -73,17 +73,17 @@ export function toLogSnagPayload(body: unknown, env: string): LogSnagPayload | n
     // bad id still has useful known ids in it, and dropping the tag entirely
     // would lose them. An all-unknown set yields no tag rather than an empty one.
     //
-    // Deduped, not just filtered. The filter alone bounds the ALPHABET to three
+    // Deduped, not just filtered. The filter alone bounds the ALPHABET to four
     // known ids but not the COUNT — 'board,'.repeat(100000) passes the filter
     // untouched and forwards a ~600KB tag to a third party from a public,
     // unauthenticated endpoint. That is both CPU cost (the split/filter/join
     // scales with input size) and Sentry-amplification risk (an oversized tag
     // hitting an undocumented LogSnag limit turns into a captureError in
     // logsnag.ts, and sentry-capture.ts has no sampling or dedupe). Dedupe
-    // bounds the result at three by construction and is semantically right
+    // bounds the result at four by construction and is semantically right
     // anyway: a task SET should not contain duplicates, and taskSetKey can
     // never emit one. Set preserves first-seen order, so the canonical
-    // board,team,invite ordering survives.
+    // board,league,team,invite ordering survives.
     const known = [...new Set(tasks.split(',').filter((id) => TASK_IDS.has(id)))]
     if (known.length > 0) tags.tasks = known.join(',')
   }
@@ -93,7 +93,7 @@ export function toLogSnagPayload(body: unknown, env: string): LogSnagPayload | n
 
 /**
  * THE LARGEST LEGITIMATE BODY THIS ENDPOINT EVER RECEIVES IS UNDER 100 BYTES.
- * `{"name":"onboarding_view","tasks":"board,team,invite"}` is the biggest event
+ * `{"name":"onboarding_view","tasks":"board,league,team"}` is the biggest event
  * body this endpoint accepts, so 2KB is roughly 25x headroom and still refuses
  * anything that could plausibly be an attack (wordle-teams-umeq).
  *

@@ -43,6 +43,7 @@ export function NextStepCard({
   facts,
   onBoard,
   onTeam,
+  onLeague,
   onInvite,
   onDismiss,
   className,
@@ -50,6 +51,8 @@ export function NextStepCard({
   facts: OnboardingFacts
   onBoard: () => void
   onTeam: () => void
+  /** PUBLIC LEAGUES (zic8.3): "Pick your opener", the teamless league offer. */
+  onLeague: () => void
   onInvite: () => void
   onDismiss: () => void
   /**
@@ -306,6 +309,7 @@ export function NextStepCard({
 
   const runners: Record<OnboardingTaskId, () => void> = {
     board: onBoard,
+    league: onLeague,
     team: onTeam,
     invite: onInvite,
   }

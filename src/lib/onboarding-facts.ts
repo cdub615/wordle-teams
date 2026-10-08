@@ -4,10 +4,10 @@ import type { OnboardingFacts } from './onboarding-tasks.ts'
 type TeamSummary = { members: unknown[]; hasPendingInvite: boolean }
 
 /** The shape this needs off onboarding.getStatus. */
-type Status = { enteredBoard: boolean; dismissed: boolean } | null | undefined
+type Status = { enteredBoard: boolean; dismissed: boolean; inLeague: boolean } | null | undefined
 
 /**
- * Joins the two subscriptions into the four booleans the card renders from.
+ * Joins the two subscriptions into the five booleans the card renders from.
  *
  * PURE AND SEPARATE FROM THE ROUTE so the global-hasInvited rule is asserted by
  * a plain unit test rather than by reading routes/app.tsx. That rule is the one
@@ -20,5 +20,8 @@ export function onboardingFactsFrom(teams: TeamSummary[], status: Status): Onboa
     // GLOBAL, not per team. See the test of the same name.
     hasInvited: teams.some((team) => team.members.length > 1 || team.hasPendingInvite),
     dismissed: status?.dismissed ?? false,
+    // TRUE UNTIL THE STATUS ARRIVES, so a loading card never flashes a league
+    // step it would then withdraw. Same reading the server gives while dark.
+    inLeague: status?.inLeague ?? true,
   }
 }

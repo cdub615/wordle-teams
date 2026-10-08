@@ -224,8 +224,11 @@ describe('canDismissCard', () => {
     for (const enteredBoard of [false, true]) {
       for (const hasInvited of [false, true]) {
         for (const dismissed of [false, true]) {
-          expect(canDismissCard({ hasTeam: true, enteredBoard, hasInvited, dismissed })).toBe(true)
-          expect(canDismissCard({ hasTeam: false, enteredBoard, hasInvited, dismissed })).toBe(false)
+          for (const inLeague of [false, true]) {
+            const rest = { enteredBoard, hasInvited, dismissed, inLeague }
+            expect(canDismissCard({ hasTeam: true, ...rest })).toBe(true)
+            expect(canDismissCard({ hasTeam: false, ...rest })).toBe(false)
+          }
         }
       }
     }

@@ -828,6 +828,11 @@ function Dashboard() {
         setBoardOpen(true)
       }}
       onTeam={() => setCreateOpen(true)}
+      // PUBLIC LEAGUES (zic8.3): THE teamless league offer — the leagues card
+      // never shows its picker on the team-less branch. /leagues redirects to
+      // the featured league's page while there is exactly one, which is where
+      // the "Pick your opener" picker lives.
+      onLeague={() => void navigate({ to: '/leagues' })}
       // OPENS THE DIALOG HERE RATHER THAN NAVIGATING TO /team, which is what
       // this used to do. The task's whole job is to get one more person into
       // the room, and a route change to a settings page — where the invite

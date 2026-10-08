@@ -4,7 +4,9 @@ import { leaguesEnabled } from './lib/league.ts'
 
 /**
  * The three onboarding facts the client cannot already derive (enteredBoard,
- * dismissed, inLeague).
+ * dismissed, inLeague), plus leaguesEnabled — not an onboarding fact but a
+ * deployment one, read from the environment with no DB access at all, which
+ * the app menu uses to decide whether to offer "Leagues".
  *
  * WHY THIS QUERY IS SO SMALL, and why it must stay that way. The card needs
  * hasTeam and hasInvited, which come from data routes/app.tsx ALREADY
@@ -82,7 +84,16 @@ export const getStatus = query({
         .withIndex('by_player_and_league', (q) => q.eq('playerId', player._id))
         .first()) !== null
 
-    return { enteredBoard, dismissed: player.onboardingDismissedAt !== undefined, inLeague }
+    return {
+      enteredBoard,
+      dismissed: player.onboardingDismissedAt !== undefined,
+      inLeague,
+      // Environment only, NO DB READ, so it cannot widen this query's read set
+      // or let anyone else's activity invalidate it. Gates the app menu's
+      // "Leagues" item, which would otherwise lead every player on a dark
+      // deployment to "Leagues aren't available yet".
+      leaguesEnabled: leaguesEnabled(process.env.LEAGUES_ENABLED),
+    }
   },
 })
 
