@@ -872,9 +872,9 @@ export default defineSchema({
   // ONE ROW PER INTERVAL, both bounds inclusive. toDay ABSENT MEANS OPEN.
   // Switches only ever land on a month boundary, so a player is in exactly one
   // group per league per month (§4.1) — leagueMemberMonth relies on that.
-  // A player is a LIVE member exactly when they hold an OPEN row (no toDay), and
-  // that row's group is where leagueGroups.memberCount counts them. Finer state
-  // (a pending switch's successor rule) is lib/league.ts liveOf.
+  // Which rows are LIVE (including a closed row kept live by its pending switch
+  // successor) is decided in ONE place: lib/league.ts liveOf / isSwitchSuccessor.
+  // A same-day leave DELETES a not-yet-started row (planLeave).
   leagueMemberships: defineTable({
     playerId: v.id('players'),
     leagueId: v.id('leagues'),
@@ -893,7 +893,11 @@ export default defineSchema({
     month: v.number(), // 1-12, matching teamMonthStats
     boards: v.number(),
     attempts: v.number(),
-  }).index('by_player_league_year_month', ['playerId', 'leagueId', 'year', 'month']),
+  })
+    .index('by_player_league_year_month', ['playerId', 'leagueId', 'year', 'month'])
+    // recomputeLeagueMonthFor's read of every league a player HAS a row in this
+    // month: a left league may have no membership row left to name it.
+    .index('by_player_year_month', ['playerId', 'year', 'month']),
 
   // DERIVED BY DELTA from leagueMemberMonth (lib/league.ts groupDelta), so a
   // board write costs O(1) however large the group is.

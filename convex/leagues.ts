@@ -4,7 +4,7 @@ import { internalMutation, mutation, query } from './_generated/server'
 import { accessError, isProFor, requirePlausibleToday, requirePlayer } from './access.ts'
 import { isMonth } from './lib/monthWindow.ts'
 import { attemptsFor } from './lib/board.ts'
-import { addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
+import { addDays, addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { insightsAccess } from './lib/insightsAccess.ts'
 import { contributionOf, contributionUnlocked, groupDelta, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
@@ -243,7 +243,7 @@ export async function joinGroupFor(ctx: WriterCtx, playerId: Id<'players'>, args
   const group = await requireGroup(ctx, args.groupId)
   const rows = await intervalsOf(ctx, playerId, group.leagueId)
   await applyPlan(ctx, playerId, group.leagueId, rows, planJoin(rows, today, group._id))
-  await recomputeLeagueMonthFor(ctx, playerId, monthOf(today))
+  await recomputeAfterMembershipChange(ctx, playerId, today)
 }
 
 export async function switchGroupFor(ctx: WriterCtx, playerId: Id<'players'>, args: { groupId: GroupId; today: string }) {
@@ -251,7 +251,7 @@ export async function switchGroupFor(ctx: WriterCtx, playerId: Id<'players'>, ar
   const group = await requireGroup(ctx, args.groupId)
   const rows = await intervalsOf(ctx, playerId, group.leagueId)
   await applyPlan(ctx, playerId, group.leagueId, rows, planSwitch(rows, today, group._id))
-  await recomputeLeagueMonthFor(ctx, playerId, monthOf(today))
+  await recomputeAfterMembershipChange(ctx, playerId, today)
 }
 
 export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, args: { leagueId: Id<'leagues'>; today: string }) {
@@ -259,7 +259,22 @@ export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, ar
   if (!(await ctx.db.get(args.leagueId))) throw accessError('UNKNOWN_LEAGUE')
   const rows = await intervalsOf(ctx, playerId, args.leagueId)
   await applyPlan(ctx, playerId, args.leagueId, rows, planLeave(rows, today))
-  await recomputeLeagueMonthFor(ctx, playerId, monthOf(today))
+  await recomputeAfterMembershipChange(ctx, playerId, today)
+}
+
+/**
+ * Every month a membership change can move a stored board in: this month AND,
+ * near a month's end, the next. A board can be for up to the SERVER's today + 1
+ * (requirePlausiblePuzzleDay) while `today` may be the server's today - 1
+ * (requirePlausibleToday), so a board can sit as far as today + 2. A switch or
+ * leave on the 30th or 31st therefore reaches a board already entered for the 1st.
+ * monthOf(today + 2) is either this month or the next, never further.
+ */
+async function recomputeAfterMembershipChange(ctx: WriterCtx, playerId: Id<'players'>, today: PuzzleDay) {
+  const thisMonth = monthOf(today)
+  await recomputeLeagueMonthFor(ctx, playerId, thisMonth)
+  const reach = monthOf(addDays(today, 2))
+  if (reach !== thisMonth) await recomputeLeagueMonthFor(ctx, playerId, reach)
 }
 
 /**
@@ -267,10 +282,19 @@ export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, ar
  * move each group row by the difference. Called on every board write
  * (scores.ts) and after every membership change.
  *
- * COST: for a player who has NEVER joined a league, one index read and nothing
- * else — which is almost everyone. A FORMER member still pays the member cost,
- * because membership rows survive a leave. For a member, their month's boards plus one group row per
- * league. Never O(group size): the group row moves by delta (§7).
+ * WHICH LEAGUES: every league the player holds a membership row in, UNIONED
+ * with every league they already have a member-month row in for THIS month.
+ * The second half is not redundant: a leave before the interval opened DELETES
+ * that row (planLeave), and a board for tomorrow (accepted up to the server's
+ * today + 1) may already have counted for it. Without the union nothing would
+ * name that league, and its member row and group contribution would be stranded.
+ *
+ * COST: for a player who has NEVER joined a league, two empty index reads and
+ * nothing else — which is almost everyone. Both reads are bounded to the player
+ * and (for member-month) to ONE month, never their history. A FORMER member
+ * still pays the member cost, because a left interval survives a leave. For a
+ * member, their month's boards plus one group row per league. Never O(group
+ * size): the group row moves by delta (§7).
  *
  * WRITES NOTHING WHEN NOTHING CHANGED, so a board edit that does not move the
  * totals does not invalidate every standings subscription.
@@ -281,20 +305,16 @@ export async function recomputeLeagueMonthFor(ctx: WriterCtx, playerId: Id<'play
     .withIndex('by_player_and_league', (q) => q.eq('playerId', playerId))
     .collect()
   const { year, month: m } = yearMonthOf(month)
-  // MEMBERSHIP ROWS ARE NEVER DELETED outside pruneLeagueRowsFor (leave patches,
-  // it does not delete), so every league this player has a member-month row in
-  // is already named here — and a point read per league keeps this write's read
-  // set to ONE month rather than the player's whole history.
-  const leagueIds = new Set(memberships.map((r) => r.leagueId))
+  // ONE MONTH's member rows, all leagues at once (by_player_year_month). Their
+  // leagues join the set: membership rows CAN be deleted (a leave before the
+  // interval opens), and a league named only here must still be recomputed —
+  // to nothing — or its row and group contribution are stranded.
+  const existing = await ctx.db
+    .query('leagueMemberMonth')
+    .withIndex('by_player_year_month', (q) => q.eq('playerId', playerId).eq('year', year).eq('month', m))
+    .collect()
+  const leagueIds = new Set([...memberships.map((r) => r.leagueId), ...existing.map((r) => r.leagueId)])
   if (leagueIds.size === 0) return
-  const existing: Doc<'leagueMemberMonth'>[] = []
-  for (const leagueId of leagueIds) {
-    const row = await ctx.db
-      .query('leagueMemberMonth')
-      .withIndex('by_player_league_year_month', (q) => q.eq('playerId', playerId).eq('leagueId', leagueId).eq('year', year).eq('month', m))
-      .unique()
-    if (row) existing.push(row)
-  }
 
   const { start, end } = monthRange(month)
   const boards = (
