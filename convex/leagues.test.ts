@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import type { MutationCtx } from './_generated/server'
 import { internal } from './_generated/api'
+import { insightsAccessFor } from './access.ts'
+import { contributionUnlocked } from './lib/league.ts'
 import { aPlayer } from './fixtures.ts'
 import { upsertBoardFor } from './scores.ts'
 import { closeLeagueMonthFor, groupsOf, joinGroupFor, leaguesFor, leaveLeagueFor, myContributionFor, myLeaguesFor, readToday, recomputeLeagueMonthFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor } from './leagues.ts'
@@ -967,11 +969,33 @@ describe('the my* wrappers are gated', () => {
     expect(handlerLines(name)[0]).toBe(DARK)
   })
 
-  test('myContribution returns locked, never numbers, to a non-Pro caller', () => {
+  test('myContribution returns locked, never numbers, to a caller with neither Pro nor a trial', () => {
     const lines = handlerLines('myContribution')
-    const gate = lines.indexOf('if (!(await isProFor(ctx, player._id))) return { enabled: true as const, locked: true as const }')
-    expect(gate).toBeGreaterThan(-1)
+    const access = lines.indexOf('const [isPro, access] = await Promise.all([isProFor(ctx, player._id), insightsAccessFor(ctx, player._id)])')
+    const gate = lines.indexOf('if (!contributionUnlocked({ isPro, trialActive: access.trialActive })) return { enabled: true as const, locked: true as const }')
+    expect(access).toBeGreaterThan(-1)
+    expect(gate).toBeGreaterThan(access)
     // The gate precedes any read of contribution data.
     expect(lines.findIndex((l) => l.includes('myContributionFor('))).toBeGreaterThan(gate)
+    // The old Pro-only gate must not survive alongside it.
+    expect(lines.some((l) => l.startsWith('if (!(await isProFor('))).toBe(false)
+  })
+})
+
+describe('the Insights trial unlocks the contribution view', () => {
+  beforeEach(() => vi.useFakeTimers({ now: NOW, toFake: ['Date'] }))
+  afterEach(() => vi.useRealTimers())
+
+  test.each([
+    ['an active trial', NOW.getTime() + 86_400_000, true],
+    ['an expired trial', NOW.getTime() - 1, false],
+    ['no trial', undefined, false],
+  ])('%s: unlocked is %s (same inputs the wrapper feeds contributionUnlocked)', async (_label, trialEndsAt, unlocked) => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer({ insightsTrialEndsAt: trialEndsAt }))
+      const access = await insightsAccessFor(ctx, playerId)
+      expect(contributionUnlocked({ isPro: false, trialActive: access.trialActive })).toBe(unlocked)
+    })
   })
 })

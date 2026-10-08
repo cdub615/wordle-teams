@@ -7,6 +7,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   contributionOf,
+  contributionUnlocked,
   groupAverageOf,
   groupDelta,
   HOME_CARD_MAX_LEAGUES,
@@ -189,6 +190,17 @@ describe('winnerOf', () => {
   })
   test('null on an exact tie of average AND boards', () => {
     expect(winnerOf([s('crane', 1, 3.8, 10), s('slate', 2, 3.8, 10)])).toBeNull()
+  })
+})
+
+describe('contributionUnlocked', () => {
+  test.each([
+    [false, false, false],
+    [true, false, true],
+    [false, true, true],
+    [true, true, true],
+  ])('isPro=%s trialActive=%s -> %s', (isPro, trialActive, expected) => {
+    expect(contributionUnlocked({ isPro, trialActive })).toBe(expected)
   })
 })
 
