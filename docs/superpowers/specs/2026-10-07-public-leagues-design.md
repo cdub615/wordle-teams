@@ -284,8 +284,12 @@ serializable transactions make concurrent deltas correct. At high write rates on
 group row becomes an OCC contention point. That is a scale problem, filed rather than
 solved in v1.
 
-`joinGroup` needs no recompute because its interval starts tomorrow. `leaveLeague` does
-(step 2 with the shortened interval).
+`joinGroup`, `switchGroup` and `leaveLeague` all recompute, for this month and (near a
+month's end) the next. `joinGroup`'s interval starts tomorrow or on the 1st, so its
+recompute usually changes nothing, but a board for that first day may already exist
+(boards are accepted up to the server's today + 1). `leaveLeague` needs it (step 2 with
+the shortened or deleted interval), and so does a switch that moves a board already
+entered for the 1st.
 
 **Player deletion.** The app has no account-deletion path today. The only place a
 player row is deleted is `e2ePrune.ts`, which must therefore also delete that player's

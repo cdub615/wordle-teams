@@ -325,7 +325,7 @@ export function planJoin<G extends string>(
   return planOf([{ op: 'insert', groupId, fromDay }], null, groupId)
 }
 
-/** Switch. Takes effect on the 1st; see the state table in the plan's Task 2. */
+/** Switch. Takes effect on the 1st. Which interval is started or pending is liveOf's call (spec §4.1). */
 export function planSwitch<G extends string>(
   intervals: readonly Interval<G>[],
   today: PuzzleDay,
