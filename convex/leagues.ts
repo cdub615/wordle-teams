@@ -313,8 +313,15 @@ export async function resolveWordGroupFor(ctx: WriterCtx, league: Doc<'leagues'>
 }
 
 /**
- * NO ORPHAN GROUPS: the by-word handlers check the plan BEFORE resolveWordGroupFor
- * can insert, so a refused join or switch never leaves a new empty group behind.
+ * THE PLAN IS CHECKED BEFORE THE WORD. Convex rolls back a refused mutation
+ * entirely, so in production a refused join or switch can never leave a new,
+ * empty group behind, pre-check or not (the joinWord wrapper test proves that end
+ * to end). What the pre-check buys:
+ *  (a) ERROR ORDER: a member who types a bad word hears ALREADY_IN_LEAGUE (or a
+ *      non-member switching hears NOT_IN_LEAGUE), the thing actually stopping
+ *      them, not UNKNOWN_WORD;
+ *  (b) SAFETY for any future caller that catches the refusal inside the same
+ *      transaction: nothing has been inserted yet, so nothing survives the catch.
  * PLACEHOLDER TARGET: planJoin refuses on liveOf(intervals, today) alone, and
  * planSwitch's NOT_IN_LEAGUE likewise precedes any read of its target, so the
  * target id cannot change whether either refuses. The real plan is made (again)

@@ -1323,13 +1323,17 @@ describe('joining and switching by word', () => {
     })
   })
 
-  test('a refused join (already in the league) creates no group', async () => {
+  // IN-TRANSACTION: codeOf catches the refusal inside this same t.run, so no
+  // rollback happens here; only the pre-check keeps the group from being created.
+  // In production the mutation would roll back anyway (see the wrapper test).
+  test('a member refused ALREADY_IN_LEAGUE in-transaction leaves no group, and hears that before UNKNOWN_WORD', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { leagueId, group } = await seedStartingWords(ctx)
       const playerId = await ctx.db.insert('players', aPlayer())
       await joinGroupFor(ctx, playerId, { groupId: group.crane, today })
       expect(await codeOf(joinWordFor(ctx, playerId, { leagueId, word: 'crate', today }))).toBe('ALREADY_IN_LEAGUE')
+      expect(await codeOf(joinWordFor(ctx, playerId, { leagueId, word: 'zzzzz', today }))).toBe('ALREADY_IN_LEAGUE')
       expect(await groupsBySlug(ctx, 'crate')).toEqual([])
     })
   })
@@ -1353,12 +1357,14 @@ describe('joining and switching by word', () => {
     })
   })
 
-  test('a refused switch (not in the league) creates no group', async () => {
+  // IN-TRANSACTION, as the join case above.
+  test('a non-member refused NOT_IN_LEAGUE in-transaction leaves no group, and hears that before UNKNOWN_WORD', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { leagueId } = await seedStartingWords(ctx)
       const playerId = await ctx.db.insert('players', aPlayer())
       expect(await codeOf(switchWordFor(ctx, playerId, { leagueId, word: 'crate', today }))).toBe('NOT_IN_LEAGUE')
+      expect(await codeOf(switchWordFor(ctx, playerId, { leagueId, word: 'zzzzz', today }))).toBe('NOT_IN_LEAGUE')
       expect(await groupsBySlug(ctx, 'crate')).toEqual([])
     })
   })
@@ -1399,6 +1405,25 @@ describe('the joinWord and switchWord wrappers', () => {
     }))
     expect(groups).toEqual([expect.objectContaining({ name: 'CRATE', memberCount: 1 })])
     expect(rows).toEqual([expect.objectContaining({ playerId, groupId: groups[0]._id })])
+  })
+
+  // END TO END through the wrapper: the refusal escapes the mutation, so Convex
+  // rolls the whole transaction back. This is what keeps production orphan-free.
+  test('an existing member joining a NEW valid word is refused ALREADY_IN_LEAGUE, and no group exists for it', async () => {
+    vi.stubEnv('LEAGUES_ENABLED', 'true')
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const { leagueId, group } = await t.run(async (ctx) => {
+      await ctx.db.insert('players', aPlayer({ email: 'member@example.com' }))
+      return await seedStartingWords(ctx)
+    })
+    const as = await authenticatedAs(t, 'member@example.com')
+    const day = toPuzzleDay(new Date())
+    await as.mutation(api.leagues.joinGroup, { groupId: group.crane, today: day })
+    await expect(as.mutation(api.leagues.joinWord, { leagueId, word: 'crate', today: day })).rejects.toMatchObject({
+      data: { code: 'ALREADY_IN_LEAGUE' },
+    })
+    expect(await t.run(async (ctx) => (await ctx.db.query('leagueGroups').collect()).filter((g) => g.slug === 'crate').length)).toBe(0)
   })
 
   test('joinWord and switchWord are refused LEAGUES_DISABLED when dark, and create nothing', async () => {
