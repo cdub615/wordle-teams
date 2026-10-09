@@ -154,11 +154,19 @@ describe('seedLeagueFor', () => {
       expect(await ctx.db.query('leagueGroups').collect()).toHaveLength(5)
     })
   })
-  test('a spec without groupSource leaves the stored value alone on re-seed', async () => {
+  test('a fresh seed of a spec without groupSource omits the field', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const id = await seedLeagueFor(ctx, { slug: 'o', name: 'O', featured: false, groups: [] }, 0)
       expect((await ctx.db.get(id))!.groupSource).toBeUndefined()
+    })
+  })
+  test('a re-seed with a spec lacking groupSource never downgrades a word league', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const id = await seedLeagueFor(ctx, STARTING_WORDS, 0)
+      await seedLeagueFor(ctx, { ...STARTING_WORDS, groupSource: undefined }, 1)
+      expect((await ctx.db.get(id))!.groupSource).toBe('answer-words')
     })
   })
   test('the by_league_and_slug and by_league_and_memberCount indexes serve queries', async () => {

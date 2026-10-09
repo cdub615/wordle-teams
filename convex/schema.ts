@@ -899,9 +899,10 @@ export default defineSchema({
     // The word-group lookup (leagues.ts resolveWordGroupFor): a typed word
     // resolves to its group by slug within one league.
     .index('by_league_and_slug', ['leagueId', 'slug'])
-    // The group picker and the grandfathering / pruning reads: a league's
-    // groups ordered by size, so the biggest (or empty) come off the index
-    // instead of a collect-and-sort.
+    // The popular-groups read (leagues.ts, task A4): a league's biggest groups
+    // by memberCount descending, for the picker's quick picks, straight off the
+    // index instead of collect-and-sort. Every memberCount change also rewrites
+    // this index entry (same hot group document as wordle-teams-1hfl).
     .index('by_league_and_memberCount', ['leagueId', 'memberCount']),
 
   // ONE ROW PER INTERVAL, both bounds inclusive. toDay ABSENT MEANS OPEN.
