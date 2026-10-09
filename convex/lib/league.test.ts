@@ -11,6 +11,9 @@ import {
   groupAverageOf,
   groupDelta,
   HOME_CARD_MAX_LEAGUES,
+  isLargeLeague,
+  LARGE_LEAGUE_TOP,
+  largeLeagueSlice,
   LEAGUES_ON,
   lastDayOfMonth,
   leaguesEnabled,
@@ -26,6 +29,7 @@ import {
   winnerOf,
   yearMonthOf,
 } from './league.ts'
+import type { Standing } from './league.ts'
 
 describe('the constants', () => {
   test('are the values the design approved', () => {
@@ -578,5 +582,62 @@ describe('a closed interval is live only for a genuine month-boundary switch', (
 describe('yearMonthOf', () => {
   test('splits YYYY-MM into numbers', () => {
     expect(yearMonthOf('2026-09')).toEqual({ year: 2026, month: 9 })
+  })
+})
+
+describe('isLargeLeague', () => {
+  test('a word league is large whatever its size', () => {
+    expect(isLargeLeague('answer-words', 0)).toBe(true)
+    expect(isLargeLeague('answer-words', 5)).toBe(true)
+  })
+  test('a fixed league is large only above PICKER_INLINE_MAX, from both sides', () => {
+    expect(isLargeLeague('fixed', PICKER_INLINE_MAX)).toBe(false)
+    expect(isLargeLeague(undefined, PICKER_INLINE_MAX)).toBe(false)
+    expect(isLargeLeague('fixed', PICKER_INLINE_MAX + 1)).toBe(true)
+    expect(isLargeLeague(undefined, PICKER_INLINE_MAX + 1)).toBe(true)
+  })
+})
+
+describe('largeLeagueSlice', () => {
+  /** n ranked groups g1..gn (best first), then m unranked u1..um. */
+  function table(n: number, m = 0): Standing[] {
+    const ranked = Array.from({ length: n }, (_, i) => ({ groupId: `g${i + 1}`, order: i, boards: 20, attempts: 60 + i, contributors: 1, average: 3 + i / 10, rank: i + 1 }))
+    const unranked = Array.from({ length: m }, (_, i) => ({ groupId: `u${i + 1}`, order: 100 + i, boards: 5, attempts: 20, contributors: 1, average: null, rank: null }))
+    return [...ranked, ...unranked]
+  }
+  const ids = (rows: Standing[]) => rows.map((s) => s.groupId)
+
+  test('LARGE_LEAGUE_TOP is 10', () => {
+    expect(LARGE_LEAGUE_TOP).toBe(10)
+  })
+  test('cuts to the top 10 ranked groups', () => {
+    const out = largeLeagueSlice(table(12), null)
+    expect(ids(out.shown)).toEqual(['g1', 'g2', 'g3', 'g4', 'g5', 'g6', 'g7', 'g8', 'g9', 'g10'])
+  })
+  test('adds the viewer outside the top 10', () => {
+    const out = largeLeagueSlice(table(12), 'g12')
+    expect(out.shown).toHaveLength(10)
+    expect(out.viewer?.groupId).toBe('g12')
+    expect(out.viewer?.rank).toBe(12)
+  })
+  test('does not duplicate a viewer inside the top 10', () => {
+    for (const g of ['g1', 'g10']) {
+      const out = largeLeagueSlice(table(12), g)
+      expect(out.viewer).toBeNull()
+      expect(ids(out.shown).filter((id) => id === g)).toEqual([g])
+    }
+  })
+  test('adds an unranked viewer, and never lists unranked groups in shown', () => {
+    const out = largeLeagueSlice(table(3, 2), 'u2')
+    expect(ids(out.shown)).toEqual(['g1', 'g2', 'g3'])
+    expect(out.viewer).toMatchObject({ groupId: 'u2', rank: null })
+  })
+  test('counts the unranked active groups', () => {
+    expect(largeLeagueSlice(table(12, 3), null).unrankedCount).toBe(3)
+    expect(largeLeagueSlice(table(2), null).unrankedCount).toBe(0)
+  })
+  test('no viewer, or a viewer with no row this month, adds nothing', () => {
+    expect(largeLeagueSlice(table(12), null).viewer).toBeNull()
+    expect(largeLeagueSlice(table(12), 'absent').viewer).toBeNull()
   })
 })

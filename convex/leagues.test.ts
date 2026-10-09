@@ -9,7 +9,7 @@ import { contributionUnlocked } from './lib/league.ts'
 import { aPlayer, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
 import { upsertBoardFor } from './scores.ts'
-import { closeLeagueMonthFor, dismissLeagueOfferFor, groupsOf, joinGroupFor, joinWordFor, leaguesFor, leaveLeagueFor, myContributionFor, myLeaguesFor, readToday, recomputeLeagueMonthFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor, switchWordFor } from './leagues.ts'
+import { closeLeagueMonthFor, dismissLeagueOfferFor, groupStandingFor, groupsOf, joinGroupFor, joinWordFor, leaguesFor, leaveLeagueFor, myContributionFor, myLeaguesFor, readToday, recomputeLeagueMonthFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor, switchWordFor } from './leagues.ts'
 import type { DataModel, Id } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 
@@ -109,6 +109,18 @@ async function seedStartingWords(ctx: Ctx, createdAt = 0) {
   return { leagueId, group: bySlug }
 }
 
+/**
+ * The same five openers as a FIXED league (no groupSource). Starting Words is a
+ * word league since v2a, so it takes the large-league path (spec v2 §4.5); the
+ * small-league standings tests below pin the v1 shape on this instead.
+ */
+async function seedFixedOpeners(ctx: Ctx) {
+  const leagueId = await seedLeagueFor(ctx, { ...STARTING_WORDS, groupSource: undefined }, 0)
+  const groups = await ctx.db.query('leagueGroups').withIndex('by_league', (q) => q.eq('leagueId', leagueId)).collect()
+  const bySlug = Object.fromEntries(groups.map((g) => [g.slug, g._id])) as Record<string, Id<'leagueGroups'>>
+  return { leagueId, group: bySlug }
+}
+
 describe('seedLeagueFor', () => {
   test('creates Starting Words with its five groups in order', async () => {
     const t = convexTest(schema, modules)
@@ -192,7 +204,7 @@ describe('standingsFor', () => {
   test('every group appears, zero-filled, unranked below the floor', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { leagueId, group } = await seedStartingWords(ctx)
+      const { leagueId, group } = await seedFixedOpeners(ctx)
       await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 10, boards: 10, attempts: 38, contributors: 2 })
       await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.slate, year: 2026, month: 10, boards: 6, attempts: 24, contributors: 1 })
       // A row for another month must stay out of October's totals.
@@ -212,7 +224,7 @@ describe('standingsFor', () => {
   test('last month and the all-time tally come from snapshots, never live rows', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { leagueId, group } = await seedStartingWords(ctx)
+      const { leagueId, group } = await seedFixedOpeners(ctx)
       await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 8, standings: [], winnerGroupId: group.crane, closedAt: 0 })
       await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 9, standings: [], winnerGroupId: group.crane, closedAt: 0 })
       // A live September row that disagrees must be ignored.
@@ -255,7 +267,7 @@ describe('standingsFor snapshots and isolation', () => {
   test('a September snapshot with no winner is lastMonth with a null winner', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { leagueId } = await seedStartingWords(ctx)
+      const { leagueId } = await seedFixedOpeners(ctx)
       await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 9, standings: [], winnerGroupId: null, closedAt: 0 })
       const out = (await standingsFor(ctx, 'starting-words', '2026-10-07'))!
       expect(out.lastMonth).toEqual({ month: '2026-09', winnerGroupId: null })
@@ -264,7 +276,7 @@ describe('standingsFor snapshots and isolation', () => {
   test('January looks back to December of the previous year', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { leagueId, group } = await seedStartingWords(ctx)
+      const { leagueId, group } = await seedFixedOpeners(ctx)
       await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 12, standings: [], winnerGroupId: group.crane, closedAt: 0 })
       const out = (await standingsFor(ctx, 'starting-words', '2027-01-05'))!
       expect(out.month).toBe('2027-01')
@@ -274,7 +286,7 @@ describe('standingsFor snapshots and isolation', () => {
   test('another league never leaks into standings or monthsWon', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { group } = await seedStartingWords(ctx)
+      const { group } = await seedFixedOpeners(ctx)
       const otherId = await seedLeagueFor(ctx, { slug: 'other', name: 'Other', featured: false, groups: [{ slug: 'x', name: 'X' }] }, 0)
       const [x] = await groupsOf(ctx, otherId)
       await ctx.db.insert('leagueGroupMonth', { leagueId: otherId, groupId: x._id, year: 2026, month: 10, boards: 40, attempts: 120, contributors: 5 })
@@ -1438,5 +1450,256 @@ describe('the joinWord and switchWord wrappers', () => {
     await expect(as.mutation(api.leagues.joinWord, args)).rejects.toMatchObject({ data: { code: 'LEAGUES_DISABLED' } })
     await expect(as.mutation(api.leagues.switchWord, args)).rejects.toMatchObject({ data: { code: 'LEAGUES_DISABLED' } })
     expect(await t.run(async (ctx) => (await ctx.db.query('leagueGroups').collect()).filter((g) => g.slug === 'crate').length)).toBe(0)
+  })
+})
+
+/**
+ * v2a A4: a large league lists only this month's ACTIVE groups — the top 10
+ * ranked, the viewer's group, and a count of the unranked (spec v2 §4.5).
+ */
+describe('large-league standings', () => {
+  /** A word group with no seed: what resolveWordGroupFor would create. */
+  async function addGroup(ctx: Ctx, leagueId: Id<'leagues'>, slug: string, order: number) {
+    return await ctx.db.insert('leagueGroups', { leagueId, slug, name: slug.toUpperCase(), order, memberCount: 0 })
+  }
+  async function monthRow(ctx: Ctx, leagueId: Id<'leagues'>, groupId: Id<'leagueGroups'>, boards: number, attempts: number, month = 10) {
+    await ctx.db.insert('leagueGroupMonth', { leagueId, groupId, year: 2026, month, boards, attempts, contributors: 1 })
+  }
+  /**
+   * Starting Words with 12 RANKED groups (averages 3.0, 3.1 … 4.1, so rank i+1 is
+   * ranked[i]), one active UNRANKED group, and STARE and ORATE INACTIVE this
+   * month (STARE has a September row, which must not count).
+   */
+  async function twelveActive(ctx: Ctx) {
+    const { leagueId, group } = await seedStartingWords(ctx)
+    const ranked = [group.crane, group.slate, group.adieu]
+    for (const [i, slug] of ['aaaaa', 'bbbbb', 'ccccc', 'ddddd', 'eeeee', 'fffff', 'ggggg', 'hhhhh', 'iiiii'].entries()) {
+      ranked.push(await addGroup(ctx, leagueId, slug, 10 + i))
+    }
+    for (const [i, id] of ranked.entries()) await monthRow(ctx, leagueId, id, 10, 30 + i)
+    const unranked = await addGroup(ctx, leagueId, 'zzzzz', 99)
+    await monthRow(ctx, leagueId, unranked, 4, 16)
+    await monthRow(ctx, leagueId, group.stare, 40, 100, 9)
+    return { leagueId, group, ranked, unranked }
+  }
+
+  test('top 10, the viewer at #12, the unranked count, and inactive groups not listed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { group, ranked, unranked } = await twelveActive(ctx)
+      const out = (await standingsFor(ctx, 'starting-words', '2026-10-07', ranked[11]))!
+      if (!out.large) throw new Error('expected the large shape')
+      expect(out.shown.map((s) => [s.groupId, s.rank])).toEqual(ranked.slice(0, 10).map((id, i) => [id, i + 1]))
+      expect(out.viewer).toMatchObject({ groupId: ranked[11], rank: 12, average: 4.1 })
+      expect(out.unrankedCount).toBe(1)
+      // The page's table: shown, then the viewer.
+      expect(out.standings.map((s) => s.groupId)).toEqual([...ranked.slice(0, 10), ranked[11]])
+      // Names only for what is on the page: never #11, the unranked group, or an inactive one.
+      const named = out.groups.map((g) => g._id)
+      expect(new Set(named)).toEqual(new Set([...ranked.slice(0, 10), ranked[11]]))
+      for (const absent of [ranked[10], unranked, group.stare, group.orate]) expect(named).not.toContain(absent)
+      expect(out.groups.find((g) => g._id === group.crane)).toMatchObject({ slug: 'crane', name: 'CRANE' })
+    })
+  })
+
+  test('a viewer inside the top 10 is not repeated', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { ranked } = await twelveActive(ctx)
+      const out = (await standingsFor(ctx, 'starting-words', '2026-10-07', ranked[2]))!
+      if (!out.large) throw new Error('expected the large shape')
+      expect(out.viewer).toBeNull()
+      expect(out.standings).toHaveLength(10)
+    })
+  })
+
+  test('no viewer, and an empty month, list nothing', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await seedStartingWords(ctx)
+      const out = (await standingsFor(ctx, 'starting-words', '2026-10-07'))!
+      expect(out).toMatchObject({ large: true, shown: [], viewer: null, unrankedCount: 0, standings: [], groups: [], monthsWon: [], lastMonth: null })
+    })
+  })
+
+  test('lastMonth.viewerRank comes from the snapshot, and monthsWon lists winners only', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      await monthRow(ctx, leagueId, group.crane, 10, 35, 9)
+      await monthRow(ctx, leagueId, group.slate, 10, 38, 9)
+      await monthRow(ctx, leagueId, group.adieu, 3, 12, 9)
+      await closeLeagueMonthFor(ctx, leagueId, '2026-09')
+      await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 7, standings: [], winnerGroupId: group.orate, closedAt: 0 })
+      await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 8, standings: [], winnerGroupId: null, closedAt: 0 })
+      const rankOf = async (viewer?: Id<'leagueGroups'>) => {
+        const out = (await standingsFor(ctx, 'starting-words', '2026-10-07', viewer))!
+        if (!out.large) throw new Error('expected the large shape')
+        return out.lastMonth?.viewerRank
+      }
+      expect(await rankOf(group.crane)).toBe(1)
+      expect(await rankOf(group.slate)).toBe(2)
+      expect(await rankOf(group.adieu)).toBeNull() // in the snapshot, unranked
+      expect(await rankOf(group.stare)).toBeNull() // not in the snapshot
+      expect(await rankOf()).toBeNull()
+
+      const out = (await standingsFor(ctx, 'starting-words', '2026-10-07'))!
+      expect(out.lastMonth).toMatchObject({ month: '2026-09', winnerGroupId: group.crane })
+      expect(new Set(out.monthsWon)).toEqual(new Set([{ groupId: group.crane, count: 1 }, { groupId: group.orate, count: 1 }]))
+      // Winners are named even when inactive this month.
+      expect(new Set(out.groups.map((g) => g._id))).toEqual(new Set([group.crane, group.orate]))
+    })
+  })
+
+  test('a FIXED league above PICKER_INLINE_MAX is large too', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const groups = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((slug) => ({ slug, name: slug }))
+      const leagueId = await seedLeagueFor(ctx, { slug: 'seven', name: 'Seven', featured: false, groups }, 0)
+      const [a] = await groupsOf(ctx, leagueId)
+      await monthRow(ctx, leagueId, a._id, 10, 30)
+      const out = (await standingsFor(ctx, 'seven', '2026-10-07'))!
+      expect(out.large).toBe(true)
+      expect(out.standings.map((s) => s.groupId)).toEqual([a._id])
+    })
+  })
+
+  test('a small fixed league keeps the v1 shape, plus large: false, whatever the viewer', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedFixedOpeners(ctx)
+      await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 9, standings: [], winnerGroupId: group.crane, closedAt: 0 })
+      const out = (await standingsFor(ctx, 'starting-words', '2026-10-07', group.slate))!
+      expect(Object.keys(out).sort()).toEqual(['groups', 'large', 'lastMonth', 'league', 'month', 'monthsWon', 'standings'])
+      expect(out.large).toBe(false)
+      expect(out.standings).toHaveLength(5)
+      expect(out.groups).toHaveLength(5)
+      expect(out.lastMonth).toEqual({ month: '2026-09', winnerGroupId: group.crane })
+      expect(out.monthsWon).toHaveLength(5)
+    })
+  })
+})
+
+describe('groupStandingFor', () => {
+  test('a word group: its month totals, without a rank', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      await ctx.db.patch(group.slate, { memberCount: 4 })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.slate, year: 2026, month: 10, boards: 12, attempts: 42, contributors: 3 })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.slate, year: 2026, month: 9, boards: 50, attempts: 99, contributors: 9 })
+      expect(await groupStandingFor(ctx, 'starting-words', '2026-10-07', ' Slate ')).toEqual({
+        group: { _id: group.slate, name: 'SLATE', memberCount: 4 },
+        boards: 12,
+        attempts: 42,
+        average: 3.5,
+        contributors: 3,
+      })
+    })
+  })
+  test('a group with no boards this month is all zeros, average null', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { group } = await seedStartingWords(ctx)
+      expect(await groupStandingFor(ctx, 'starting-words', '2026-10-07', 'crane')).toEqual({
+        group: { _id: group.crane, name: 'CRANE', memberCount: 0 },
+        boards: 0,
+        attempts: 0,
+        average: null,
+        contributors: 0,
+      })
+    })
+  })
+  test('null for an unknown word, a malformed word, another league’s group, or an unknown league', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await seedStartingWords(ctx)
+      await seedLeagueFor(ctx, { slug: 'other', name: 'Other', featured: false, groups: [{ slug: 'pious', name: 'PIOUS' }] }, 0)
+      expect(await groupStandingFor(ctx, 'starting-words', '2026-10-07', 'crate')).toBeNull()
+      expect(await groupStandingFor(ctx, 'starting-words', '2026-10-07', 'cr4ne')).toBeNull()
+      expect(await groupStandingFor(ctx, 'starting-words', '2026-10-07', 'pious')).toBeNull()
+      expect(await groupStandingFor(ctx, 'nope', '2026-10-07', 'crane')).toBeNull()
+    })
+  })
+})
+
+describe('popular groups in leaguesFor', () => {
+  test('a word league lists its top 6 by memberCount, with groupSource and leagueId', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const extra: Id<'leagueGroups'>[] = []
+      for (const [i, slug] of ['aaaaa', 'bbbbb', 'ccccc'].entries()) {
+        extra.push(await ctx.db.insert('leagueGroups', { leagueId, slug, name: slug.toUpperCase(), order: 10 + i, memberCount: 0 }))
+      }
+      const counts: [Id<'leagueGroups'>, number][] = [[group.orate, 9], [extra[1], 7], [group.slate, 5], [extra[0], 3], [group.crane, 3], [group.adieu, 1], [group.stare, 0]]
+      for (const [id, n] of counts) await ctx.db.patch(id, { memberCount: n })
+      const [out] = await leaguesFor(ctx)
+      expect(out).toMatchObject({ leagueId, groupSource: 'answer-words' })
+      // Ties (CRANE and AAAAA on 3) in display order.
+      expect(out.groups.map((g) => [g._id, g.memberCount])).toEqual([
+        [group.orate, 9],
+        [extra[1], 7],
+        [group.slate, 5],
+        [group.crane, 3],
+        [extra[0], 3],
+        [group.adieu, 1],
+      ])
+    })
+  })
+  test('a fixed league still lists every group in order', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const groups = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((slug) => ({ slug, name: slug }))
+      const leagueId = await seedLeagueFor(ctx, { slug: 'seven', name: 'Seven', featured: false, groups }, 0)
+      const [g] = await groupsOf(ctx, leagueId)
+      await ctx.db.patch(g._id, { memberCount: 0 })
+      const [out] = await leaguesFor(ctx)
+      expect(out).toMatchObject({ leagueId, groupSource: 'fixed' })
+      expect(out.groups.map((x) => x.name)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g'])
+    })
+  })
+})
+
+describe('the standings and groupStanding wrappers', () => {
+  const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth/**/*.ts'))
+  afterEach(() => vi.unstubAllEnvs())
+
+  async function setup(email: string) {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const day = toPuzzleDay(new Date())
+    const [year, month] = day.split('-').map(Number)
+    const { group } = await t.run(async (ctx) => {
+      await ctx.db.insert('players', aPlayer({ email }))
+      const seeded = await seedStartingWords(ctx)
+      await ctx.db.insert('leagueGroupMonth', { leagueId: seeded.leagueId, groupId: seeded.group.slate, year, month, boards: 3, attempts: 12, contributors: 1 })
+      return seeded
+    })
+    return { t, day, group, as: await authenticatedAs(t, email) }
+  }
+
+  test('standings passes groupId through as the viewer', async () => {
+    vi.stubEnv('LEAGUES_ENABLED', 'true')
+    const { as, day, group } = await setup('viewer@example.com')
+    const res = await as.query(api.leagues.standings, { slug: 'starting-words', today: day, groupId: group.slate })
+    if (!res.enabled || !res.view?.large) throw new Error('expected an enabled large view')
+    expect(res.view.viewer).toMatchObject({ groupId: group.slate, boards: 3, rank: null })
+    expect(res.view.unrankedCount).toBe(1)
+  })
+
+  test('groupStanding finds a word, and is null for an unknown one', async () => {
+    vi.stubEnv('LEAGUES_ENABLED', 'true')
+    const { as, day, group } = await setup('search@example.com')
+    expect(await as.query(api.leagues.groupStanding, { slug: 'starting-words', today: day, word: 'SLATE' })).toEqual({
+      enabled: true,
+      standing: { group: { _id: group.slate, name: 'SLATE', memberCount: 0 }, boards: 3, attempts: 12, average: null, contributors: 1 },
+    })
+    expect(await as.query(api.leagues.groupStanding, { slug: 'starting-words', today: day, word: 'crate' })).toEqual({ enabled: true, standing: null })
+  })
+
+  test('groupStanding is dark when leagues are off', async () => {
+    const { as, day } = await setup('darksearch@example.com')
+    expect(await as.query(api.leagues.groupStanding, { slug: 'starting-words', today: day, word: 'slate' })).toEqual({ enabled: false })
   })
 })
