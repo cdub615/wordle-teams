@@ -6,6 +6,7 @@ import { isMonth } from './lib/monthWindow.ts'
 import { attemptsFor } from './lib/board.ts'
 import { addDays, addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { insightsAccess } from './lib/insightsAccess.ts'
+import { isAnswerWord, normalizeWord } from './lib/answerWords.ts'
 import { contributionOf, contributionUnlocked, groupDelta, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
 import type { MembershipPlan, Standing } from './lib/league.ts'
@@ -283,6 +284,72 @@ export async function switchGroupFor(ctx: WriterCtx, playerId: Id<'players'>, ar
   await recomputeAfterMembershipChange(ctx, playerId, today)
 }
 
+/**
+ * A word league's group for `word`: the existing one, or a new one if `word`
+ * is an answer word (spec v2 §4.2). An existing group is always joinable, even if
+ * its word isn't on the list (grandfathered v1 groups), but a non-answer word
+ * never creates one. CONCURRENCY: two first-joins of one word both read the
+ * empty by_league_and_slug range; the second's read set is invalidated by the
+ * first's insert, so Convex retries it and it finds the group. Never two groups.
+ */
+export async function resolveWordGroupFor(ctx: WriterCtx, league: Doc<'leagues'>, input: string): Promise<GroupId> {
+  const word = normalizeWord(input)
+  if (word === null) throw accessError('UNKNOWN_WORD')
+  const found = await ctx.db
+    .query('leagueGroups')
+    .withIndex('by_league_and_slug', (q) => q.eq('leagueId', league._id).eq('slug', word))
+    .unique()
+  if (found) return found._id
+  if (league.groupSource !== 'answer-words' || !isAnswerWord(word)) throw accessError('UNKNOWN_WORD')
+  // ORDER IS CREATION TIME: no collect of the league's groups to find a max, and
+  // order is only a display tiebreak among equals.
+  return await ctx.db.insert('leagueGroups', {
+    leagueId: league._id,
+    slug: word,
+    name: word.toUpperCase(),
+    order: Date.now(),
+    memberCount: 0,
+  })
+}
+
+/**
+ * NO ORPHAN GROUPS: the by-word handlers check the plan BEFORE resolveWordGroupFor
+ * can insert, so a refused join or switch never leaves a new empty group behind.
+ * PLACEHOLDER TARGET: planJoin refuses on liveOf(intervals, today) alone, and
+ * planSwitch's NOT_IN_LEAGUE likewise precedes any read of its target, so the
+ * target id cannot change whether either refuses. The real plan is made (again)
+ * by joinGroupFor/switchGroupFor, which also re-validate today and re-read the
+ * intervals: harmless duplication inside one transaction.
+ */
+const PRECHECK_TARGET = 'precheck-placeholder' as GroupId
+
+async function requireLeague(ctx: ReaderCtx, leagueId: Id<'leagues'>) {
+  const league = await ctx.db.get(leagueId)
+  if (!league) throw accessError('UNKNOWN_LEAGUE')
+  return league
+}
+
+type WordArgs = { leagueId: Id<'leagues'>; word: string; today: string }
+
+/** Validation order as joinGroupFor's: today, the league, the plan, then the word. */
+export async function joinWordFor(ctx: WriterCtx, playerId: Id<'players'>, args: WordArgs) {
+  const today = requirePlausibleToday(args.today)
+  const league = await requireLeague(ctx, args.leagueId)
+  const plan = planJoin(await intervalsOf(ctx, playerId, league._id), today, PRECHECK_TARGET)
+  if ('refused' in plan) throw accessError(plan.refused)
+  const groupId = await resolveWordGroupFor(ctx, league, args.word)
+  await joinGroupFor(ctx, playerId, { groupId, today: args.today })
+}
+
+export async function switchWordFor(ctx: WriterCtx, playerId: Id<'players'>, args: WordArgs) {
+  const today = requirePlausibleToday(args.today)
+  const league = await requireLeague(ctx, args.leagueId)
+  const plan = planSwitch(await intervalsOf(ctx, playerId, league._id), today, PRECHECK_TARGET)
+  if ('refused' in plan) throw accessError(plan.refused)
+  const groupId = await resolveWordGroupFor(ctx, league, args.word)
+  await switchGroupFor(ctx, playerId, { groupId, today: args.today })
+}
+
 export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, args: { leagueId: Id<'leagues'>; today: string }) {
   const today = requirePlausibleToday(args.today)
   if (!(await ctx.db.get(args.leagueId))) throw accessError('UNKNOWN_LEAGUE')
@@ -471,6 +538,26 @@ export const switchGroup = mutation({
     gate()
     const player = await requirePlayer(ctx)
     await switchGroupFor(ctx, player._id, args)
+  },
+})
+
+const wordArgs = { leagueId: v.id('leagues'), word: v.string(), today: v.string() }
+
+export const joinWord = mutation({
+  args: wordArgs,
+  handler: async (ctx, args) => {
+    gate()
+    const player = await requirePlayer(ctx)
+    await joinWordFor(ctx, player._id, args)
+  },
+})
+
+export const switchWord = mutation({
+  args: wordArgs,
+  handler: async (ctx, args) => {
+    gate()
+    const player = await requirePlayer(ctx)
+    await switchWordFor(ctx, player._id, args)
   },
 })
 
