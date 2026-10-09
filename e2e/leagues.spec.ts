@@ -12,14 +12,12 @@ import { completeProfile } from './complete-profile'
  * E2E_TEST_MODE). Without it the onboarding step never appears and this fails
  * at its first assertion rather than passing vacuously.
  *
- * THE JOIN CLICK IS SCOPED TO THE PICKER'S GROUP, NOT A BARE BUTTON NAME.
- * The group names are not unique on the standings page: CRANE is a join
- * button in the "Choose a group" picker (league-page-view.tsx) and also a row
- * in the standings table, and for a TEAM player the dashboard's leagues card
- * carries the same "Choose a group" picker. Scoping to the group names the one
- * control that joins. "Join the opener wars" (the onboarding step's button
- * name here) is likewise the join section's heading and the card's title, so
- * it is matched as a BUTTON, never as bare text.
+ * THE JOIN IS SCOPED TO THE JOIN SECTION, NOT A BARE BUTTON NAME. The page
+ * has more than one "Join"-ish control and CRANE appears as a quick pick and
+ * as a standings row, so the word box and its Join button are found inside
+ * the "Join the opener wars" region (league-page-view.tsx). That name is also
+ * the onboarding step's button and the card's title, so on the dashboard it
+ * is matched as a BUTTON, never as bare text.
  *
  * A unique email per run, same as signIn()'s default: every spec shares one
  * Convex backend, so a reused address would arrive already in a league and the
@@ -42,7 +40,14 @@ test('a teamless player joins CRANE from onboarding and sees it on the standings
   await step.click()
   await expect(page).toHaveURL(/\/leagues\/starting-words$/, TIMEOUT)
 
-  await page.getByRole('group', { name: 'Choose a group' }).getByRole('button', { name: 'CRANE', exact: true }).click()
+  // BY WORD, NOT THE QUICK PICK: typing exercises the open-word path (the lazy
+  // answer list, then joinWord). Join stays disabled until that list arrives,
+  // so toBeEnabled is the wait for it. CRANE is seeded, so it is always valid.
+  const join = page.getByRole('region', { name: 'Join the opener wars' })
+  await join.getByLabel('Any Wordle answer word').fill('crane')
+  const joinButton = join.getByRole('button', { name: 'Join', exact: true })
+  await expect(joinButton).toBeEnabled(TIMEOUT)
+  await joinButton.click()
   await expect(page.getByTestId('league-membership')).toContainText('You play for CRANE', TIMEOUT)
   await expect(page.getByTestId('standing-CRANE').getByText('you', { exact: true })).toBeVisible(TIMEOUT)
 
