@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { useId } from 'react'
 import { Button } from '#/components/ui/button.tsx'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
+import { MyLeagueRow } from '#/components/leagues/my-league-row.tsx'
 import { GroupPicker } from '#/components/leagues/group-picker.tsx'
 import { WordPicker, type PopularWord } from '#/components/leagues/word-picker.tsx'
 import { HOME_CARD_MAX_LEAGUES } from '../../../convex/lib/league.ts'
@@ -163,18 +164,7 @@ export function LeaguesCard({ mine, featured, onJoin, onJoinWord, onDismiss, bus
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {shown.map((l) => (
-          <Link
-            key={l.league.slug}
-            to="/leagues/$slug"
-            params={{ slug: l.league.slug }}
-            className="flex min-w-0 items-center gap-3 rounded-md border p-3 hover:bg-muted"
-          >
-            <span className="font-mono tracking-widest">{l.group.name}</span>
-            <span className="min-w-0 truncate text-sm text-muted-foreground">{l.league.name}</span>
-            <span className="ml-auto shrink-0 tabular-nums">
-              {l.rank === null || l.average === null ? 'not yet ranked' : `#${l.rank} · ${l.average.toFixed(1)}`}
-            </span>
-          </Link>
+          <MyLeagueRow key={l.league.slug} row={l} />
         ))}
         {mine.length > HOME_CARD_MAX_LEAGUES && (
           <Link to="/leagues" className="self-start text-sm underline underline-offset-4">

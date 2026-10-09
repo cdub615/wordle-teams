@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useId } from 'react'
+import { MyLeagueRow } from '#/components/leagues/my-league-row.tsx'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
 
 /** PLAIN STRUCTURAL SHAPE of one api.leagues.leagues row; `disclaimer` arrives with v2c. */
@@ -35,18 +36,7 @@ export function LeagueDirectory({ leagues, mine }: Props) {
             Your leagues
           </h2>
           {mine.map((m) => (
-            <Link
-              key={m.league.slug}
-              to="/leagues/$slug"
-              params={{ slug: m.league.slug }}
-              className="flex min-w-0 items-center gap-3 rounded-md border p-3 hover:bg-muted"
-            >
-              <span className="font-mono tracking-widest">{m.group.name}</span>
-              <span className="min-w-0 truncate text-sm text-muted-foreground">{m.league.name}</span>
-              <span className="ml-auto shrink-0 tabular-nums">
-                {m.rank === null || m.average === null ? 'not yet ranked' : `#${m.rank} · ${m.average.toFixed(1)}`}
-              </span>
-            </Link>
+            <MyLeagueRow key={m.league.slug} row={m} />
           ))}
         </section>
       )}

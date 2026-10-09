@@ -37,7 +37,11 @@ function LeaguesIndex() {
   // SSR and the first client render agree.
   const hydrated = useHydrated()
   const today = hydrated ? toPuzzleDay(new Date()) : null
-  const { data: mine } = useQuery(convexQuery(api.leagues.myLeagues, today ? { today } : 'skip'))
+  const mineQuery = useQuery(convexQuery(api.leagues.myLeagues, today ? { today } : 'skip'))
+  const mine = mineQuery.data
+  // A failed myLeagues goes to the route's errorComponent rather than a
+  // forever "Loading…" (as the league page does).
+  if (mineQuery.error && !mine) throw mineQuery.error
   return (
     <LeagueFrame title="Leagues">
       {!data.enabled ? (
@@ -46,7 +50,7 @@ function LeaguesIndex() {
         <p>There are no leagues yet.</p>
       ) : !mine ? (
         // Until myLeagues answers we cannot tell which leagues are the viewer's.
-        <p>Loading…</p>
+        <p role="status">Loading…</p>
       ) : (
         <LeagueDirectory leagues={data.leagues} mine={mine.enabled ? mine.leagues : []} />
       )}
