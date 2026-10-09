@@ -48,7 +48,7 @@ The constraint rules out every source of user-written names. What remains is fle
 ### 4.2 `leagueGroups`
 
 - New index **`by_league_and_slug`** `['leagueId', 'slug']`. Joining by word is one point read.
-- **Answer-word groups are created lazily.** The first `joinGroup` (or switch) to a valid word that has no group inserts it: slug is the word and name is the word in UPPERCASE; `order` is the creation time (`Date.now()`), so seeded groups sort first and new words follow in creation order; `memberCount` 0.
+- **Answer-word groups are created lazily.** The first `joinWord` (or `switchWord`) to a valid word that has no group inserts it: slug is the word and name is the word in UPPERCASE; `order` is the creation time (`Date.now()`), so seeded groups sort first and new words follow in creation order; `memberCount` 0.
 - **Concurrency:** two first-joins of the same word race. Convex serialisability means the loser's read of `by_league_and_slug` conflicts and retries, sees the group, and joins it. Never two groups. Pinned by a test.
 - **The existing five groups stay** as ordinary groups. If any of their words (ORATE is the likely one; verify against the chosen list) is not an answer word, that group is **grandfathered**: it remains joinable so nobody is stranded, but it can never be created anew. The validity check is `isAnswerWord(word) || an existing group with that slug`.
 - Join and switch address a group by **word** through separate mutations, `joinWord`/`switchWord({ leagueId, word, today })`, which resolve the group and then delegate to the id-based `joinGroup`/`switchGroup` handlers (unchanged, still used for fixed leagues). A plan pre-check runs before the word is resolved, so a member who types a bad word hears `ALREADY_IN_LEAGUE`/`NOT_IN_LEAGUE` rather than `UNKNOWN_WORD`. (A refused mutation rolls back entirely in Convex, so the pre-check is about error order, not about orphan groups.) A word that isn't an answer word and has no existing group is refused with a new code **`UNKNOWN_WORD`**.
@@ -79,7 +79,7 @@ The constraint rules out every source of user-written names. What remains is fle
 
 Groups with no rows this month are not listed (no zero-fill for open leagues). The viewer's group is always present, as a zero row when it has no row this month. A large **fixed** league (more than `PICKER_INLINE_MAX` groups, e.g. a sports league) also returns `pickable`, its full seeded group list, because its picker must offer every team; word leagues never collect their groups. The page chooses the picker by `groupSource` (word box only for `answer-words`), not by size. A new query `groupStanding({ slug, today, word })` powers search: one point read.
 
-**Cost:** the range read grows with the number of groups *active this month*, not with the dictionary size. At ~2,300 words the ceiling is bounded and small, and realistically tens of groups.
+**Cost:** the range read grows with the number of groups *active this month*, not with the dictionary size. At 3,158 words the ceiling is bounded and small, and realistically tens of groups.
 
 ### 4.6 Upgrade nudges
 
@@ -98,7 +98,7 @@ Groups with no rows this month are not listed (no zero-fill for open leagues). T
 - **Open-word picker** (Starting Words):
   - A search box that accepts answer words, with a live "Not a Wordle answer word" hint.
   - The **six most popular** groups as quick picks.
-  - It extends GroupPicker's existing searchable sheet; accessible names remain exactly the group names.
+  - Quick picks reuse GroupPicker, so accessible names remain exactly the group names; the word list is lazy-loaded on first use, in its own chunk.
 - **Sports picker:** the existing searchable sheet, by nickname. The disclaimer appears on the league page and the league card.
 - **Region page:**
   - "You're in **US Central**, based on your time zone."
