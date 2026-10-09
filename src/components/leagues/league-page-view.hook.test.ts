@@ -3,7 +3,7 @@
 // The /leagues/$slug page's logic, rendered without a router or a backend: the
 // route owns only queries, mutations and toasts, so everything a viewer sees
 // per state is decided here.
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { LeaguePageView, leaveMessage, membershipIn } from './league-page-view.tsx'
@@ -205,7 +205,9 @@ describe('LeaguePageView for a large league', () => {
   ]
   const largeView = {
     large: true as const,
+    groupSource: 'answer-words' as const,
     leagueId: 'l1',
+    pickable: null,
     league: { slug: 'starting-words', name: 'Starting Words' },
     month: '2026-10',
     groups: [
@@ -233,7 +235,7 @@ describe('LeaguePageView for a large league', () => {
     expect(screen.getByLabelText('Any Wordle answer word')).toBeTruthy()
     const picker = screen.getByRole('group', { name: 'Choose a group' })
     fireEvent.click(within(picker).getByRole('button', { name: 'SLATE' }))
-    expect(onJoinWord).toHaveBeenCalledWith('slate')
+    expect(onJoinWord).toHaveBeenCalledWith('l1', 'slate')
     expect(onJoin).not.toHaveBeenCalled()
   })
 
@@ -244,7 +246,7 @@ describe('LeaguePageView for a large league', () => {
     const picker = screen.getByRole('group', { name: 'Switch group' })
     expect(within(picker).getByRole('button', { name: 'SLATE' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(within(picker).getByRole('button', { name: 'CRANE' }))
-    expect(onSwitchWord).toHaveBeenCalledWith('crane')
+    expect(onSwitchWord).toHaveBeenCalledWith('l1', 'crane')
     expect(onSwitch).not.toHaveBeenCalled()
     expect(screen.getByLabelText('Any Wordle answer word')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Leave league' })).toBeTruthy()
@@ -304,9 +306,36 @@ describe('LeaguePageView for a large league', () => {
     expect(onUpgrade).toHaveBeenCalledWith('league-result')
   })
 
-  test('a fixed league is unchanged: no nudge even when behind', () => {
-    show({ mine: { enabled: true, leagues: [{ ...crane, group: { _id: 'g1', name: 'SLATE' } }] } })
+  test('a small fixed league gets the behind nudge too, and no result nudge (it has no viewer rank)', () => {
+    const onUpgrade = vi.fn()
+    show({ mine: { enabled: true, leagues: [{ ...crane, group: { _id: 'g1', name: 'SLATE' } }] }, onUpgrade })
+    const nudge = screen.getByTestId('league-nudge')
+    expect(nudge.textContent).toContain('SLATE is 0.1 guesses off the lead — see where you lose guesses.')
+    fireEvent.click(within(nudge).getByRole('button', { name: 'Upgrade' }))
+    expect(onUpgrade).toHaveBeenCalledWith('leagues-behind')
+    cleanup()
+    // The leader, after a closed month: the small shape cannot say where it finished.
+    show({ standings: { enabled: true, view: { ...view, lastMonth: { month: '2026-09', winnerGroupId: 'g1' } } }, mine: { enabled: true, leagues: [crane] } })
     expect(screen.queryByTestId('league-nudge')).toBeNull()
+    cleanup()
+    // Unlocked on a fixed league: still never.
+    show({ mine: { enabled: true, leagues: [{ ...crane, group: { _id: 'g1', name: 'SLATE' } }] }, contribution: { enabled: true, locked: false, contribution: null } })
+    expect(screen.queryByTestId('league-nudge')).toBeNull()
+  })
+
+  test('a large FIXED league (7 groups) picks by group over every group, never by word', async () => {
+    const seven = ['AA', 'BB', 'CC', 'DD', 'EE', 'FF', 'GG'].map((name, i) => ({ _id: `f${i}`, slug: name.toLowerCase(), name, memberCount: i }))
+    const onJoin = vi.fn()
+    const onJoinWord = vi.fn()
+    showLarge({ groupSource: 'fixed', pickable: seven, popular: seven.slice(0, 6), groups: seven.slice(0, 1) }, { onJoin, onJoinWord })
+    expect(screen.queryByLabelText('Any Wordle answer word')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Pick a group' }))
+    const sheet = await screen.findByRole('dialog')
+    for (const g of seven) expect(within(sheet).getByRole('button', { name: g.name })).toBeTruthy()
+    fireEvent.click(within(sheet).getByRole('button', { name: 'GG' }))
+    expect(onJoin).toHaveBeenCalledWith('f6')
+    expect(onJoinWord).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 })
 

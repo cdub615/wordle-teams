@@ -3,6 +3,7 @@ import { Button } from '#/components/ui/button.tsx'
 import { Input } from '#/components/ui/input.tsx'
 import { Label } from '#/components/ui/label.tsx'
 import { cn } from '#/lib/utils.ts'
+import { lettersOf } from '#/lib/word-letters.ts'
 import { GroupPicker, type PickerGroup } from './group-picker.tsx'
 
 /** A popular group, as the server's group view sends it: `slug` is the word. */
@@ -21,20 +22,6 @@ type Props = {
 }
 
 const wordOf = (g: PopularWord) => g.slug
-
-/**
- * Keep what can be a letter, at most five, lower-cased. NFKD folds fullwidth
- * (ＣＲＡＮＥ) to ASCII and splits accents off (cráne → cra + ◌́ + ne), and the
- * combining marks are then dropped, so an accent is FOLDED rather than losing
- * its letter. Everything else (spaces, zero-width, digits) is dropped.
- */
-const lettersOf = (raw: string) =>
-  raw
-    .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
-    .replace(/[^a-z]/gi, '')
-    .slice(0, 5)
-    .toLowerCase()
 
 /**
  * The OPEN-WORD PICKER for Starting Words (spec v2 §5): the most popular words

@@ -216,8 +216,9 @@ async function activeStandings(ctx: ReaderCtx, leagueId: Id<'leagues'>, month: P
  * `large: false`, and ignores `viewerGroupId`. A large league (isLargeLeague)
  * returns the slice (spec v2 §4.5) with `large: true`; its `standings` is
  * shown + viewer, the rows the page lists, and `groups` names only the groups
- * the rows and the winners reference. It also carries `leagueId` and `popular`
- * (the POPULAR_GROUPS quick picks) for the page's word picker. `viewerGroupId`
+ * the rows and the winners reference. For the page's pickers it also carries
+ * `groupSource`, `leagueId`, `popular` (the POPULAR_GROUPS quick picks) and,
+ * for a fixed league, `pickable` (every group). `viewerGroupId`
  * is any group id the client passes: group totals are public (§3.2), so a
  * foreign id learns nothing new.
  */
@@ -286,8 +287,15 @@ export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDa
 
   return {
     large: true as const,
-    // The page joins and switches BY WORD (joinWord/switchWord take the league id).
+    // The page picks its picker by source: words for 'answer-words', group
+    // buttons (over `pickable`) for a fixed league.
+    groupSource: league.groupSource ?? ('fixed' as const),
+    // joinWord/switchWord take the league id.
     leagueId: league._id,
+    // A large FIXED league's whole group list for its picker: bounded, because
+    // fixed lists are small and seeded (allGroups is already read above). Null
+    // for a word league, which never collects its groups.
+    pickable: allGroups ? allGroups.map(groupView) : null,
     league: { slug: league.slug, name: league.name },
     month,
     groups: named.map(groupView),

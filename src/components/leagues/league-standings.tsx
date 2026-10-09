@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.t
 import { Input } from '#/components/ui/input.tsx'
 import { Label } from '#/components/ui/label.tsx'
 import { cn } from '#/lib/utils.ts'
+import { lettersOf } from '#/lib/word-letters.ts'
 import { MIN_LEAGUE_BOARDS } from '../../../convex/lib/league.ts'
 import { fromPuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
 
@@ -73,15 +74,6 @@ function StandingRow({ row, name, mine }: { row: Row; name: string; mine: boolea
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
-
-/** Keep letters only, at most five, lower-cased: the word as groupStanding's slug. */
-const lettersOf = (raw: string) =>
-  raw
-    .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
-    .replace(/[^a-z]/gi, '')
-    .slice(0, 5)
-    .toLowerCase()
 
 function findText(result: FindResult | null, invalid: boolean): string {
   if (invalid) return 'Enter a five-letter word'

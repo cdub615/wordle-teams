@@ -1609,6 +1609,8 @@ describe('large-league standings', () => {
       const out = (await standingsFor(ctx, 'starting-words', '2026-10-07'))!
       if (!out.large) throw new Error('expected the large shape')
       expect(out.leagueId).toBe(leagueId)
+      expect(out.groupSource).toBe('answer-words')
+      expect(out.pickable).toBeNull()
       expect(out.popular.map((g) => [g.slug, g.name, g.memberCount])).toEqual([
         ['slate', 'SLATE', 9],
         ['orate', 'ORATE', 7],
@@ -1707,8 +1709,11 @@ describe('large-league standings', () => {
       const [a] = await groupsOf(ctx, leagueId)
       await monthRow(ctx, leagueId, a._id, 10, 30)
       const out = (await standingsFor(ctx, 'seven', '2026-10-07'))!
-      expect(out.large).toBe(true)
+      if (!out.large) throw new Error('expected the large shape')
       expect(out.standings.map((s) => s.groupId)).toEqual([a._id])
+      // Its picker gets EVERY group, not just the active one.
+      expect(out.groupSource).toBe('fixed')
+      expect(out.pickable?.map((g) => g.slug)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g'])
     })
   })
 
