@@ -9,7 +9,7 @@ import { contributionUnlocked } from './lib/league.ts'
 import { aPlayer, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
 import { upsertBoardFor } from './scores.ts'
-import { closeLeagueMonthFor, dismissLeagueOfferFor, groupsOf, joinGroupFor, leaguesFor, leaveLeagueFor, myContributionFor, myLeaguesFor, readToday, recomputeLeagueMonthFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor } from './leagues.ts'
+import { closeLeagueMonthFor, dismissLeagueOfferFor, groupsOf, joinGroupFor, joinWordFor, leaguesFor, leaveLeagueFor, myContributionFor, myLeaguesFor, readToday, recomputeLeagueMonthFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor, switchWordFor } from './leagues.ts'
 import type { DataModel, Id } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 
@@ -1209,5 +1209,209 @@ describe('"ever joined" survives a same-day join and leave', () => {
     await expect(as.mutation(api.leagues.dismissLeagueOffer, {})).rejects.toMatchObject({ data: { code: 'LEAGUES_DISABLED' } })
     // A boolean out of t.run: it serialises its result, so undefined comes back null.
     expect(await t.run(async (ctx) => (await ctx.db.get(playerId))?.leagueOfferDismissedAt !== undefined)).toBe(false)
+  })
+})
+
+/**
+ * v2a A3: a word picks (or, in a word league, creates) the group (spec v2 §4.2).
+ * Driven through the …For handlers, at NOW, like 'membership' above.
+ */
+describe('joining and switching by word', () => {
+  beforeEach(() => vi.useFakeTimers({ now: NOW, toFake: ['Date'] }))
+  afterEach(() => vi.useRealTimers())
+
+  const codeOf = async (p: Promise<unknown>) => {
+    try {
+      await p
+      return null
+    } catch (error) {
+      return (error as { data?: { code?: string } }).data?.code ?? String(error)
+    }
+  }
+  const groupsBySlug = async (ctx: Ctx, slug: string) =>
+    (await ctx.db.query('leagueGroups').collect()).filter((g) => g.slug === slug)
+
+  test('a new answer word creates its group, named UPPERCASE, and joins it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await joinWordFor(ctx, playerId, { leagueId, word: 'crate', today })
+      const [crate] = await groupsBySlug(ctx, 'crate')
+      expect(crate).toMatchObject({ leagueId, slug: 'crate', name: 'CRATE', memberCount: 1 })
+      const rows = await ctx.db.query('leagueMemberships').collect()
+      expect(rows).toEqual([expect.objectContaining({ playerId, leagueId, groupId: crate._id, fromDay: '2026-10-08' })])
+    })
+  })
+
+  // CONCURRENCY: convex-test runs mutations one at a time, so the race named in
+  // resolveWordGroupFor's comment (two first-joins both reading an empty slug
+  // range) cannot be staged here; Convex's OCC retry is what resolves it in prod.
+  // What this asserts is the invariant that retry relies on: once the group
+  // exists, a later first-join finds it rather than inserting another.
+  test('a second player picking the same word joins the same group: one group', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedStartingWords(ctx)
+      const a = await ctx.db.insert('players', aPlayer())
+      const b = await ctx.db.insert('players', aPlayer())
+      await joinWordFor(ctx, a, { leagueId, word: 'crate', today })
+      await joinWordFor(ctx, b, { leagueId, word: 'crate', today })
+      const groups = await groupsBySlug(ctx, 'crate')
+      expect(groups).toHaveLength(1)
+      expect(groups[0].memberCount).toBe(2)
+      const rows = await ctx.db.query('leagueMemberships').collect()
+      expect(rows.map((r) => r.groupId)).toEqual([groups[0]._id, groups[0]._id])
+    })
+  })
+
+  test('mixed case and whitespace resolve to the same group', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const a = await ctx.db.insert('players', aPlayer())
+      const b = await ctx.db.insert('players', aPlayer())
+      await joinWordFor(ctx, a, { leagueId, word: '  CrAtE\n', today })
+      await joinWordFor(ctx, b, { leagueId, word: 'crate', today })
+      expect(await groupsBySlug(ctx, 'crate')).toHaveLength(1)
+      // An existing seeded group resolves the same way.
+      const c = await ctx.db.insert('players', aPlayer())
+      await joinWordFor(ctx, c, { leagueId, word: ' Crane ', today })
+      expect((await ctx.db.get(group.crane))!.memberCount).toBe(1)
+    })
+  })
+
+  test('a non-answer word is refused UNKNOWN_WORD and creates nothing', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      const before = (await ctx.db.query('leagueGroups').collect()).length
+      for (const word of ['zzzzz', 'cr4te', 'crates', '']) {
+        expect(await codeOf(joinWordFor(ctx, playerId, { leagueId, word, today }))).toBe('UNKNOWN_WORD')
+      }
+      expect(await ctx.db.query('leagueGroups').collect()).toHaveLength(before)
+      expect(await ctx.db.query('leagueMemberships').collect()).toEqual([])
+      expect((await ctx.db.get(playerId))!.leagueJoinedAt).toBeUndefined()
+    })
+  })
+
+  test('an existing group whose word is not on the list stays joinable (grandfathered)', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedStartingWords(ctx)
+      // No real v1 word is off the list today, so stage one directly.
+      const zzzzz = await ctx.db.insert('leagueGroups', { leagueId, slug: 'zzzzz', name: 'ZZZZZ', order: 99, memberCount: 0 })
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await joinWordFor(ctx, playerId, { leagueId, word: 'ZZZZZ', today })
+      expect((await ctx.db.get(zzzzz))!.memberCount).toBe(1)
+      expect(await groupsBySlug(ctx, 'zzzzz')).toHaveLength(1)
+    })
+  })
+
+  test('a fixed league refuses a new word UNKNOWN_WORD but accepts an existing group', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const leagueId = await seedLeagueFor(ctx, { slug: 'fixed', name: 'Fixed', featured: false, groups: [{ slug: 'crane', name: 'CRANE' }] }, 0)
+      expect((await ctx.db.get(leagueId))!.groupSource).toBeUndefined()
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect(await codeOf(joinWordFor(ctx, playerId, { leagueId, word: 'crate', today }))).toBe('UNKNOWN_WORD')
+      expect(await groupsBySlug(ctx, 'crate')).toEqual([])
+      await joinWordFor(ctx, playerId, { leagueId, word: 'crane', today })
+      const [crane] = await groupsBySlug(ctx, 'crane')
+      expect(crane.memberCount).toBe(1)
+    })
+  })
+
+  test('a refused join (already in the league) creates no group', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await joinGroupFor(ctx, playerId, { groupId: group.crane, today })
+      expect(await codeOf(joinWordFor(ctx, playerId, { leagueId, word: 'crate', today }))).toBe('ALREADY_IN_LEAGUE')
+      expect(await groupsBySlug(ctx, 'crate')).toEqual([])
+    })
+  })
+
+  test('switchWord to a new word creates the group and plans the switch', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.crane, fromDay: '2026-09-01' })
+      await ctx.db.patch(group.crane, { memberCount: 1 })
+      await switchWordFor(ctx, playerId, { leagueId, word: 'Crate', today })
+      const [crate] = await groupsBySlug(ctx, 'crate')
+      expect(crate).toMatchObject({ name: 'CRATE', memberCount: 1 })
+      const rows = (await ctx.db.query('leagueMemberships').collect()).sort((a, b) => a.fromDay.localeCompare(b.fromDay))
+      expect(rows.map((r) => [r.groupId, r.fromDay, r.toDay])).toEqual([
+        [group.crane, '2026-09-01', '2026-10-31'],
+        [crate._id, '2026-11-01', undefined],
+      ])
+      expect((await ctx.db.get(group.crane))!.memberCount).toBe(0)
+    })
+  })
+
+  test('a refused switch (not in the league) creates no group', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect(await codeOf(switchWordFor(ctx, playerId, { leagueId, word: 'crate', today }))).toBe('NOT_IN_LEAGUE')
+      expect(await groupsBySlug(ctx, 'crate')).toEqual([])
+    })
+  })
+
+  test('validation order: a bad date before an unknown league, an unknown league before the word', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const gone = await ctx.db.insert('leagues', { slug: 'gone', name: 'Gone', featured: false, createdAt: 0 })
+      await ctx.db.delete(gone)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      for (const handler of [joinWordFor, switchWordFor]) {
+        expect(await codeOf(handler(ctx, playerId, { leagueId: gone, word: 'zzzzz', today: '2020-01-01' }))).toBe('INVALID_DATE')
+        expect(await codeOf(handler(ctx, playerId, { leagueId: gone, word: 'zzzzz', today }))).toBe('UNKNOWN_LEAGUE')
+      }
+      expect(await ctx.db.query('leagueGroups').collect()).toEqual([])
+    })
+  })
+})
+
+/** The joinWord/switchWord wrappers, through a real session. REAL TIME: `today` is checked against the server's day. */
+describe('the joinWord and switchWord wrappers', () => {
+  const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth/**/*.ts'))
+  afterEach(() => vi.unstubAllEnvs())
+
+  test('joinWord creates the word group and joins the caller', async () => {
+    vi.stubEnv('LEAGUES_ENABLED', 'true')
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const { playerId, leagueId } = await t.run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer({ email: 'word@example.com' }))
+      return { playerId, ...(await seedStartingWords(ctx)) }
+    })
+    const as = await authenticatedAs(t, 'word@example.com')
+    await as.mutation(api.leagues.joinWord, { leagueId, word: ' Crate ', today: toPuzzleDay(new Date()) })
+    const { groups, rows } = await t.run(async (ctx) => ({
+      groups: (await ctx.db.query('leagueGroups').collect()).filter((g) => g.slug === 'crate'),
+      rows: await ctx.db.query('leagueMemberships').collect(),
+    }))
+    expect(groups).toEqual([expect.objectContaining({ name: 'CRATE', memberCount: 1 })])
+    expect(rows).toEqual([expect.objectContaining({ playerId, groupId: groups[0]._id })])
+  })
+
+  test('joinWord and switchWord are refused LEAGUES_DISABLED when dark, and create nothing', async () => {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const { leagueId } = await t.run(async (ctx) => {
+      await ctx.db.insert('players', aPlayer({ email: 'darkword@example.com' }))
+      return await seedStartingWords(ctx)
+    })
+    const as = await authenticatedAs(t, 'darkword@example.com')
+    const args = { leagueId, word: 'crate', today: toPuzzleDay(new Date()) }
+    await expect(as.mutation(api.leagues.joinWord, args)).rejects.toMatchObject({ data: { code: 'LEAGUES_DISABLED' } })
+    await expect(as.mutation(api.leagues.switchWord, args)).rejects.toMatchObject({ data: { code: 'LEAGUES_DISABLED' } })
+    expect(await t.run(async (ctx) => (await ctx.db.query('leagueGroups').collect()).filter((g) => g.slug === 'crate').length)).toBe(0)
   })
 })
