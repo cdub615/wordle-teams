@@ -1,12 +1,13 @@
-import { createFileRoute, Link, redirect } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { convexQuery } from '@convex-dev/react-query'
-import { useSuspenseQuery } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
+import { useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
 import { DashboardError } from '#/components/dashboard-error.tsx'
-import { Button } from '#/components/ui/button.tsx'
-import { Card, CardHeader, CardTitle } from '#/components/ui/card.tsx'
+import { LeagueFrame } from '#/components/leagues/league-page-view.tsx'
+import { LeagueDirectory } from '#/components/leagues/league-directory.tsx'
+import { useHydrated } from '#/lib/use-hydrated.ts'
+import { toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 
 /**
  * /leagues. WITH ONE LEAGUE IT REDIRECTS to that league's page, so v1 never
@@ -32,35 +33,23 @@ export const Route = createFileRoute('/leagues/')({
 
 function LeaguesIndex() {
   const { data } = useSuspenseQuery(convexQuery(api.leagues.leagues, {}))
+  // The viewer's LOCAL day, read only after hydration (the house pattern), so
+  // SSR and the first client render agree.
+  const hydrated = useHydrated()
+  const today = hydrated ? toPuzzleDay(new Date()) : null
+  const { data: mine } = useQuery(convexQuery(api.leagues.myLeagues, today ? { today } : 'skip'))
   return (
-    <main className="page-max mt-2 md:mt-6">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" aria-label="Back to dashboard" asChild>
-            <Link to="/app">
-              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            </Link>
-          </Button>
-          <h1 className="text-2xl font-bold">Leagues</h1>
-        </div>
-        {!data.enabled ? (
-          <p>Leagues aren’t available yet.</p>
-        ) : data.leagues.length === 0 ? (
-          <p>There are no leagues yet.</p>
-        ) : (
-          data.leagues.map((league) => (
-            <Link key={league.slug} to="/leagues/$slug" params={{ slug: league.slug }}>
-              <Card>
-                <CardHeader>
-                  <CardTitle asChild>
-                    <h2>{league.name}</h2>
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-            </Link>
-          ))
-        )}
-      </div>
-    </main>
+    <LeagueFrame title="Leagues">
+      {!data.enabled ? (
+        <p>Leagues aren’t available yet.</p>
+      ) : data.leagues.length === 0 ? (
+        <p>There are no leagues yet.</p>
+      ) : !mine ? (
+        // Until myLeagues answers we cannot tell which leagues are the viewer's.
+        <p>Loading…</p>
+      ) : (
+        <LeagueDirectory leagues={data.leagues} mine={mine.enabled ? mine.leagues : []} />
+      )}
+    </LeagueFrame>
   )
 }
