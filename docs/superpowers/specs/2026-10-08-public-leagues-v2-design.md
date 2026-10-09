@@ -86,7 +86,7 @@ Groups with no rows this month are not listed (no zero-fill for open leagues). A
 - New upgrade origins with `UPGRADE_HEADLINES`: **`leagues-behind`**, **`league-result`**, **`challenge-result`**, alongside the existing `leagues`.
 - One pure helper, `nudgeFor({ isPro, trialActive, surface, facts }) → { origin, text } | null`, in a client-safe lib. It returns null for Pro or trial players and when the moment doesn't apply:
   - **`leagues-behind`:** the viewer's group is ranked and not first. "SLATE is 0.3 guesses off the lead — see where you lose guesses."
-  - **`league-result`:** last month's snapshot exists and the viewer's group was in it. "CRANE finished 3rd in September — see what separates the top openers."
+  - **`league-result`:** last month's snapshot ranked the viewer's group below 1st (no upsell after a win). "CRANE finished 3rd in September — see where your own guesses go." Insights shows personal history, not opener-vs-opener comparisons (its global layer is dark at today's population), so nudges promise only what Insights delivers.
   - **`challenge-result`:** a closed challenge the viewer's team lost. "You lost to Team X by 0.2 — see where the guesses went." (Team names in challenges are already visible to both teams; nothing here names a player.)
 - Rendering: one muted line with a small link that calls `openUpgrade(origin)`. **At most one nudge per surface.**
 
