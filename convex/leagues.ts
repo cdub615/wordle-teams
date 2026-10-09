@@ -216,8 +216,10 @@ async function activeStandings(ctx: ReaderCtx, leagueId: Id<'leagues'>, month: P
  * `large: false`, and ignores `viewerGroupId`. A large league (isLargeLeague)
  * returns the slice (spec v2 §4.5) with `large: true`; its `standings` is
  * shown + viewer, the rows the page lists, and `groups` names only the groups
- * the payload references. `viewerGroupId` is any group id the client passes:
- * group totals are public (§3.2), so a foreign id learns nothing new.
+ * the rows and the winners reference. It also carries `leagueId` and `popular`
+ * (the POPULAR_GROUPS quick picks) for the page's word picker. `viewerGroupId`
+ * is any group id the client passes: group totals are public (§3.2), so a
+ * foreign id learns nothing new.
  */
 export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDay, viewerGroupId: GroupId | null = null) {
   const league = await ctx.db.query('leagues').withIndex('by_slug', (q) => q.eq('slug', slug)).unique()
@@ -284,9 +286,14 @@ export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDa
 
   return {
     large: true as const,
+    // The page joins and switches BY WORD (joinWord/switchWord take the league id).
+    leagueId: league._id,
     league: { slug: league.slug, name: league.name },
     month,
     groups: named.map(groupView),
+    // The word picker's quick picks, as leaguesFor offers them. NOT referenced by
+    // the standings, so not in `groups`.
+    popular: (await popularGroupsOf(ctx, league._id)).map(groupView),
     shown,
     viewer,
     unrankedCount,

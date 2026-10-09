@@ -1,7 +1,8 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
 import { toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
@@ -44,16 +45,30 @@ function LeagueFor({ slug }: { slug: string }) {
   const today = hydrated ? toPuzzleDay(new Date()) : null
   const { openUpgrade } = useUpgrade()
 
-  const standingsQuery = useQuery(convexQuery(api.leagues.standings, today ? { slug, today } : 'skip'))
   const mineQuery = useQuery(convexQuery(api.leagues.myLeagues, today ? { today } : 'skip'))
   // Only a member has a contribution, so a visitor does not subscribe to one.
   const membership = membershipIn(mineQuery.data, slug)
+  // THE VIEWER'S GROUP goes to standings so a large league returns its row
+  // even outside the top 10 (spec v2 §4.5). Undefined until myLeagues answers,
+  // and it changes on a join or switch: each re-subscribes, and KEEPING THE
+  // PREVIOUS DATA (same league: the component is keyed by slug) stops the page
+  // dropping back to skeletons meanwhile. A small league ignores it.
+  const groupId = membership?.group._id
+  const standingsQuery = useQuery({
+    ...convexQuery(api.leagues.standings, today ? { slug, today, groupId } : 'skip'),
+    placeholderData: keepPreviousData,
+  })
+  // "Find a group": nothing is read until a word is submitted.
+  const [findWord, setFindWord] = useState<string | null>(null)
+  const found = useQuery(convexQuery(api.leagues.groupStanding, today && findWord ? { slug, today, word: findWord } : 'skip'))
   const { data: contribution } = useQuery(
     convexQuery(api.leagues.myContribution, today && membership ? { slug, today } : 'skip'),
   )
 
   const join = useMutation({ mutationFn: useConvexMutation(api.leagues.joinGroup) })
   const change = useMutation({ mutationFn: useConvexMutation(api.leagues.switchGroup) })
+  const joinWord = useMutation({ mutationFn: useConvexMutation(api.leagues.joinWord) })
+  const switchWord = useMutation({ mutationFn: useConvexMutation(api.leagues.switchWord) })
   const leave = useMutation({ mutationFn: useConvexMutation(api.leagues.leaveLeague) })
 
   // useQuery DOES NOT THROW, so without this a failed query would leave the
@@ -88,6 +103,10 @@ function LeagueFor({ slug }: { slug: string }) {
     }
   }
 
+  const view = standingsQuery.data.enabled ? standingsQuery.data.view : null
+  // The large shape carries the league id the word mutations take.
+  const leagueId = view?.large ? view.leagueId : null
+
   return (
     <LeaguePageView
       slug={slug}
@@ -95,13 +114,28 @@ function LeagueFor({ slug }: { slug: string }) {
       standings={standingsQuery.data}
       mine={mineQuery.data}
       contribution={contribution}
-      busy={join.isPending || change.isPending || leave.isPending}
+      busy={join.isPending || change.isPending || joinWord.isPending || switchWord.isPending || leave.isPending}
       onJoin={(groupId) =>
         run((day) => join.mutateAsync({ groupId: groupId as Id<'leagueGroups'>, today: day }), 'Could not join that group')
       }
       onSwitch={(groupId) =>
         run((day) => change.mutateAsync({ groupId: groupId as Id<'leagueGroups'>, today: day }), 'Could not switch group')
       }
+      onJoinWord={(word) => {
+        if (leagueId) void run((day) => joinWord.mutateAsync({ leagueId, word, today: day }), 'Could not join that group')
+      }}
+      onSwitchWord={(word) => {
+        if (leagueId) void run((day) => switchWord.mutateAsync({ leagueId, word, today: day }), 'Could not switch group')
+      }}
+      find={{
+        onFind: setFindWord,
+        // A failed search says so in the result line; it never throws the page.
+        result: findWord
+          ? found.error && !found.data
+            ? { word: findWord, standing: undefined, failed: true }
+            : { word: findWord, standing: found.data?.enabled ? found.data.standing : undefined }
+          : null,
+      }}
       onLeave={(m) =>
         run(
           (day) => leave.mutateAsync({ leagueId: m.leagueId as Id<'leagues'>, today: day }),
@@ -109,7 +143,7 @@ function LeagueFor({ slug }: { slug: string }) {
           (day) => leaveMessage(m.group.name, m.since, day),
         )
       }
-      onUpgrade={() => openUpgrade('leagues')}
+      onUpgrade={openUpgrade}
     />
   )
 }

@@ -3,8 +3,11 @@ import { ArrowLeft } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '#/components/ui/button.tsx'
 import { GroupPicker, type PickerGroup } from '#/components/leagues/group-picker.tsx'
-import { LeagueStandings, monthName } from '#/components/leagues/league-standings.tsx'
+import { WordPicker, type PopularWord } from '#/components/leagues/word-picker.tsx'
+import { LeagueStandings, monthName, type FindResult } from '#/components/leagues/league-standings.tsx'
 import { ContributionRow } from '#/components/leagues/contribution-row.tsx'
+import { leaguePageNudge } from '#/lib/league-nudges.ts'
+import type { UpgradeOrigin } from '#/lib/plans.ts'
 import { addMonths, fromPuzzleDay, monthOf, type PuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
 
 /*
@@ -12,19 +15,30 @@ import { addMonths, fromPuzzleDay, monthOf, type PuzzleDay, type PuzzleMonth } f
  * with ids as strings so a test can build them by hand. The convex results are
  * assignable to these (an Id is a branded string).
  */
-type StandingsResult =
-  | { enabled: false }
-  | {
-      enabled: true
-      view: null | {
-        league: { slug: string; name: string }
-        month: PuzzleMonth
-        groups: PickerGroup[]
-        standings: { groupId: string; rank: number | null; average: number | null; boards: number; contributors: number }[]
-        lastMonth: { month: PuzzleMonth; winnerGroupId: string | null } | null
-        monthsWon: { groupId: string; count: number }[]
-      }
-    }
+type Row = { groupId: string; rank: number | null; average: number | null; boards: number; contributors: number }
+
+type SmallView = {
+  large: false
+  league: { slug: string; name: string }
+  month: PuzzleMonth
+  groups: PickerGroup[]
+  standings: Row[]
+  lastMonth: { month: PuzzleMonth; winnerGroupId: string | null } | null
+  monthsWon: { groupId: string; count: number }[]
+}
+
+/** Spec v2 §4.5: the slice. `standings` is shown + viewer; `groups` names only what it references. */
+type LargeView = Omit<SmallView, 'large' | 'lastMonth'> & {
+  large: true
+  leagueId: string
+  popular: PopularWord[]
+  shown: Row[]
+  viewer: Row | null
+  unrankedCount: number
+  lastMonth: { month: PuzzleMonth; winnerGroupId: string | null; viewerRank: number | null } | null
+}
+
+type StandingsResult = { enabled: false } | { enabled: true; view: null | SmallView | LargeView }
 
 export type LeagueMembership = {
   league: { slug: string; name: string }
@@ -92,10 +106,16 @@ type Props = {
   /** Undefined while loading, or when the viewer is not a member (the route skips it). */
   contribution: ContributionResult | undefined
   busy: boolean
+  /** A small fixed league joins and switches by group id. */
   onJoin: (groupId: string) => void
   onSwitch: (groupId: string) => void
+  /** A large league joins and switches by word (joinWord/switchWord). */
+  onJoinWord: (word: string) => void
+  onSwitchWord: (word: string) => void
   onLeave: (membership: LeagueMembership) => void
-  onUpgrade: () => void
+  /** A large league's "Find a group": the route owns the groupStanding query. */
+  find: { onFind: (word: string) => void; result: FindResult | null }
+  onUpgrade: (origin: UpgradeOrigin) => void
 }
 
 /**
@@ -103,7 +123,21 @@ type Props = {
  * PRESENTATIONAL: the route owns the queries, mutations and toasts. Group
  * totals only, never a player (§3.2).
  */
-export function LeaguePageView({ slug, today, standings, mine, contribution, busy, onJoin, onSwitch, onLeave, onUpgrade }: Props) {
+export function LeaguePageView({
+  slug,
+  today,
+  standings,
+  mine,
+  contribution,
+  busy,
+  onJoin,
+  onSwitch,
+  onJoinWord,
+  onSwitchWord,
+  onLeave,
+  find,
+  onUpgrade,
+}: Props) {
   if (!standings.enabled || !mine.enabled) {
     return (
       <LeagueFrame title="Leagues">
@@ -124,6 +158,23 @@ export function LeaguePageView({ slug, today, standings, mine, contribution, bus
   }
 
   const membership = membershipIn(mine, slug)
+  const myGroupId = membership?.group._id ?? null
+
+  // Spec v2 §4.6, LARGE LEAGUES ONLY (the fixed path is unchanged). Computed
+  // only once the contribution has answered: until then a Pro or trial viewer
+  // would flash an upsell. A non-member has no contribution, so no nudge.
+  const myRow = view.standings.find((s) => s.groupId === myGroupId)
+  const nudge =
+    view.large && membership && contribution?.enabled
+      ? leaguePageNudge({
+          unlocked: !contribution.locked,
+          groupName: membership.group.name,
+          rank: myRow?.rank ?? null,
+          average: myRow?.average ?? null,
+          leaderAverage: view.shown[0]?.average ?? null,
+          lastMonth: view.lastMonth ? { monthName: monthName(view.lastMonth.month), viewerRank: view.lastMonth.viewerRank } : null,
+        })
+      : null
 
   return (
     <LeagueFrame title={view.league.name}>
@@ -140,26 +191,52 @@ export function LeaguePageView({ slug, today, standings, mine, contribution, bus
             Join the opener wars
           </h2>
           <p className="text-sm text-muted-foreground">Pick a side — your boards count whatever word you start with.</p>
-          <GroupPicker groups={view.groups} currentGroupId={null} disabled={busy} label="Choose a group" onPick={onJoin} />
+          {view.large ? (
+            <WordPicker popular={view.popular} currentWord={null} disabled={busy} label="Choose a group" onPick={onJoinWord} />
+          ) : (
+            <GroupPicker groups={view.groups} currentGroupId={null} disabled={busy} label="Choose a group" onPick={onJoin} />
+          )}
           {/* planJoin: tomorrow, or the 1st if a DIFFERENT group already counted this month. */}
           <p className="text-xs text-muted-foreground">
             Your boards count from tomorrow, or from the 1st if you were in another group this month.
           </p>
         </section>
       )}
-      <LeagueStandings
-        month={view.month}
-        groups={view.groups}
-        standings={view.standings}
-        myGroupId={membership?.group._id ?? null}
-        lastMonth={view.lastMonth}
-        monthsWon={view.monthsWon}
-      />
+      {view.large ? (
+        <LeagueStandings
+          month={view.month}
+          groups={view.groups}
+          standings={view.shown}
+          viewer={view.viewer}
+          unrankedCount={view.unrankedCount}
+          find={find}
+          myGroupId={myGroupId}
+          lastMonth={view.lastMonth}
+          monthsWon={view.monthsWon}
+        />
+      ) : (
+        <LeagueStandings
+          month={view.month}
+          groups={view.groups}
+          standings={view.standings}
+          myGroupId={myGroupId}
+          lastMonth={view.lastMonth}
+          monthsWon={view.monthsWon}
+        />
+      )}
+      {nudge && (
+        <p data-testid="league-nudge" className="text-sm text-muted-foreground">
+          {nudge.text}{' '}
+          <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => onUpgrade(nudge.origin)}>
+            Upgrade
+          </Button>
+        </p>
+      )}
       {membership && contribution?.enabled && (
         <ContributionRow
           view={contribution.locked ? { locked: true } : { locked: false, contribution: contribution.contribution }}
           groupName={membership.group.name}
-          onUpgrade={onUpgrade}
+          onUpgrade={() => onUpgrade('leagues')}
         />
       )}
       {membership && (
@@ -167,13 +244,23 @@ export function LeaguePageView({ slug, today, standings, mine, contribution, bus
           <h2 id="league-switch-heading" className="font-medium">
             Switch group
           </h2>
-          <GroupPicker
-            groups={view.groups}
-            currentGroupId={membership.pending?.group._id ?? membership.group._id}
-            disabled={busy}
-            label="Switch group"
-            onPick={onSwitch}
-          />
+          {view.large ? (
+            <WordPicker
+              popular={view.popular}
+              currentWord={(membership.pending?.group ?? membership.group).name}
+              disabled={busy}
+              label="Switch group"
+              onPick={onSwitchWord}
+            />
+          ) : (
+            <GroupPicker
+              groups={view.groups}
+              currentGroupId={membership.pending?.group._id ?? membership.group._id}
+              disabled={busy}
+              label="Switch group"
+              onPick={onSwitch}
+            />
+          )}
           {/* STATE-TRUE (owner hand test 2026-10-08): a membership that has not
               started yet is retargeted IN PLACE by a switch (planSwitch), so the
               change is immediate until its start day; only a started one waits
