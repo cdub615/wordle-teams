@@ -2,7 +2,8 @@ import { Link } from '@tanstack/react-router'
 import { useId } from 'react'
 import { Button } from '#/components/ui/button.tsx'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
-import { GroupPicker, type PickerGroup } from '#/components/leagues/group-picker.tsx'
+import { GroupPicker } from '#/components/leagues/group-picker.tsx'
+import { WordPicker, type PopularWord } from '#/components/leagues/word-picker.tsx'
 import { HOME_CARD_MAX_LEAGUES } from '../../../convex/lib/league.ts'
 
 /** PLAIN STRUCTURAL SHAPE of one api.leagues.myLeagues row; the convex result is assignable to it. */
@@ -17,14 +18,28 @@ type MyLeague = {
 type Props = {
   mine: MyLeague[]
   featured: FeaturedLeague | null
+  /** A FIXED featured league joins by group id (leagues.joinGroup). */
   onJoin: (groupId: string) => void
+  /** A WORD featured league joins by word (leagues.joinWord), which takes the league id. */
+  onJoinWord: (leagueId: string, word: string) => void
   /** "Not now" on the picker: the caller records the dismissal (leagues.dismissLeagueOffer). */
   onDismiss: () => void
   busy: boolean
   className?: string
 }
 
-type FeaturedLeague = { slug: string; name: string; groups: PickerGroup[] }
+/**
+ * PLAIN STRUCTURAL SHAPE of one api.leagues.leagues row. `groups` is a fixed
+ * league's every group, or a word league's POPULAR_GROUPS (spec v2 §5);
+ * `slug` on a word league's group is its word.
+ */
+type FeaturedLeague = {
+  leagueId: string
+  slug: string
+  name: string
+  groupSource: 'fixed' | 'answer-words'
+  groups: PopularWord[]
+}
 type MyLeaguesResult<M extends MyLeague> = { enabled: false } | { enabled: true; leagues: M[] }
 type LeaguesResult<L extends FeaturedLeague & { featured: boolean }> = { enabled: false } | { enabled: true; leagues: L[] }
 
@@ -86,7 +101,7 @@ export function leaguesCardInput<M extends MyLeague, L extends FeaturedLeague & 
  * the join mutation. Group totals only, never a player (§3.2). Renders NOTHING
  * with no membership and no featured league, so the card is never an empty box.
  */
-export function LeaguesCard({ mine, featured, onJoin, onDismiss, busy, className }: Props) {
+export function LeaguesCard({ mine, featured, onJoin, onJoinWord, onDismiss, busy, className }: Props) {
   // Ties "Not now" to the offer it dismisses, keeping its accessible NAME the
   // visible text (label-in-name) while a screen reader hears what it hides.
   const headingId = useId()
@@ -102,13 +117,27 @@ export function LeaguesCard({ mine, featured, onJoin, onDismiss, busy, className
         <CardContent className="flex flex-col gap-2">
           {/* Groups are SIDES to play for, not a claim about the player's own opener (§8.4). */}
           <p className="text-sm text-muted-foreground">Pick a side — your boards count whatever word you start with.</p>
-          <GroupPicker
-            groups={featured.groups}
-            currentGroupId={null}
-            disabled={busy}
-            label="Choose a group"
-            onPick={onJoin}
-          />
+          {/* BY groupSource, as league-page-view's pickerModeOf: a word league is
+              joined by word (popular quick picks + any answer word; the answer
+              list is lazy-loaded inside WordPicker, never in this chunk), a
+              fixed league by group id. */}
+          {featured.groupSource === 'answer-words' ? (
+            <WordPicker
+              popular={featured.groups}
+              currentWord={null}
+              disabled={busy}
+              label="Choose a group"
+              onPick={(word) => onJoinWord(featured.leagueId, word)}
+            />
+          ) : (
+            <GroupPicker
+              groups={featured.groups}
+              currentGroupId={null}
+              disabled={busy}
+              label="Choose a group"
+              onPick={onJoin}
+            />
+          )}
           {/* DISMISSIBLE (owner decision 2026-10-08): joining must not be the only way to clear the card. */}
           <Button type="button" variant="ghost" size="sm" className="self-start"
             aria-describedby={headingId}

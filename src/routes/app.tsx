@@ -627,6 +627,7 @@ function Dashboard() {
     ),
   )
   const joinLeague = useMutation({ mutationFn: useConvexMutation(api.leagues.joinGroup) })
+  const joinLeagueWord = useMutation({ mutationFn: useConvexMutation(api.leagues.joinWord) })
   const dismissLeagueOffer = useMutation({ mutationFn: useConvexMutation(api.leagues.dismissLeagueOffer) })
   // `offerPicker` is the CALL SITE's: true on the team grid, false on the
   // teamless branch. A member sees their rows on both.
@@ -643,13 +644,21 @@ function Dashboard() {
         className={className}
         mine={leaguesInput.mine}
         featured={leaguesInput.featured}
-        busy={joinLeague.isPending || dismissLeagueOffer.isPending}
+        busy={joinLeague.isPending || joinLeagueWord.isPending || dismissLeagueOffer.isPending}
         // `mutate` WITH onError, the dismissOnboarding idiom below: a failure is
         // toasted rather than left as an unhandled rejection, and the success
         // needs no UI because myLeagues answers with the new membership.
         onJoin={(groupId) =>
           joinLeague.mutate(
             { groupId: groupId as Id<'leagueGroups'>, today: toPuzzleDay(new Date()) },
+            { onError: (error: unknown) => toast.error(mutationErrorMessage(error, 'Could not join that group')) },
+          )
+        }
+        // A WORD league (spec v2 §5) joins by word, by the same idiom; a refusal
+        // such as UNKNOWN_WORD is the toast.
+        onJoinWord={(leagueId, word) =>
+          joinLeagueWord.mutate(
+            { leagueId: leagueId as Id<'leagues'>, word, today: toPuzzleDay(new Date()) },
             { onError: (error: unknown) => toast.error(mutationErrorMessage(error, 'Could not join that group')) },
           )
         }

@@ -2360,14 +2360,17 @@ describe("the home leagues card joins a word league by word (v2 A8)", () => {
     expect(codeOf(read(APP))).toMatch(/useConvexMutation\(api\.leagues\.joinWord\)/)
     const args = parsed(APP, 'joinLeagueWord.mutate')
     expect(args.get('leagueId')?.getText()).toBe("leagueId as Id<'leagues'>")
-    expect(args.get('word')?.getText()).toBe('word')
+    // `word` is SHORTHAND, which propertiesOf does not report; the prop test
+    // below reads it off the call's text instead.
     expect(args.get('today')?.getText()).toBe('toPuzzleDay(new Date())')
   })
 
   test('the card hands its word joins to that mutation, toasts a failure, and is busy while it runs', () => {
     const props = jsxProps(APP, 'LeaguesCard')
     const onJoinWord = props.get('onJoinWord') ?? ''
-    expect(onJoinWord, '<LeaguesCard> has no onJoinWord').toMatch(/^\(leagueId, word\) =>\s+joinLeagueWord\.mutate\(/)
+    expect(onJoinWord, '<LeaguesCard> has no onJoinWord').toMatch(
+      /^\(leagueId, word\) =>\s+joinLeagueWord\.mutate\(\s*\{ leagueId: leagueId as Id<'leagues'>, word, today: /,
+    )
     // `mutate` WITH onError: a refusal (UNKNOWN_WORD) is a toast, not an unhandled rejection.
     expect(onJoinWord).toMatch(/onError: \(error: unknown\) => toast\.error\(mutationErrorMessage\(error,/)
     expect(props.get('busy')).toMatch(/joinLeagueWord\.isPending/)
