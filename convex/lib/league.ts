@@ -166,7 +166,8 @@ export const LARGE_LEAGUE_TOP = 10
 
 /**
  * Spec v2 §4.5: the top LARGE_LEAGUE_TOP ranked groups, plus the viewer's group
- * if it isn't already shown, plus how many active groups are unranked.
+ * if it isn't already shown, plus how many OTHER active groups are unranked (the viewer's own group is
+ * shown as their row, so it is not counted among "N more groups").
  * Input is standingsOf output (ranked first). A viewer whose group has no row
  * this month is not in `standings`, so `viewer` is null for them.
  */
@@ -177,7 +178,7 @@ export function largeLeagueSlice<G extends string>(
   const shown = standings.filter((s) => s.rank !== null).slice(0, LARGE_LEAGUE_TOP)
   const mine = viewerGroupId === null ? null : (standings.find((s) => s.groupId === viewerGroupId) ?? null)
   const viewer = mine && !shown.some((s) => s.groupId === mine.groupId) ? mine : null
-  return { shown, viewer, unrankedCount: standings.filter((s) => s.rank === null).length }
+  return { shown, viewer, unrankedCount: standings.filter((s) => s.rank === null && s.groupId !== viewerGroupId).length }
 }
 
 /**

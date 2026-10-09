@@ -18,6 +18,8 @@ type Props = {
   disabled?: boolean
   /** Accessible name of the quick-pick group. */
   label?: string
+  /** The word box's submit button; "Switch" for a member changing group. */
+  submitLabel?: string
   className?: string
 }
 
@@ -47,7 +49,7 @@ const wordOf = (g: PopularWord) => g.slug
  * autoCapitalize do the display, so the controlled value never differs from
  * what was typed and the caret doesn't jump.
  */
-export function WordPicker({ popular, currentWord, onPick, disabled = false, label = 'Choose a group', className }: Props) {
+export function WordPicker({ popular, currentWord, onPick, disabled = false, label = 'Choose a group', submitLabel = 'Join', className }: Props) {
   const [input, setInput] = useState('')
   const [words, setWords] = useState<AnswerWords | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -127,7 +129,7 @@ export function WordPicker({ popular, currentWord, onPick, disabled = false, lab
             className="font-mono uppercase tracking-widest"
           />
           <Button type="submit" disabled={!canJoin}>
-            Join
+            {submitLabel}
           </Button>
         </div>
         <p id={`${id}-hint`} aria-live="polite" className="min-h-5 text-sm text-destructive">

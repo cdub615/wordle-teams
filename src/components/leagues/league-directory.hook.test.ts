@@ -41,6 +41,13 @@ describe('LeagueDirectory', () => {
     expect(mine.getByText('#2 · 3.8')).toBeTruthy()
     expect(mine.getByRole('link').getAttribute('href')).toBe('/leagues/a')
   })
+  test('the row link is named by its visible text (no aria-label to drift from it)', () => {
+    dir()
+    const link = within(screen.getByRole('region', { name: 'Your leagues' })).getByRole('link')
+    expect(link.hasAttribute('aria-label')).toBe(false)
+    expect(link.textContent).toContain('CRANE')
+    expect(link.textContent).toContain('#2 · 3.8')
+  })
   test('an unranked membership says "not yet ranked"', () => {
     dir({ mine: [row('a', null)] })
     expect(screen.getByText('not yet ranked')).toBeTruthy()

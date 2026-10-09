@@ -191,7 +191,7 @@ describe('LeaguePageView', () => {
 })
 
 /**
- * v2a A7: a word league (`large`) gets the open-word picker, the sliced table,
+ * A word league (`large`) gets the open-word picker, the sliced table,
  * "Find a group" and at most one upgrade nudge (spec v2 §4.5, §4.6, §5).
  */
 describe('LeaguePageView for a large league', () => {
@@ -237,6 +237,15 @@ describe('LeaguePageView for a large league', () => {
     fireEvent.click(within(picker).getByRole('button', { name: 'SLATE' }))
     expect(onJoinWord).toHaveBeenCalledWith('l1', 'slate')
     expect(onJoin).not.toHaveBeenCalled()
+  })
+
+  test('the word box submits as Join for a non-member and Switch for a member', () => {
+    showLarge({})
+    expect(screen.getByRole('button', { name: 'Join' })).toBeTruthy()
+    cleanup()
+    showLarge({}, { mine: { enabled: true, leagues: [slate] } })
+    expect(screen.getByRole('button', { name: 'Switch' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Join' })).toBeNull()
   })
 
   test('a member switches by word, with their group pressed', () => {

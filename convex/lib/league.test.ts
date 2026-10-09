@@ -636,6 +636,11 @@ describe('largeLeagueSlice', () => {
     expect(largeLeagueSlice(table(12, 3), null).unrankedCount).toBe(3)
     expect(largeLeagueSlice(table(2), null).unrankedCount).toBe(0)
   })
+  test("does not count the viewer's own unranked group", () => {
+    expect(largeLeagueSlice(table(12, 3), 'u2').unrankedCount).toBe(2)
+    expect(largeLeagueSlice(table(12, 1), 'u1').unrankedCount).toBe(0)
+    expect(largeLeagueSlice(table(12, 3), 'g12').unrankedCount).toBe(3)
+  })
   test('no viewer, or a viewer with no row this month, adds nothing', () => {
     expect(largeLeagueSlice(table(12), null).viewer).toBeNull()
     expect(largeLeagueSlice(table(12), 'absent').viewer).toBeNull()

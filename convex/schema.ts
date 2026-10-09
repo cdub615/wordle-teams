@@ -899,7 +899,7 @@ export default defineSchema({
     // The word-group lookup (leagues.ts resolveWordGroupFor): a typed word
     // resolves to its group by slug within one league.
     .index('by_league_and_slug', ['leagueId', 'slug'])
-    // The popular-groups read (leagues.ts, task A4): a league's biggest groups
+    // The popular-groups read (leagues.ts, popularGroups): a league's biggest groups
     // by memberCount descending, for the picker's quick picks, straight off the
     // index instead of collect-and-sort. Every memberCount change also rewrites
     // this index entry (same hot group document as wordle-teams-1hfl).

@@ -1,21 +1,13 @@
 import { Link } from '@tanstack/react-router'
 import { useId } from 'react'
-import { MyLeagueRow } from '#/components/leagues/my-league-row.tsx'
+import { MyLeagueRow, type MyLeagueRowData } from '#/components/leagues/my-league-row.tsx'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
 
 /** PLAIN STRUCTURAL SHAPE of one api.leagues.leagues row; `disclaimer` arrives with v2c. */
 type DirectoryLeague = { slug: string; name: string; disclaimer?: string | null }
-/** PLAIN STRUCTURAL SHAPE of one api.leagues.myLeagues row. */
-type MyLeague = {
-  league: { slug: string; name: string }
-  group: { _id: string; name: string }
-  rank: number | null
-  average: number | null
-}
-
 type Props = {
   leagues: DirectoryLeague[]
-  mine: MyLeague[]
+  mine: MyLeagueRowData[]
 }
 
 /**

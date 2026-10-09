@@ -79,9 +79,13 @@ export async function seedLeagueFor(ctx: WriterCtx, spec: LeagueSpec, now: numbe
     })
   }
 
-  const existing = await ctx.db.query('leagueGroups').withIndex('by_league', (q) => q.eq('leagueId', leagueId)).collect()
+  // POINT-READ each spec group: a word league can hold thousands of groups, and
+  // a seed only ever touches the few its spec names.
   for (const [order, group] of spec.groups.entries()) {
-    const row = existing.find((e) => e.slug === group.slug)
+    const row = await ctx.db
+      .query('leagueGroups')
+      .withIndex('by_league_and_slug', (q) => q.eq('leagueId', leagueId).eq('slug', group.slug))
+      .unique()
     if (row) await ctx.db.patch(row._id, { name: group.name, order })
     else await ctx.db.insert('leagueGroups', { leagueId, slug: group.slug, name: group.name, order, memberCount: 0 })
   }
@@ -254,8 +258,9 @@ export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDa
   const { shown, unrankedCount } = slice
   let viewer = slice.viewer
   // "THE VIEWER'S GROUP, ALWAYS" (spec v2 §4.5): a group with no row this month
-  // is a zero row, point-read for its name. NOT counted in unrankedCount, which
-  // counts active groups. A group of another league is ignored.
+  // is a zero row, point-read for its name. It adds nothing to unrankedCount (which also excludes
+  // the viewer's own active-but-unranked group, shown as their row). A group of
+  // another league is ignored.
   if (viewerGroupId && !viewer && !shown.some((s) => s.groupId === viewerGroupId)) {
     const group = await ctx.db.get(viewerGroupId)
     if (group && group.leagueId === league._id) {

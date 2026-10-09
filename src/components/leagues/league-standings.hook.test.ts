@@ -45,7 +45,7 @@ describe('LeagueStandings', () => {
 })
 
 /**
- * v2a A7: a large league's table (spec v2 §4.5) — the shown rows, the viewer's
+ * A large league's table (spec v2 §4.5) — the shown rows, the viewer's
  * row after a separator, the unranked count, and "Find a group".
  */
 describe('LeagueStandings for a large league', () => {

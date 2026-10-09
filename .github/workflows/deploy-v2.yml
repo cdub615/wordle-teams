@@ -507,6 +507,32 @@ jobs:
           fi
           echo "clean: insights corpus is a static file, not a bundled chunk"
 
+      # The Wordle answer list (convex/lib/answerWords.ts, ~20 KB) is loaded by
+      # WordPicker with a dynamic import so it is its own lazy chunk,
+      # answerWords-*.js. A static import anywhere on the dashboard path would fold
+      # it into a shared chunk every visitor downloads, invisibly, with every gate
+      # green. 'aback abase' is the first two words of the list: adjacent answer
+      # words, so it appears in no other bundled asset (benchmark-openers.json
+      # holds individual words like 'wryly' but never this pair). Mirrors the
+      # insights corpus guard above.
+      - name: The answer word list must stay in its own lazy chunk
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          if ! ls dist/client/assets/answerWords-*.js >/dev/null 2>&1; then
+            echo "::error::dist/client/assets/answerWords-*.js is missing."
+            echo "The answer list is no longer its own chunk; the leak check below"
+            echo "would pass vacuously. Check the dynamic import in word-picker.tsx."
+            exit 1
+          fi
+          if grep -rlF --include='*.js' --exclude='answerWords-*.js' 'aback abase' dist/client/assets/ 2>/dev/null; then
+            echo "::error::A client chunk other than answerWords-*.js contains the answer list."
+            echo "Something imports convex/lib/answerWords.ts statically. Load it with"
+            echo "import() as WordPicker does (src/components/leagues/word-picker.tsx)."
+            exit 1
+          fi
+          echo "clean: the answer list is its own lazy chunk"
+
       # ASSERTS THE CONVEX DEPLOYMENT'S OWN ENVIRONMENT VARIABLES
       # (wordle-teams-qjh3.7). Three cutover checklist items stop being things
       # somebody remembers at 6am: E2E_TEST_MODE absent on production

@@ -11,19 +11,17 @@ export type MyLeagueRowData = {
 /**
  * One membership as a link row: group, league, and "#rank · avg" (or "not yet
  * ranked"). Shared by the home card and the /leagues directory so the two
- * can't drift apart. The aria-label spells the row out for a screen reader.
+ * can't drift apart. NO aria-label: the visible text (group, league,
+ * "#rank · avg" or "not yet ranked") already names the link in full, and a label that
+ * differs from it fails WCAG 2.5.3 (Label in Name).
  */
 export function MyLeagueRow({ row }: { row: MyLeagueRowData }) {
   const ranked = row.rank !== null && row.average !== null
   const average = row.average === null ? '' : row.average.toFixed(1)
-  const label = ranked
-    ? `${row.group.name} in ${row.league.name}, rank ${row.rank}, average ${average}`
-    : `${row.group.name} in ${row.league.name}, not yet ranked`
   return (
     <Link
       to="/leagues/$slug"
       params={{ slug: row.league.slug }}
-      aria-label={label}
       className="flex min-w-0 items-center gap-3 rounded-md border p-3 hover:bg-muted"
     >
       <span className="font-mono tracking-widest">{row.group.name}</span>

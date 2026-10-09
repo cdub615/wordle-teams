@@ -203,7 +203,7 @@ export function LeaguePageView({
       : null
 
   const mode = pickerModeOf(view)
-  const pickerFor = (label: string, current: { _id: string; name: string } | null, onGroup: (groupId: string) => void, onWord: (leagueId: string, word: string) => void) => {
+  const pickerFor = (label: string, submitLabel: string, current: { _id: string; name: string } | null, onGroup: (groupId: string) => void, onWord: (leagueId: string, word: string) => void) => {
     switch (mode.kind) {
       case 'words':
         return (
@@ -212,6 +212,7 @@ export function LeaguePageView({
             currentWord={current?.name ?? null}
             disabled={busy}
             label={label}
+            submitLabel={submitLabel}
             onPick={(word) => onWord(mode.leagueId, word)}
           />
         )
@@ -235,7 +236,7 @@ export function LeaguePageView({
             Join the opener wars
           </h2>
           <p className="text-sm text-muted-foreground">Pick a side — your boards count whatever word you start with.</p>
-          {pickerFor('Choose a group', null, onJoin, onJoinWord)}
+          {pickerFor('Choose a group', 'Join', null, onJoin, onJoinWord)}
           {/* planJoin: tomorrow, or the 1st if a DIFFERENT group already counted this month. */}
           <p className="text-xs text-muted-foreground">
             Your boards count from tomorrow, or from the 1st if you were in another group this month.
@@ -289,7 +290,7 @@ export function LeaguePageView({
           <h2 id="league-switch-heading" className="font-medium">
             Switch group
           </h2>
-          {pickerFor('Switch group', membership.pending?.group ?? membership.group, onSwitch, onSwitchWord)}
+          {pickerFor('Switch group', 'Switch', membership.pending?.group ?? membership.group, onSwitch, onSwitchWord)}
           {/* STATE-TRUE (owner hand test 2026-10-08): a membership that has not
               started yet is retargeted IN PLACE by a switch (planSwitch), so the
               change is immediate until its start day; only a started one waits

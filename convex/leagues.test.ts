@@ -142,6 +142,20 @@ describe('seedLeagueFor', () => {
       expect((await ctx.db.get(first))!.createdAt).toBe(100)
     })
   })
+  test('a re-seed renames and reorders spec groups and leaves groups outside the spec alone', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const id = await seedLeagueFor(ctx, STARTING_WORDS, 0)
+      const extra = await ctx.db.insert('leagueGroups', { leagueId: id, slug: 'world', name: 'WORLD', order: 99, memberCount: 7 })
+      const [first, ...rest] = STARTING_WORDS.groups
+      await seedLeagueFor(ctx, { ...STARTING_WORDS, groups: [...rest, { ...first, name: 'Crane!' }] }, 1)
+      const groups = await ctx.db.query('leagueGroups').withIndex('by_league', (q) => q.eq('leagueId', id)).collect()
+      expect(groups).toHaveLength(6)
+      expect(groups.find((g) => g.slug === 'crane')).toMatchObject({ name: 'Crane!', order: 4 })
+      expect(groups.find((g) => g.slug === 'slate')).toMatchObject({ order: 0 })
+      expect(await ctx.db.get(extra)).toMatchObject({ name: 'WORLD', order: 99, memberCount: 7 })
+    })
+  })
   test('a fresh seed writes groupSource answer-words', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -1301,7 +1315,7 @@ describe('"ever joined" survives a same-day join and leave', () => {
 })
 
 /**
- * v2a A3: a word picks (or, in a word league, creates) the group (spec v2 §4.2).
+ * A word picks (or, in a word league, creates) the group (spec v2 §4.2).
  * Driven through the …For handlers, at NOW, like 'membership' above.
  */
 describe('joining and switching by word', () => {
@@ -1530,7 +1544,7 @@ describe('the joinWord and switchWord wrappers', () => {
 })
 
 /**
- * v2a A4: a large league lists only this month's ACTIVE groups — the top 10
+ * A large league lists only this month's ACTIVE groups — the top 10
  * ranked, the viewer's group, and a count of the unranked (spec v2 §4.5).
  */
 describe('large-league standings', () => {
@@ -1598,7 +1612,7 @@ describe('large-league standings', () => {
     })
   })
 
-  test('v2a A7: the page gets the league id and the popular quick picks, top 6 by members, with slugs', async () => {
+  test('the page gets the league id and the popular quick picks, top 6 by members, with slugs', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const { leagueId, group } = await seedStartingWords(ctx)
@@ -1841,7 +1855,7 @@ describe('the standings and groupStanding wrappers', () => {
     const res = await as.query(api.leagues.standings, { slug: 'starting-words', today: day, groupId: group.slate })
     if (!res.enabled || !res.view?.large) throw new Error('expected an enabled large view')
     expect(res.view.viewer).toMatchObject({ groupId: group.slate, boards: 3, rank: null })
-    expect(res.view.unrankedCount).toBe(1)
+    expect(res.view.unrankedCount).toBe(0) // the viewer's own unranked group is their row, not "more"
   })
 
   test('groupStanding finds a word, and is null for an unknown one', async () => {

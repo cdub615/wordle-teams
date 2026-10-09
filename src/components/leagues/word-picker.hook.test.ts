@@ -78,6 +78,15 @@ describe('WordPicker', () => {
     expect(onPick).toHaveBeenCalledWith('slate')
   })
 
+  test('the submit button says Join by default and submitLabel when given', () => {
+    const { unmount } = render(createElement(WordPicker, { popular: POPULAR, currentWord: null, onPick: vi.fn() }))
+    expect(screen.getByRole('button', { name: 'Join' })).toBeTruthy()
+    unmount()
+    render(createElement(WordPicker, { popular: POPULAR, currentWord: null, onPick: vi.fn(), submitLabel: 'Switch' }))
+    expect(screen.getByRole('button', { name: 'Switch' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Join' })).toBeNull()
+  })
+
   test('Enter (submitting the form) picks a valid word, normalised', async () => {
     const onPick = vi.fn()
     render(createElement(WordPicker, { popular: POPULAR, currentWord: null, onPick }))

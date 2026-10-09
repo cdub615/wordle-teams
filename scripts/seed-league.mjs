@@ -5,7 +5,8 @@
  * Calls internal.leagues.seedLeague({ slug }) ONCE with the migration key and
  * prints the league id. Nothing else is read or written. The mutation is
  * idempotent (seedLeagueFor matches by slug), so a re-run renames and reorders
- * but never duplicates.
+ * but never duplicates. A re-run also sets or upgrades groupSource (a league seeded
+ * before it existed becomes a word league) and never downgrades it.
  *
  *   CONVEX_URL=https://<deployment>.convex.cloud CONVEX_MIGRATION_KEY=... \
  *     node scripts/seed-league.mjs --confirm-host=<deployment>.convex.cloud [--slug=starting-words]

@@ -2350,7 +2350,7 @@ describe('the challenge routes are wired the way their components are tested', (
   })
 })
 
-describe("the home leagues card joins a word league by word (v2 A8)", () => {
+describe("the home leagues card joins a word league by word", () => {
   const APP = './routes/app.tsx'
 
   test('joinWord is sent the card\'s league id and word, with today read at click time', () => {
