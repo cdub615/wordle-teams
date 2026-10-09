@@ -77,7 +77,7 @@ The constraint rules out every source of user-written names. What remains is fle
 - the **viewer's** group, always (even if unranked or outside the top 10);
 - **`unrankedCount`**, the number of active groups below the board floor.
 
-Groups with no rows this month are not listed (no zero-fill for open leagues). A new query `groupStanding({ slug, today, word })` powers search: one point read.
+Groups with no rows this month are not listed (no zero-fill for open leagues). The viewer's group is always present, as a zero row when it has no row this month. A large **fixed** league (more than `PICKER_INLINE_MAX` groups, e.g. a sports league) also returns `pickable`, its full seeded group list, because its picker must offer every team; word leagues never collect their groups. The page chooses the picker by `groupSource` (word box only for `answer-words`), not by size. A new query `groupStanding({ slug, today, word })` powers search: one point read.
 
 **Cost:** the range read grows with the number of groups *active this month*, not with the dictionary size. At ~2,300 words the ceiling is bounded and small, and realistically tens of groups.
 
@@ -88,7 +88,7 @@ Groups with no rows this month are not listed (no zero-fill for open leagues). A
   - **`leagues-behind`:** the viewer's group is ranked and not first. "SLATE is 0.3 guesses off the lead — see where you lose guesses."
   - **`league-result`:** last month's snapshot ranked the viewer's group below 1st (no upsell after a win). "CRANE finished 3rd in September — see where your own guesses go." Insights shows personal history, not opener-vs-opener comparisons (its global layer is dark at today's population), so nudges promise only what Insights delivers.
   - **`challenge-result`:** a closed challenge the viewer's team lost. "You lost to Team X by 0.2 — see where the guesses went." (Team names in challenges are already visible to both teams; nothing here names a player.)
-- Rendering: one muted line with a small link that calls `openUpgrade(origin)`. **At most one nudge per surface.**
+- Rendering: one muted line with a small link that calls `openUpgrade(origin)`. **At most one nudge per surface.** The league-page nudge may appear on any league (small fixed leagues have no `viewerRank`, so only the behind nudge can apply there).
 
 ## 5. UI
 
