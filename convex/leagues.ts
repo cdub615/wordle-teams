@@ -141,9 +141,10 @@ export async function currentStandings(
 
 /**
  * A word league's quick picks: its most-joined groups, highest memberCount
- * first. Ties at the cut fall to the index's own order (newest first); within
- * the picks, ties show in display order. Groups with memberCount 0 are kept: a
- * young league's picks are its seeded openers.
+ * first; within the picks, ties show in display order. Groups with memberCount
+ * 0 are kept. TIES AT THE CUT FAVOUR THE NEWEST GROUP (the index's order on
+ * equal counts), so once zero-member groups exist beyond the seeded openers —
+ * a word joined and then left — the openers are not guaranteed a place.
  */
 export const POPULAR_GROUPS = PICKER_INLINE_MAX
 
@@ -246,7 +247,19 @@ export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDa
   }
 
   const { standings, groups } = await activeStandings(ctx, league._id, month)
-  const { shown, viewer, unrankedCount } = largeLeagueSlice(standings, viewerGroupId)
+  const slice = largeLeagueSlice(standings, viewerGroupId)
+  const { shown, unrankedCount } = slice
+  let viewer = slice.viewer
+  // "THE VIEWER'S GROUP, ALWAYS" (spec v2 §4.5): a group with no row this month
+  // is a zero row, point-read for its name. NOT counted in unrankedCount, which
+  // counts active groups. A group of another league is ignored.
+  if (viewerGroupId && !viewer && !shown.some((s) => s.groupId === viewerGroupId)) {
+    const group = await ctx.db.get(viewerGroupId)
+    if (group && group.leagueId === league._id) {
+      groups.set(group._id, group)
+      viewer = { groupId: group._id, order: group.order, boards: 0, attempts: 0, contributors: 0, average: null, rank: null }
+    }
+  }
 
   const won = new Map<GroupId, number>()
   for (const r of results) if (r.winnerGroupId) won.set(r.winnerGroupId, (won.get(r.winnerGroupId) ?? 0) + 1)
@@ -334,7 +347,11 @@ export const leagues = query({
   },
 })
 
-/** `groupId` is the viewer's group, for a large league's slice. Any id is safe: group totals are public. */
+/**
+ * `groupId` is the viewer's group, for a large league's slice. Any id is safe:
+ * group totals are public. IGNORED for a small fixed league, whose shape has no
+ * `viewer` (it lists every group anyway).
+ */
 export const standings = query({
   args: { slug: v.string(), today: v.string(), groupId: v.optional(v.id('leagueGroups')) },
   handler: async (ctx, { slug, today, groupId }) => {
@@ -755,9 +772,18 @@ export async function closeLeagueMonthFor(ctx: WriterCtx, leagueId: Id<'leagues'
     .withIndex('by_league_year_month', (q) => q.eq('leagueId', leagueId).eq('year', year).eq('month', m))
     .first()
   if (existing) return false
-  if (!(await ctx.db.get(leagueId))) return false
+  const league = await ctx.db.get(leagueId)
+  if (!league) return false
 
-  const standings = await currentStandings(ctx, leagueId, await groupsOf(ctx, leagueId), month)
+  // A WORD LEAGUE SNAPSHOTS ACTIVE GROUPS ONLY. Zero-filled, a snapshot would
+  // hold a row for every word ever picked, in every month, and standingsFor
+  // reads every snapshot on each refresh. Either way the rows are standingsOf
+  // output: RANKED FIRST, IN RANK ORDER — lastMonth.viewerRank relies on it.
+  // A fixed league keeps its zero-filled snapshot.
+  const standings =
+    league.groupSource === 'answer-words'
+      ? (await activeStandings(ctx, leagueId, month)).standings
+      : await currentStandings(ctx, leagueId, await groupsOf(ctx, leagueId), month)
   await ctx.db.insert('leagueMonthResults', {
     leagueId,
     year,
@@ -819,19 +845,27 @@ export async function myLeaguesFor(ctx: ReaderCtx, playerId: Id<'players'>, toda
     const membership = membershipOf(intervals, today)
     const league = await ctx.db.get(leagueId)
     if (!membership || !league) continue
-    const groups = await groupsOf(ctx, leagueId)
-    const nameOf = (id: GroupId) => {
-      const g = groups.find((x) => x._id === id)
-      return g ? { _id: id, name: g.name } : null
+    // A WORD LEAGUE never collects its groups (there may be thousands): names are
+    // point reads, checked against the league, and the rank comes from this
+    // month's active rows. An unranked or inactive group's rank is null either
+    // way, so active-only rows give the same rank as a zero-fill.
+    const word = league.groupSource === 'answer-words'
+    const groups = word ? null : await groupsOf(ctx, leagueId)
+    const nameOf = async (id: GroupId) => {
+      const g = groups ? groups.find((x) => x._id === id) : await ctx.db.get(id)
+      return g && g.leagueId === leagueId ? { _id: id, name: g.name } : null
     }
-    const group = nameOf(membership.groupId)
-    const pendingGroup = membership.pendingGroupId ? nameOf(membership.pendingGroupId) : null
+    const group = await nameOf(membership.groupId)
+    const pendingGroup = membership.pendingGroupId ? await nameOf(membership.pendingGroupId) : null
     if (!group || (membership.pendingGroupId && !pendingGroup)) {
       // A membership naming a group the league does not have: a broken invariant. Skip, never render a blank name.
       console.error('myLeaguesFor: membership names a group missing from its league', { playerId, leagueId, groupId: membership.groupId, pendingGroupId: membership.pendingGroupId })
       continue
     }
-    const standing = (await currentStandings(ctx, leagueId, groups, monthOf(today))).find((s) => s.groupId === membership.groupId)
+    const standings = groups
+      ? await currentStandings(ctx, leagueId, groups, monthOf(today))
+      : (await activeStandings(ctx, leagueId, monthOf(today))).standings
+    const standing = standings.find((s) => s.groupId === membership.groupId)
     out.push({
       league: { slug: league.slug, name: league.name },
       leagueId,
