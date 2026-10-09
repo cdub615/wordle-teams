@@ -156,6 +156,30 @@ export function standingsOf<G extends string>(rows: readonly GroupMonthRow<G>[])
   ]
 }
 
+/** Word leagues are large; fixed leagues at or below PICKER_INLINE_MAX are not. */
+export function isLargeLeague(groupSource: 'fixed' | 'answer-words' | undefined, groupCount: number): boolean {
+  return groupSource === 'answer-words' || groupCount > PICKER_INLINE_MAX
+}
+
+/** Ranked groups a large league's table lists (spec v2 §4.5). */
+export const LARGE_LEAGUE_TOP = 10
+
+/**
+ * Spec v2 §4.5: the top LARGE_LEAGUE_TOP ranked groups, plus the viewer's group
+ * if it isn't already shown, plus how many active groups are unranked.
+ * Input is standingsOf output (ranked first). A viewer whose group has no row
+ * this month is not in `standings`, so `viewer` is null for them.
+ */
+export function largeLeagueSlice<G extends string>(
+  standings: readonly Standing<G>[],
+  viewerGroupId: G | null,
+): { shown: Standing<G>[]; viewer: Standing<G> | null; unrankedCount: number } {
+  const shown = standings.filter((s) => s.rank !== null).slice(0, LARGE_LEAGUE_TOP)
+  const mine = viewerGroupId === null ? null : (standings.find((s) => s.groupId === viewerGroupId) ?? null)
+  const viewer = mine && !shown.some((s) => s.groupId === mine.groupId) ? mine : null
+  return { shown, viewer, unrankedCount: standings.filter((s) => s.rank === null).length }
+}
+
 /**
  * The month's winner: the top ranked group, or null when none qualified OR the
  * top two are tied on BOTH the 1dp average and boards — an exact tie names no

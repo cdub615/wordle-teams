@@ -7,7 +7,7 @@ import { attemptsFor } from './lib/board.ts'
 import { addDays, addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { insightsAccess } from './lib/insightsAccess.ts'
 import { isAnswerWord, normalizeWord } from './lib/answerWords.ts'
-import { contributionOf, contributionUnlocked, groupDelta, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
+import { contributionOf, contributionUnlocked, groupAverageOf, groupDelta, isLargeLeague, largeLeagueSlice, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, PICKER_INLINE_MAX, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
 import type { MembershipPlan, Standing } from './lib/league.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
@@ -31,6 +31,7 @@ type WriterCtx = { db: GenericDatabaseWriter<DataModel> }
 // to a module that could grow a path back (scores.ts and teamStats.ts import us).
 type SchedulingCtx = WriterCtx & { scheduler: Scheduler }
 type ReaderCtx = { db: GenericDatabaseReader<DataModel> }
+type GroupId = Id<'leagueGroups'>
 
 export type LeagueSpec = {
   slug: string
@@ -138,28 +139,89 @@ export async function currentStandings(
   )
 }
 
+/**
+ * A word league's quick picks: its most-joined groups, highest memberCount
+ * first. Ties at the cut fall to the index's own order (newest first); within
+ * the picks, ties show in display order. Groups with memberCount 0 are kept: a
+ * young league's picks are its seeded openers.
+ */
+export const POPULAR_GROUPS = PICKER_INLINE_MAX
+
+async function popularGroupsOf(ctx: ReaderCtx, leagueId: Id<'leagues'>): Promise<Doc<'leagueGroups'>[]> {
+  const top = await ctx.db
+    .query('leagueGroups')
+    .withIndex('by_league_and_memberCount', (q) => q.eq('leagueId', leagueId))
+    .order('desc')
+    .take(POPULAR_GROUPS)
+  return top.sort((a, b) => b.memberCount - a.memberCount || a.order - b.order)
+}
+
+const groupView = (g: Doc<'leagueGroups'>) => ({ _id: g._id, slug: g.slug, name: g.name, memberCount: g.memberCount })
+
+/**
+ * Every league, with the groups its picker offers: a fixed league's groups in
+ * order, a word league's POPULAR_GROUPS (never the dictionary).
+ */
 export async function leaguesFor(ctx: ReaderCtx) {
   const leagues = await ctx.db.query('leagues').collect()
   return await Promise.all(
-    leagues.map(async (league) => ({
-      slug: league.slug,
-      name: league.name,
-      featured: league.featured,
-      groups: (await groupsOf(ctx, league._id)).map((g) => ({ _id: g._id, slug: g.slug, name: g.name, memberCount: g.memberCount })),
-    })),
+    leagues.map(async (league) => {
+      const groupSource = league.groupSource ?? ('fixed' as const)
+      const groups = groupSource === 'answer-words' ? await popularGroupsOf(ctx, league._id) : await groupsOf(ctx, league._id)
+      return {
+        leagueId: league._id,
+        slug: league.slug,
+        name: league.name,
+        featured: league.featured,
+        groupSource,
+        groups: groups.map(groupView),
+      }
+    }),
   )
+}
+
+/**
+ * A large league's live month: ONLY groups with a row this month (no zero-fill,
+ * spec v2 §4.5). One range read plus one point read per ACTIVE group, so the
+ * cost grows with the groups played this month, never with the dictionary.
+ */
+async function activeStandings(ctx: ReaderCtx, leagueId: Id<'leagues'>, month: PuzzleMonth) {
+  const { year, month: m } = yearMonthOf(month)
+  const rows = await ctx.db
+    .query('leagueGroupMonth')
+    .withIndex('by_league_year_month', (q) => q.eq('leagueId', leagueId).eq('year', year).eq('month', m))
+    .collect()
+  const docs = await Promise.all(rows.map((r) => ctx.db.get(r.groupId)))
+  const live: { groupId: GroupId; order: number; boards: number; attempts: number; contributors: number }[] = []
+  const groups = new Map<GroupId, Doc<'leagueGroups'>>()
+  for (const [i, row] of rows.entries()) {
+    const group = docs[i]
+    if (!group) {
+      // A row naming a missing group is a broken invariant: skip it, never render a blank name.
+      console.error(`leagues: group-month row ${row._id} names missing group ${row.groupId}`)
+      continue
+    }
+    groups.set(group._id, group)
+    live.push({ groupId: row.groupId, order: group.order, boards: row.boards, attempts: row.attempts, contributors: row.contributors })
+  }
+  return { standings: standingsOf(live), groups }
 }
 
 /**
  * The standings page. CLOSED MONTHS COME FROM leagueMonthResults ONLY — a live
  * row for a closed month can have been restated by backfill (§4.1).
+ *
+ * TWO SHAPES. A small fixed league keeps v1's (every group, zero-filled) plus
+ * `large: false`, and ignores `viewerGroupId`. A large league (isLargeLeague)
+ * returns the slice (spec v2 §4.5) with `large: true`; its `standings` is
+ * shown + viewer, the rows the page lists, and `groups` names only the groups
+ * the payload references. `viewerGroupId` is any group id the client passes:
+ * group totals are public (§3.2), so a foreign id learns nothing new.
  */
-export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDay) {
+export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDay, viewerGroupId: GroupId | null = null) {
   const league = await ctx.db.query('leagues').withIndex('by_slug', (q) => q.eq('slug', slug)).unique()
   if (!league) return null
-  const groups = await groupsOf(ctx, league._id)
   const month = monthOf(today)
-  const standings = await currentStandings(ctx, league._id, groups, month)
 
   const results = await ctx.db
     .query('leagueMonthResults')
@@ -169,13 +231,84 @@ export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDa
   const prev = yearMonthOf(previous)
   const last = results.find((r) => r.year === prev.year && r.month === prev.month)
 
+  // A word league never collects its groups: there may be thousands.
+  const allGroups = league.groupSource === 'answer-words' ? null : await groupsOf(ctx, league._id)
+  if (allGroups && !isLargeLeague(league.groupSource, allGroups.length)) {
+    return {
+      large: false as const,
+      league: { slug: league.slug, name: league.name },
+      month,
+      groups: allGroups.map(groupView),
+      standings: await currentStandings(ctx, league._id, allGroups, month),
+      lastMonth: last ? { month: previous, winnerGroupId: last.winnerGroupId } : null,
+      monthsWon: allGroups.map((g) => ({ groupId: g._id, count: results.filter((r) => r.winnerGroupId === g._id).length })),
+    }
+  }
+
+  const { standings, groups } = await activeStandings(ctx, league._id, month)
+  const { shown, viewer, unrankedCount } = largeLeagueSlice(standings, viewerGroupId)
+
+  const won = new Map<GroupId, number>()
+  for (const r of results) if (r.winnerGroupId) won.set(r.winnerGroupId, (won.get(r.winnerGroupId) ?? 0) + 1)
+  const monthsWon = [...won].map(([groupId, count]) => ({ groupId, count }))
+
+  // SNAPSHOTS ARE STORED IN RANKED ORDER (closeLeagueMonthFor writes standingsOf
+  // output), and ranks are 1..n over the ranked rows, which come first.
+  let viewerRank: number | null = null
+  if (last && viewerGroupId) {
+    const i = last.standings.findIndex((s) => s.groupId === viewerGroupId)
+    if (i >= 0 && last.standings[i].average !== null) viewerRank = i + 1
+  }
+
+  // Names for every group referenced: winners inactive this month need a read each,
+  // bounded by the number of distinct winners (at most one per closed month).
+  const referenced = new Set<GroupId>([...shown.map((s) => s.groupId), ...(viewer ? [viewer.groupId] : []), ...won.keys()])
+  const named: Doc<'leagueGroups'>[] = []
+  for (const id of referenced) {
+    const group = groups.get(id) ?? (await ctx.db.get(id))
+    if (group) named.push(group)
+  }
+
   return {
+    large: true as const,
     league: { slug: league.slug, name: league.name },
     month,
-    groups: groups.map((g) => ({ _id: g._id, slug: g.slug, name: g.name, memberCount: g.memberCount })),
-    standings,
-    lastMonth: last ? { month: previous, winnerGroupId: last.winnerGroupId } : null,
-    monthsWon: groups.map((g) => ({ groupId: g._id, count: results.filter((r) => r.winnerGroupId === g._id).length })),
+    groups: named.map(groupView),
+    shown,
+    viewer,
+    unrankedCount,
+    standings: viewer ? [...shown, viewer] : shown,
+    lastMonth: last ? { month: previous, winnerGroupId: last.winnerGroupId, viewerRank } : null,
+    monthsWon,
+  }
+}
+
+/**
+ * Search (spec v2 §4.5): one group's live month by its word. Two point reads
+ * after the league. NO RANK: that would need the whole month's rows. Null for a
+ * malformed word or a word with no group in this league.
+ */
+export async function groupStandingFor(ctx: ReaderCtx, slug: string, today: PuzzleDay, word: string) {
+  const slugWord = normalizeWord(word)
+  if (slugWord === null) return null
+  const league = await ctx.db.query('leagues').withIndex('by_slug', (q) => q.eq('slug', slug)).unique()
+  if (!league) return null
+  const group = await ctx.db
+    .query('leagueGroups')
+    .withIndex('by_league_and_slug', (q) => q.eq('leagueId', league._id).eq('slug', slugWord))
+    .unique()
+  if (!group) return null
+  const { year, month } = yearMonthOf(monthOf(today))
+  const row = await ctx.db
+    .query('leagueGroupMonth')
+    .withIndex('by_group_year_month', (q) => q.eq('groupId', group._id).eq('year', year).eq('month', month))
+    .unique()
+  const totals = { boards: row?.boards ?? 0, attempts: row?.attempts ?? 0 }
+  return {
+    group: { _id: group._id, name: group.name, memberCount: group.memberCount },
+    ...totals,
+    average: groupAverageOf(totals),
+    contributors: row?.contributors ?? 0,
   }
 }
 
@@ -201,16 +334,24 @@ export const leagues = query({
   },
 })
 
+/** `groupId` is the viewer's group, for a large league's slice. Any id is safe: group totals are public. */
 export const standings = query({
-  args: { slug: v.string(), today: v.string() },
-  handler: async (ctx, { slug, today }) => {
+  args: { slug: v.string(), today: v.string(), groupId: v.optional(v.id('leagueGroups')) },
+  handler: async (ctx, { slug, today, groupId }) => {
     if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }
     await requirePlayer(ctx)
-    return { enabled: true as const, view: await standingsFor(ctx, slug, readToday(today)) }
+    return { enabled: true as const, view: await standingsFor(ctx, slug, readToday(today), groupId ?? null) }
   },
 })
 
-type GroupId = Id<'leagueGroups'>
+export const groupStanding = query({
+  args: { slug: v.string(), today: v.string(), word: v.string() },
+  handler: async (ctx, { slug, today, word }) => {
+    if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }
+    await requirePlayer(ctx)
+    return { enabled: true as const, standing: await groupStandingFor(ctx, slug, readToday(today), word) }
+  },
+})
 
 /** One player's intervals for one league, OLDEST FIRST — plan indexes refer to this order. */
 async function intervalsOf(ctx: ReaderCtx, playerId: Id<'players'>, leagueId: Id<'leagues'>) {
