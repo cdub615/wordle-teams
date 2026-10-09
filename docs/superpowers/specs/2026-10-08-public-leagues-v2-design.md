@@ -48,10 +48,10 @@ The constraint rules out every source of user-written names. What remains is fle
 ### 4.2 `leagueGroups`
 
 - New index **`by_league_and_slug`** `['leagueId', 'slug']`. Joining by word is one point read.
-- **Answer-word groups are created lazily.** The first `joinGroup` (or switch) to a valid word that has no group inserts it: slug and name are the word; `order` is the next integer; `memberCount` 0.
+- **Answer-word groups are created lazily.** The first `joinGroup` (or switch) to a valid word that has no group inserts it: slug is the word and name is the word in UPPERCASE; `order` is the creation time (`Date.now()`), so seeded groups sort first and new words follow in creation order; `memberCount` 0.
 - **Concurrency:** two first-joins of the same word race. Convex serialisability means the loser's read of `by_league_and_slug` conflicts and retries, sees the group, and joins it. Never two groups. Pinned by a test.
 - **The existing five groups stay** as ordinary groups. If any of their words (ORATE is the likely one; verify against the chosen list) is not an answer word, that group is **grandfathered**: it remains joinable so nobody is stranded, but it can never be created anew. The validity check is `isAnswerWord(word) || an existing group with that slug`.
-- Join and switch now address a group by **word** for answer-word leagues: `joinGroup({ leagueId, word, today })`. The id-based call stays for fixed leagues. A word that isn't an answer word and has no existing group is refused with a new code **`UNKNOWN_WORD`**.
+- Join and switch address a group by **word** through separate mutations, `joinWord`/`switchWord({ leagueId, word, today })`, which resolve the group and then delegate to the id-based `joinGroup`/`switchGroup` handlers (unchanged, still used for fixed leagues). A plan pre-check runs before the word is resolved, so a member who types a bad word hears `ALREADY_IN_LEAGUE`/`NOT_IN_LEAGUE` rather than `UNKNOWN_WORD`. (A refused mutation rolls back entirely in Convex, so the pre-check is about error order, not about orphan groups.) A word that isn't an answer word and has no existing group is refused with a new code **`UNKNOWN_WORD`**.
 
 ### 4.3 Static data in `convex/lib/` (client-safe, no imports)
 

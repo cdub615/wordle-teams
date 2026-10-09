@@ -163,7 +163,7 @@ Two more handlers:
 - `switchWordFor`: the same, delegating to `switchGroupFor`.
 
 **Bad dates and refused joins:**
-- A refused join must not leave a new, empty group behind. Today it would: a player who's already in the league could "join" a fresh word.
+- **Correction (review of A3):** in production a refused mutation rolls back entirely in Convex, so a refused join can never leave a group behind. The orphan only appears in convex-test when a handler's error is caught inside the same `t.run`. The pre-check is kept for **error order** (an existing member typing a bad word hears `ALREADY_IN_LEAGUE`, not `UNKNOWN_WORD`) and for any future in-transaction caller that catches the refusal.
 - **Fix:** check the plan before creating. If `planJoin` would refuse, throw before inserting.
 - Simplest way:
   - In `joinWordFor`, read the intervals and call `planJoin` with a placeholder group id. Throw `ALREADY_IN_LEAGUE` if refused, then resolve and delegate.
