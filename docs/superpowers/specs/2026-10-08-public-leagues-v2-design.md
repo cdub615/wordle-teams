@@ -92,7 +92,7 @@ Groups with no rows this month are not listed (no zero-fill for open leagues). T
 
 ## 5. UI
 
-- **`/leagues` is a directory** once there are 3 or more leagues; the v1 single-league redirect remains for 1. Sections:
+- **`/leagues` is a directory** once there are 2 or more leagues; the v1 single-league redirect remains for exactly 1. Sections:
   - **Your leagues:** group, rank and average per league.
   - **Join a league:** Starting Words, each sport, and your region. The region card shows the player's region automatically, or "Set your time zone".
 - **Open-word picker** (Starting Words):
