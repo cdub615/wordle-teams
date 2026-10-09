@@ -84,8 +84,19 @@ describe('leaguePageNudge', () => {
       }),
     ).toEqual({
       origin: 'league-result',
-      text: 'SLATE finished 2nd in September — see what separates the top openers.',
+      text: 'SLATE finished 2nd in September — see where your own guesses go.',
     })
+  })
+
+  test('no result nudge after a 1st-place finish', () => {
+    expect(
+      leaguePageNudge({
+        ...base,
+        rank: 1,
+        average: 3.8,
+        lastMonth: { monthName: 'September', viewerRank: 1 },
+      }),
+    ).toBeNull()
   })
 
   test('no result nudge without a viewer rank last month', () => {

@@ -44,10 +44,11 @@ export function leaguePageNudge(f: {
         : `${f.groupName} is ${gap.toFixed(1)} guesses off the lead — see where you lose guesses.`
     return { origin: 'leagues-behind', text }
   }
-  if (f.lastMonth?.viewerRank != null) {
+  // No upsell after a win: only a finish below 1st gets a result nudge.
+  if (f.lastMonth?.viewerRank != null && f.lastMonth.viewerRank > 1) {
     return {
       origin: 'league-result',
-      text: `${f.groupName} finished ${ordinal(f.lastMonth.viewerRank)} in ${f.lastMonth.monthName} — see what separates the top openers.`,
+      text: `${f.groupName} finished ${ordinal(f.lastMonth.viewerRank)} in ${f.lastMonth.monthName} — see where your own guesses go.`,
     }
   }
   return null

@@ -139,7 +139,7 @@ export const UPGRADE_HEADLINES: Record<UpgradeOrigin, string> = {
   leagues: 'Know exactly what you add to your group',
   // Reached from the league page nudges (src/lib/league-nudges.ts).
   'leagues-behind': 'Find the guesses your group is losing',
-  'league-result': 'See what the top openers do differently',
+  'league-result': 'See where your own guesses go',
   'trial-ended': 'Pick up where your trial left off',
   // THE ONLY ORIGIN NOT NAMED FOR A CLICK. The other ten are reached by pressing
   // something, so each names what the player reached for; this one is reached
