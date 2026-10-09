@@ -1790,6 +1790,8 @@ describe('popular groups in leaguesFor', () => {
       for (const [id, n] of counts) await ctx.db.patch(id, { memberCount: n })
       const [out] = await leaguesFor(ctx)
       expect(out).toMatchObject({ leagueId, groupSource: 'answer-words' })
+      // SLUG IS THE WORD the home card's WordPicker joins by (quick pick → joinWord).
+      expect(out.groups.map((g) => g.slug)).toEqual(['orate', 'bbbbb', 'slate', 'crane', 'aaaaa', 'adieu'])
       // Ties (CRANE and AAAAA on 3) in display order.
       expect(out.groups.map((g) => [g._id, g.memberCount])).toEqual([
         [group.orate, 9],

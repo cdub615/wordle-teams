@@ -2350,6 +2350,30 @@ describe('the challenge routes are wired the way their components are tested', (
   })
 })
 
+describe("the home leagues card joins a word league by word (v2 A8)", () => {
+  const APP = './routes/app.tsx'
+
+  test('joinWord is sent the card\'s league id and word, with today read at click time', () => {
+    // leagues-card.hook.test.ts proves the card calls onJoinWord(leagueId,
+    // word) for a word league; this proves app.tsx turns that into
+    // api.leagues.joinWord with those two values and the viewer's LOCAL day.
+    expect(codeOf(read(APP))).toMatch(/useConvexMutation\(api\.leagues\.joinWord\)/)
+    const args = parsed(APP, 'joinLeagueWord.mutate')
+    expect(args.get('leagueId')?.getText()).toBe("leagueId as Id<'leagues'>")
+    expect(args.get('word')?.getText()).toBe('word')
+    expect(args.get('today')?.getText()).toBe('toPuzzleDay(new Date())')
+  })
+
+  test('the card hands its word joins to that mutation, toasts a failure, and is busy while it runs', () => {
+    const props = jsxProps(APP, 'LeaguesCard')
+    const onJoinWord = props.get('onJoinWord') ?? ''
+    expect(onJoinWord, '<LeaguesCard> has no onJoinWord').toMatch(/^\(leagueId, word\) =>\s+joinLeagueWord\.mutate\(/)
+    // `mutate` WITH onError: a refusal (UNKNOWN_WORD) is a toast, not an unhandled rejection.
+    expect(onJoinWord).toMatch(/onError: \(error: unknown\) => toast\.error\(mutationErrorMessage\(error,/)
+    expect(props.get('busy')).toMatch(/joinLeagueWord\.isPending/)
+  })
+})
+
 /**
  * initializerOf, ON THE NORMALISATION THE BLOCK ABOVE LEANS ON.
  *

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { createElement } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, params, children, ...rest }: { to: string; params?: { slug: string }; children: unknown }) =>
@@ -13,11 +13,19 @@ import { LeaguesCard, leaguesCardInput, pickerCouldShow } from './leagues-card.t
 afterEach(cleanup)
 
 const featured = {
-  slug: 'starting-words',
-  name: 'Starting Words',
+  leagueId: 'L1',
+  slug: 'fixed-five',
+  name: 'Fixed Five',
   featured: true,
-  groups: ['CRANE', 'SLATE'].map((name, i) => ({ _id: `g${i}`, name, memberCount: 0 })),
+  groupSource: 'fixed' as const,
+  groups: ['CRANE', 'SLATE'].map((name, i) => ({ _id: `g${i}`, slug: name.toLowerCase(), name, memberCount: 0 })),
 }
+/** A featured WORD league, as leaguesFor sends it: groups are the popular quick picks. */
+const wordLeague = { ...featured, leagueId: 'SW', slug: 'starting-words', name: 'Starting Words', groupSource: 'answer-words' as const }
+const card = (props: Partial<Parameters<typeof LeaguesCard>[0]> = {}) =>
+  render(createElement(LeaguesCard, { mine: [], featured: wordLeague, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false, ...props }))
+const wordBox = () => screen.getByRole('textbox', { name: 'Any Wordle answer word' }) as HTMLInputElement
+const joinButton = () => screen.getByRole('button', { name: 'Join' }) as HTMLButtonElement
 const row = (slug: string, rank: number | null) => ({
   league: { slug, name: slug },
   leagueId: slug,
@@ -32,7 +40,7 @@ const row = (slug: string, rank: number | null) => ({
 describe('LeaguesCard', () => {
   test('not in a league: offers the featured league inline', () => {
     const onJoin = vi.fn()
-    render(createElement(LeaguesCard, { mine: [], featured, onJoin, onDismiss: vi.fn(), busy: false }))
+    render(createElement(LeaguesCard, { mine: [], featured, onJoin, onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false }))
     expect(screen.getByRole('heading', { name: 'Join the opener wars' })).toBeTruthy()
     expect(screen.getByText('Pick a side — your boards count whatever word you start with.')).toBeTruthy()
     expect(screen.getByRole('group', { name: 'Choose a group' })).toBeTruthy()
@@ -44,27 +52,27 @@ describe('LeaguesCard', () => {
     // the card, which suits nobody who doesn't open with one of the five words.
     const onJoin = vi.fn()
     const onDismiss = vi.fn()
-    render(createElement(LeaguesCard, { mine: [], featured, onJoin, onDismiss, busy: false }))
+    render(createElement(LeaguesCard, { mine: [], featured, onJoin, onJoinWord: vi.fn(), onDismiss, busy: false }))
     fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
     expect(onDismiss).toHaveBeenCalledTimes(1)
     expect(onJoin).not.toHaveBeenCalled()
   })
   test('a member\'s rows have no "Not now": there is no offer to dismiss', () => {
-    render(createElement(LeaguesCard, { mine: [row('starting-words', 1)], featured: null, onJoin: vi.fn(), onDismiss: vi.fn(), busy: false }))
+    render(createElement(LeaguesCard, { mine: [row('starting-words', 1)], featured: null, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false }))
     expect(screen.queryByRole('button', { name: 'Not now' })).toBeNull()
   })
   test('busy disables the picker and "Not now"', () => {
-    render(createElement(LeaguesCard, { mine: [], featured, onJoin: vi.fn(), onDismiss: vi.fn(), busy: true }))
+    render(createElement(LeaguesCard, { mine: [], featured, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: true }))
     expect((screen.getByRole('button', { name: 'SLATE' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Not now' }) as HTMLButtonElement).disabled).toBe(true)
   })
   test('"Not now" is described by the offer it dismisses', () => {
-    render(createElement(LeaguesCard, { mine: [], featured, onJoin: vi.fn(), onDismiss: vi.fn(), busy: false }))
+    render(createElement(LeaguesCard, { mine: [], featured, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false }))
     const describedBy = screen.getByRole('button', { name: 'Not now' }).getAttribute('aria-describedby')
     expect(describedBy && document.getElementById(describedBy)?.textContent).toBe('Join the opener wars')
   })
   test('in a league: one row with rank and average, linking to the league', () => {
-    render(createElement(LeaguesCard, { mine: [row('starting-words', 1)], featured, onJoin: vi.fn(), onDismiss: vi.fn(), busy: false }))
+    render(createElement(LeaguesCard, { mine: [row('starting-words', 1)], featured, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false }))
     const link = screen.getByRole('link', { name: /CRANE/ })
     expect(link.getAttribute('href')).toBe('/leagues/starting-words')
     expect(link.textContent).toContain('#1')
@@ -72,21 +80,74 @@ describe('LeaguesCard', () => {
     expect(screen.queryByRole('button', { name: 'SLATE' })).toBeNull()
   })
   test('an unranked group says so rather than showing a number', () => {
-    render(createElement(LeaguesCard, { mine: [row('starting-words', null)], featured, onJoin: vi.fn(), onDismiss: vi.fn(), busy: false }))
+    render(createElement(LeaguesCard, { mine: [row('starting-words', null)], featured, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false }))
     expect(screen.getByRole('link', { name: /CRANE/ }).textContent).toContain('not yet ranked')
   })
   test('caps at HOME_CARD_MAX_LEAGUES with See all', () => {
-    render(createElement(LeaguesCard, { mine: ['a', 'b', 'c', 'd'].map((s) => row(s, null)), featured, onJoin: vi.fn(), onDismiss: vi.fn(), busy: false }))
+    render(createElement(LeaguesCard, { mine: ['a', 'b', 'c', 'd'].map((s) => row(s, null)), featured, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false }))
     expect(screen.getAllByRole('link').map((l) => l.textContent)).toContain('See all')
     expect(screen.getAllByRole('link')).toHaveLength(4)
   })
   test('a member is shown their league even with no featured league', () => {
-    render(createElement(LeaguesCard, { mine: [row('starting-words', 2)], featured: null, onJoin: vi.fn(), onDismiss: vi.fn(), busy: false }))
+    render(createElement(LeaguesCard, { mine: [row('starting-words', 2)], featured: null, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false }))
     expect(screen.getByRole('link', { name: /CRANE/ }).textContent).toContain('#2')
   })
   test('nothing at all when there is no featured league and no membership', () => {
-    const { container } = render(createElement(LeaguesCard, { mine: [], featured: null, onJoin: vi.fn(), onDismiss: vi.fn(), busy: false }))
+    const { container } = render(createElement(LeaguesCard, { mine: [], featured: null, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false }))
     expect(container.innerHTML).toBe('')
+  })
+})
+
+describe('LeaguesCard for a featured WORD league (spec v2 §5)', () => {
+  test('the offer is the word picker: quick picks plus a box for any answer word, same copy', () => {
+    card()
+    expect(screen.getByRole('heading', { name: 'Join the opener wars' })).toBeTruthy()
+    expect(screen.getByText('Pick a side — your boards count whatever word you start with.')).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Choose a group' })).toBeTruthy()
+    expect(wordBox()).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Not now' })).toBeTruthy()
+  })
+  test('a quick pick joins BY WORD with the league id, never by group id', () => {
+    const onJoin = vi.fn()
+    const onJoinWord = vi.fn()
+    card({ onJoin, onJoinWord })
+    fireEvent.click(screen.getByRole('button', { name: 'SLATE' }))
+    expect(onJoinWord).toHaveBeenCalledWith('SW', 'slate')
+    expect(onJoin).not.toHaveBeenCalled()
+  })
+  test('a typed answer word joins by word once the lazy list has loaded', async () => {
+    const onJoin = vi.fn()
+    const onJoinWord = vi.fn()
+    card({ onJoin, onJoinWord })
+    fireEvent.focus(wordBox())
+    fireEvent.change(wordBox(), { target: { value: 'wryly' } })
+    await waitFor(() => expect(joinButton().disabled).toBe(false))
+    fireEvent.click(joinButton())
+    expect(onJoinWord).toHaveBeenCalledWith('SW', 'wryly')
+    expect(onJoin).not.toHaveBeenCalled()
+  })
+  test('busy disables the quick picks, the box and "Not now"', () => {
+    card({ busy: true })
+    expect((screen.getByRole('button', { name: 'SLATE' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(wordBox().disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Not now' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+  test('"Not now" still dismisses and joins nothing', () => {
+    const onJoinWord = vi.fn()
+    const onDismiss = vi.fn()
+    card({ onJoinWord, onDismiss })
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+    expect(onJoinWord).not.toHaveBeenCalled()
+  })
+  test('a featured FIXED league keeps the group picker: no word box, joins by group id', () => {
+    const onJoin = vi.fn()
+    const onJoinWord = vi.fn()
+    card({ featured, onJoin, onJoinWord })
+    expect(screen.queryByRole('textbox', { name: 'Any Wordle answer word' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'SLATE' }))
+    expect(onJoin).toHaveBeenCalledWith('g1')
+    expect(onJoinWord).not.toHaveBeenCalled()
   })
 })
 
