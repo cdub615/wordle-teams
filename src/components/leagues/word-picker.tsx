@@ -5,8 +5,8 @@ import { Label } from '#/components/ui/label.tsx'
 import { cn } from '#/lib/utils.ts'
 import { GroupPicker, type PickerGroup } from './group-picker.tsx'
 
-/** A popular group. Server views carry `slug`; without one, the lower-cased name is the word. */
-export type PopularWord = PickerGroup & { slug?: string }
+/** A popular group, as the server's group view sends it: `slug` is the word. */
+export type PopularWord = PickerGroup & { slug: string }
 
 type AnswerWords = typeof import('../../../convex/lib/answerWords.ts')
 
@@ -20,13 +20,21 @@ type Props = {
   className?: string
 }
 
-const wordOf = (g: PopularWord) => g.slug ?? g.name.toLowerCase()
+const wordOf = (g: PopularWord) => g.slug
 
 /**
- * Keep what can be a letter, at most five. NFKC first so a fullwidth paste
- * (ＣＲＡＮＥ) survives; everything else (spaces, zero-width, digits) is dropped.
+ * Keep what can be a letter, at most five, lower-cased. NFKD folds fullwidth
+ * (ＣＲＡＮＥ) to ASCII and splits accents off (cráne → cra + ◌́ + ne), and the
+ * combining marks are then dropped, so an accent is FOLDED rather than losing
+ * its letter. Everything else (spaces, zero-width, digits) is dropped.
  */
-const lettersOf = (raw: string) => raw.normalize('NFKC').replace(/[^a-z]/gi, '').slice(0, 5)
+const lettersOf = (raw: string) =>
+  raw
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^a-z]/gi, '')
+    .slice(0, 5)
+    .toLowerCase()
 
 /**
  * The OPEN-WORD PICKER for Starting Words (spec v2 §5): the most popular words
@@ -42,10 +50,20 @@ const lettersOf = (raw: string) => raw.normalize('NFKC').replace(/[^a-z]/gi, '')
  * buy nothing but a second module. Until it loads, Join stays disabled and no
  * hint shows. The server is the authority (UNKNOWN_WORD); this list only
  * drives live feedback.
+ *
+ * NEVER A DEAD END. If the import fails (offline, a deploy mid-session), the
+ * next focus or keystroke retries, and meanwhile Join enables at exactly five
+ * letters with no live hint: the server's UNKNOWN_WORD refusal then surfaces
+ * through the caller's error toast.
+ *
+ * CASING IS CSS. The bound value stays lower-case and `uppercase` plus
+ * autoCapitalize do the display, so the controlled value never differs from
+ * what was typed and the caret doesn't jump.
  */
 export function WordPicker({ popular, currentWord, onPick, disabled = false, label = 'Choose a group', className }: Props) {
   const [input, setInput] = useState('')
   const [words, setWords] = useState<AnswerWords | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const loading = useRef(false)
   const mounted = useRef(true)
   const id = useId()
@@ -67,12 +85,14 @@ export function WordPicker({ popular, currentWord, onPick, disabled = false, lab
       () => {
         // A failed chunk load (offline, a deploy mid-session) retries on the next focus or keystroke.
         loading.current = false
+        if (mounted.current) setLoadFailed(true)
       },
     )
   }
 
-  const word = words ? words.normalizeWord(input) : null
-  const valid = words !== null && words.isAnswerWord(input)
+  // Without the list (failed load), five letters is the most the client can check.
+  const word = words ? words.normalizeWord(input) : loadFailed && input.length === 5 ? input : null
+  const valid = words !== null ? words.isAnswerWord(input) : word !== null
   const showHint = words !== null && input.length === 5 && !valid
   const canJoin = valid && !disabled && word !== null
 
@@ -103,11 +123,11 @@ export function WordPicker({ popular, currentWord, onPick, disabled = false, lab
         <div className="flex gap-2">
           <Input
             id={`${id}-word`}
-            value={input.toUpperCase()}
+            value={input}
             onFocus={load}
             onChange={(e) => {
               load()
-              setInput(lettersOf(e.target.value).toLowerCase())
+              setInput(lettersOf(e.target.value))
             }}
             disabled={disabled}
             autoComplete="off"

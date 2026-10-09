@@ -34,10 +34,10 @@ describe('WordPicker', () => {
     expect(onPick).toHaveBeenCalledWith('crane')
   })
 
-  test('a quick pick without a slug still picks its lower-cased word', () => {
+  test('a quick pick picks its slug, not its display name', () => {
     const onPick = vi.fn()
-    render(createElement(WordPicker, { popular: [{ _id: 'x', name: 'SLATE', memberCount: 1 }], currentWord: null, onPick }))
-    fireEvent.click(screen.getByRole('button', { name: 'SLATE' }))
+    render(createElement(WordPicker, { popular: [{ _id: 'x', slug: 'slate', name: 'Slate!', memberCount: 1 }], currentWord: null, onPick }))
+    fireEvent.click(screen.getByRole('button', { name: 'Slate!' }))
     expect(onPick).toHaveBeenCalledWith('slate')
   })
 
@@ -61,10 +61,12 @@ describe('WordPicker', () => {
     expect(screen.getByRole('button', { name: 'CRANE' }).getAttribute('aria-pressed')).toBe('false')
   })
 
-  test('the word box is labelled, and upper-cases as you type', () => {
+  test('the word box is labelled, keeps a lower-case value, and upper-cases by CSS', () => {
     render(createElement(WordPicker, { popular: POPULAR, currentWord: null, onPick: vi.fn() }))
-    type('sla')
-    expect(box().value).toBe('SLA')
+    type('SLa')
+    expect(box().value).toBe('sla')
+    expect(box().className.split(' ')).toContain('uppercase')
+    expect(box().getAttribute('autocapitalize')).toBe('characters')
   })
 
   test('typing slate and pressing Join calls onPick("slate")', async () => {
@@ -83,6 +85,16 @@ describe('WordPicker', () => {
     await joinEnabled()
     fireEvent.submit(box().form!)
     expect(onPick).toHaveBeenCalledWith('world')
+  })
+
+  test('accents fold rather than drop: cráne is CRANE, and valid', async () => {
+    const onPick = vi.fn()
+    render(createElement(WordPicker, { popular: POPULAR, currentWord: null, onPick }))
+    type('cráne')
+    expect(box().value).toBe('crane')
+    await joinEnabled()
+    fireEvent.click(join())
+    expect(onPick).toHaveBeenCalledWith('crane')
   })
 
   test('Join stays disabled and no hint shows until the word list has loaded', async () => {
@@ -134,5 +146,28 @@ describe('WordPicker', () => {
     expect(join().disabled).toBe(true)
     fireEvent.submit(box().form!)
     expect(onPick).not.toHaveBeenCalled()
+  })
+
+  test('a list that never loads does not dead-end: Join enables at five letters, with no hint', async () => {
+    vi.doMock('../../../convex/lib/answerWords.ts', () => {
+      throw new Error('chunk load failed')
+    })
+    try {
+      const onPick = vi.fn()
+      render(createElement(WordPicker, { popular: POPULAR, currentWord: null, onPick }))
+      type('xxxx')
+      // Settle the failed import, then check four letters still can't join.
+      await new Promise((r) => setTimeout(r, 50))
+      expect(join().disabled).toBe(true)
+      type('xxxxx')
+      await joinEnabled()
+      expect(screen.queryByText(HINT)).toBeNull()
+      expect(box().getAttribute('aria-invalid')).not.toBe('true')
+      fireEvent.submit(box().form!)
+      // The server is the authority: it refuses with UNKNOWN_WORD and the caller toasts.
+      expect(onPick).toHaveBeenCalledWith('xxxxx')
+    } finally {
+      vi.doUnmock('../../../convex/lib/answerWords.ts')
+    }
   })
 })
