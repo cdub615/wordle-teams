@@ -19,6 +19,7 @@ afterEach(cleanup)
 
 const groups = ['CRANE', 'SLATE', 'ADIEU'].map((name, i) => ({ _id: `g${i}`, name, memberCount: 3 }))
 const view = {
+  large: false as const,
   league: { slug: 'starting-words', name: 'Starting Words' },
   month: '2026-10',
   groups,
@@ -49,6 +50,9 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   onJoin: vi.fn(),
   onSwitch: vi.fn(),
   onLeave: vi.fn(),
+  onJoinWord: vi.fn(),
+  onSwitchWord: vi.fn(),
+  find: { onFind: vi.fn(), result: null },
   onUpgrade: vi.fn(),
   ...overrides,
 })
@@ -85,6 +89,9 @@ describe('LeaguePageView', () => {
     expect(screen.queryByRole('group', { name: 'Switch group' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Leave league' })).toBeNull()
     expect(screen.queryByTestId('league-membership')).toBeNull()
+    // A fixed league keeps its group buttons: no word box, no search.
+    expect(screen.queryByLabelText('Any Wordle answer word')).toBeNull()
+    expect(screen.queryByRole('search')).toBeNull()
   })
 
   test('the join note never promises "tomorrow" alone: a join opens on the 1st after another group this month', () => {
@@ -170,7 +177,7 @@ describe('LeaguePageView', () => {
     cleanup()
     show({ mine: { enabled: true, leagues: [crane] }, onUpgrade })
     fireEvent.click(screen.getByRole('button', { name: 'See how much you move CRANE' }))
-    expect(onUpgrade).toHaveBeenCalled()
+    expect(onUpgrade).toHaveBeenCalledWith('leagues')
     cleanup()
     show({ mine: { enabled: true, leagues: [crane] }, contribution: undefined })
     expect(screen.queryByRole('button', { name: 'See how much you move CRANE' })).toBeNull()
@@ -180,6 +187,126 @@ describe('LeaguePageView', () => {
     show({ mine: { enabled: true, leagues: [crane] }, busy: true })
     expect((screen.getByRole('button', { name: 'Leave league' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'SLATE' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
+/**
+ * v2a A7: a word league (`large`) gets the open-word picker, the sliced table,
+ * "Find a group" and at most one upgrade nudge (spec v2 §4.5, §4.6, §5).
+ */
+describe('LeaguePageView for a large league', () => {
+  const popular = [
+    { _id: 'g0', slug: 'crane', name: 'CRANE', memberCount: 5 },
+    { _id: 'g1', slug: 'slate', name: 'SLATE', memberCount: 4 },
+  ]
+  const shown = [
+    { groupId: 'g0', rank: 1, average: 3.8, boards: 142, contributors: 9 },
+    { groupId: 'g1', rank: 2, average: 4.1, boards: 96, contributors: 6 },
+  ]
+  const largeView = {
+    large: true as const,
+    leagueId: 'l1',
+    league: { slug: 'starting-words', name: 'Starting Words' },
+    month: '2026-10',
+    groups: [
+      { _id: 'g0', slug: 'crane', name: 'CRANE', memberCount: 5 },
+      { _id: 'g1', slug: 'slate', name: 'SLATE', memberCount: 4 },
+    ],
+    popular,
+    shown,
+    viewer: null,
+    unrankedCount: 2,
+    standings: shown,
+    lastMonth: null,
+    monthsWon: [],
+  }
+  const slate = { ...crane, group: { _id: 'g1', name: 'SLATE' } }
+  const pious = { ...crane, group: { _id: 'g9', name: 'PIOUS' } }
+  const showLarge = (viewOverrides: Record<string, unknown> = {}, overrides: Record<string, unknown> = {}) =>
+    show({ standings: { enabled: true, view: { ...largeView, ...viewOverrides } }, ...overrides })
+
+  test('a non-member gets the word picker: popular quick picks and any answer word, joined by word', () => {
+    const onJoinWord = vi.fn()
+    const onJoin = vi.fn()
+    showLarge({}, { onJoinWord, onJoin })
+    expect(screen.getByRole('heading', { name: 'Join the opener wars' })).toBeTruthy()
+    expect(screen.getByLabelText('Any Wordle answer word')).toBeTruthy()
+    const picker = screen.getByRole('group', { name: 'Choose a group' })
+    fireEvent.click(within(picker).getByRole('button', { name: 'SLATE' }))
+    expect(onJoinWord).toHaveBeenCalledWith('slate')
+    expect(onJoin).not.toHaveBeenCalled()
+  })
+
+  test('a member switches by word, with their group pressed', () => {
+    const onSwitchWord = vi.fn()
+    const onSwitch = vi.fn()
+    showLarge({}, { mine: { enabled: true, leagues: [slate] }, onSwitchWord, onSwitch })
+    const picker = screen.getByRole('group', { name: 'Switch group' })
+    expect(within(picker).getByRole('button', { name: 'SLATE' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(within(picker).getByRole('button', { name: 'CRANE' }))
+    expect(onSwitchWord).toHaveBeenCalledWith('crane')
+    expect(onSwitch).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Any Wordle answer word')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Leave league' })).toBeTruthy()
+  })
+
+  test("the viewer's row is appended after the shown rows, with the unranked count", () => {
+    const viewer = { groupId: 'g9', rank: 14, average: 4.6, boards: 20, contributors: 2 }
+    showLarge(
+      { viewer, standings: [...shown, viewer], groups: [...largeView.groups, { _id: 'g9', slug: 'pious', name: 'PIOUS', memberCount: 1 }] },
+      { mine: { enabled: true, leagues: [pious] } },
+    )
+    const rows = screen.getAllByRole('listitem').map((li) => li.getAttribute('data-testid'))
+    expect(rows.filter((r) => r?.startsWith('standing-'))).toEqual(['standing-CRANE', 'standing-SLATE', 'standing-PIOUS'])
+    expect(screen.getByTestId('standing-PIOUS').getAttribute('aria-current')).toBe('true')
+    expect(screen.getByText('2 more groups not ranked yet')).toBeTruthy()
+  })
+
+  test('Find a group goes through onFind and renders the route’s result', () => {
+    const onFind = vi.fn()
+    showLarge({}, { find: { onFind, result: { word: 'slate', standing: { group: { name: 'SLATE' }, boards: 0, average: null } } } })
+    const search = screen.getByRole('search', { name: 'Find a group' })
+    fireEvent.change(within(search).getByLabelText('Find a group'), { target: { value: 'crane' } })
+    fireEvent.click(within(search).getByRole('button', { name: 'Find' }))
+    expect(onFind).toHaveBeenCalledWith('crane')
+    expect(screen.getByTestId('league-find-result').textContent).toBe('No one plays for SLATE this month')
+  })
+
+  test('a locked member behind the leader gets the behind nudge, opening the upgrade with its origin', () => {
+    const onUpgrade = vi.fn()
+    showLarge({}, { mine: { enabled: true, leagues: [slate] }, onUpgrade })
+    const nudge = screen.getByTestId('league-nudge')
+    expect(nudge.textContent).toContain('SLATE is 0.3 guesses off the lead — see where you lose guesses.')
+    fireEvent.click(within(nudge).getByRole('button', { name: 'Upgrade' }))
+    expect(onUpgrade).toHaveBeenCalledWith('leagues-behind')
+  })
+
+  test('no nudge for an unlocked (Pro or trial) member, while the contribution loads, or for a non-member', () => {
+    showLarge({}, { mine: { enabled: true, leagues: [slate] }, contribution: { enabled: true, locked: false, contribution: null } })
+    expect(screen.queryByTestId('league-nudge')).toBeNull()
+    cleanup()
+    showLarge({}, { mine: { enabled: true, leagues: [slate] }, contribution: undefined })
+    expect(screen.queryByTestId('league-nudge')).toBeNull()
+    cleanup()
+    showLarge()
+    expect(screen.queryByTestId('league-nudge')).toBeNull()
+  })
+
+  test('the leader gets no behind nudge, but a closed month below 1st gets the result nudge', () => {
+    const onUpgrade = vi.fn()
+    showLarge({}, { mine: { enabled: true, leagues: [crane] } })
+    expect(screen.queryByTestId('league-nudge')).toBeNull()
+    cleanup()
+    showLarge({ lastMonth: { month: '2026-09', winnerGroupId: 'g1', viewerRank: 3 } }, { mine: { enabled: true, leagues: [crane] }, onUpgrade })
+    const nudge = screen.getByTestId('league-nudge')
+    expect(nudge.textContent).toContain('CRANE finished 3rd in September — see where your own guesses go.')
+    fireEvent.click(within(nudge).getByRole('button', { name: 'Upgrade' }))
+    expect(onUpgrade).toHaveBeenCalledWith('league-result')
+  })
+
+  test('a fixed league is unchanged: no nudge even when behind', () => {
+    show({ mine: { enabled: true, leagues: [{ ...crane, group: { _id: 'g1', name: 'SLATE' } }] } })
+    expect(screen.queryByTestId('league-nudge')).toBeNull()
   })
 })
 

@@ -1598,6 +1598,30 @@ describe('large-league standings', () => {
     })
   })
 
+  test('v2a A7: the page gets the league id and the popular quick picks, top 6 by members, with slugs', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const counts: Record<string, number> = { crane: 5, slate: 9, adieu: 1, stare: 3, orate: 7 }
+      for (const [slug, memberCount] of Object.entries(counts)) await ctx.db.patch(group[slug], { memberCount })
+      await ctx.db.insert('leagueGroups', { leagueId, slug: 'crate', name: 'CRATE', order: 50, memberCount: 4 })
+      await ctx.db.insert('leagueGroups', { leagueId, slug: 'pious', name: 'PIOUS', order: 51, memberCount: 0 })
+      const out = (await standingsFor(ctx, 'starting-words', '2026-10-07'))!
+      if (!out.large) throw new Error('expected the large shape')
+      expect(out.leagueId).toBe(leagueId)
+      expect(out.popular.map((g) => [g.slug, g.name, g.memberCount])).toEqual([
+        ['slate', 'SLATE', 9],
+        ['orate', 'ORATE', 7],
+        ['crane', 'CRANE', 5],
+        ['crate', 'CRATE', 4],
+        ['stare', 'STARE', 3],
+        ['adieu', 'ADIEU', 1],
+      ])
+      // Popular groups are not standings: an empty month still names no group.
+      expect(out.groups).toEqual([])
+    })
+  })
+
   test('lastMonth.viewerRank comes from the snapshot, and monthsWon lists winners only', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
