@@ -858,7 +858,7 @@ describe('closing a month', () => {
   test('writes a snapshot with standings and the winner', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
-      const { leagueId, group } = await seedStartingWords(ctx)
+      const { leagueId, group } = await seedFixedOpeners(ctx)
       await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.slate, year: 2026, month: 9, boards: 12, attempts: 42, contributors: 2 })
       await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 9, boards: 10, attempts: 40, contributors: 1 })
       expect(await closeLeagueMonthFor(ctx, leagueId, '2026-09')).toBe(true)
@@ -866,6 +866,27 @@ describe('closing a month', () => {
       expect(result.winnerGroupId).toBe(group.slate) // 3.5 beats 4.0
       expect(result.standings).toHaveLength(5)
       expect(result.standings[0]).toEqual({ groupId: group.slate, boards: 12, attempts: 42, average: 3.5, contributors: 2 })
+    })
+  })
+
+  test('a WORD league snapshots only the groups that played, ranked first in rank order', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const fresh = await ctx.db.insert('leagueGroups', { leagueId, slug: 'crate', name: 'CRATE', order: 50, memberCount: 0 })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.adieu, year: 2026, month: 9, boards: 3, attempts: 12, contributors: 1 })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 9, boards: 10, attempts: 40, contributors: 1 })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: fresh, year: 2026, month: 9, boards: 12, attempts: 42, contributors: 2 })
+      // October's row is a different month and must stay out.
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.stare, year: 2026, month: 10, boards: 30, attempts: 60, contributors: 3 })
+      expect(await closeLeagueMonthFor(ctx, leagueId, '2026-09')).toBe(true)
+      const [result] = await ctx.db.query('leagueMonthResults').collect()
+      expect(result.standings.map((s) => [s.groupId, s.average])).toEqual([
+        [fresh, 3.5],
+        [group.crane, 4],
+        [group.adieu, null],
+      ])
+      expect(result.winnerGroupId).toBe(fresh)
     })
   })
 
@@ -1078,6 +1099,61 @@ describe('myLeaguesFor', () => {
     } finally {
       err.mockRestore()
     }
+  })
+
+  test('a word league: rank among the ACTIVE groups only', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.orate, fromDay: '2026-09-01' })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 10, boards: 10, attempts: 30, contributors: 2 })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.orate, year: 2026, month: 10, boards: 10, attempts: 40, contributors: 2 })
+      const [row] = await myLeaguesFor(ctx, playerId, today)
+      expect(row).toMatchObject({ group: { _id: group.orate, name: 'ORATE' }, rank: 2, average: 4, boards: 10 })
+    })
+  })
+
+  test('a word league member whose group has no row this month: rank null, boards 0', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedStartingWords(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.stare, fromDay: '2026-09-01' })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 10, boards: 10, attempts: 30, contributors: 2 })
+      const [row] = await myLeaguesFor(ctx, playerId, today)
+      expect(row).toMatchObject({ group: { _id: group.stare, name: 'STARE' }, rank: null, average: null, boards: 0 })
+    })
+  })
+
+  test('a word-league membership naming another league’s group is skipped', async () => {
+    const t = convexTest(schema, modules)
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await t.run(async (ctx) => {
+        const { leagueId } = await seedStartingWords(ctx)
+        const otherId = await seedLeagueFor(ctx, { slug: 'other', name: 'Other', featured: false, groups: [{ slug: 'solo', name: 'Solo' }] }, 0)
+        const solo = (await groupsOf(ctx, otherId))[0]!
+        const playerId = await ctx.db.insert('players', aPlayer())
+        await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: solo._id, fromDay: '2026-09-01' })
+        expect(await myLeaguesFor(ctx, playerId, today)).toEqual([])
+      })
+      expect(err).toHaveBeenCalled()
+    } finally {
+      err.mockRestore()
+    }
+  })
+
+  test('a small fixed league still ranks against every group', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedFixedOpeners(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('leagueMemberships', { playerId, leagueId, groupId: group.slate, fromDay: '2026-09-01' })
+      await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.slate, year: 2026, month: 10, boards: 10, attempts: 35, contributors: 2 })
+      const [row] = await myLeaguesFor(ctx, playerId, today)
+      expect(row).toMatchObject({ group: { _id: group.slate, name: 'SLATE' }, rank: 1, average: 3.5, boards: 10 })
+    })
   })
 
   test('a left league is not listed', async () => {
@@ -1548,6 +1624,54 @@ describe('large-league standings', () => {
       expect(new Set(out.monthsWon)).toEqual(new Set([{ groupId: group.crane, count: 1 }, { groupId: group.orate, count: 1 }]))
       // Winners are named even when inactive this month.
       expect(new Set(out.groups.map((g) => g._id))).toEqual(new Set([group.crane, group.orate]))
+    })
+  })
+
+  test('a viewer whose group has no row this month is still returned, as a zero row', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { group, unranked } = await twelveActive(ctx)
+      const out = (await standingsFor(ctx, 'starting-words', '2026-10-07', group.orate))!
+      if (!out.large) throw new Error('expected the large shape')
+      expect(out.viewer).toEqual({ groupId: group.orate, order: 4, boards: 0, attempts: 0, contributors: 0, average: null, rank: null })
+      expect(out.unrankedCount).toBe(1) // active groups only
+      expect(out.standings.at(-1)?.groupId).toBe(group.orate)
+      expect(out.groups.find((g) => g._id === group.orate)).toMatchObject({ name: 'ORATE' })
+      expect(out.groups.map((g) => g._id)).not.toContain(unranked)
+    })
+  })
+
+  test('a viewerGroupId from another league is ignored', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await twelveActive(ctx)
+      const otherId = await seedLeagueFor(ctx, { slug: 'other', name: 'Other', featured: false, groups: [{ slug: 'x', name: 'X' }] }, 0)
+      const [x] = await groupsOf(ctx, otherId)
+      const out = (await standingsFor(ctx, 'starting-words', '2026-10-07', x._id))!
+      if (!out.large) throw new Error('expected the large shape')
+      expect(out.viewer).toBeNull()
+      expect(out.lastMonth).toBeNull()
+      expect(out.groups.map((g) => g._id)).not.toContain(x._id)
+    })
+  })
+
+  test('another league’s rows and snapshots never reach a large league', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group, ranked } = await twelveActive(ctx)
+      await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 9, standings: [], winnerGroupId: group.crane, closedAt: 0 })
+      const otherId = await seedLeagueFor(ctx, { slug: 'other', name: 'Other', featured: false, groups: [{ slug: 'x', name: 'X' }, { slug: 'y', name: 'Y' }] }, 0)
+      const [x, y] = await groupsOf(ctx, otherId)
+      await monthRow(ctx, otherId, x._id, 40, 80) // average 2.0: would top the table
+      await monthRow(ctx, otherId, y._id, 2, 8) // unranked
+      await ctx.db.insert('leagueMonthResults', { leagueId: otherId, year: 2026, month: 9, standings: [{ groupId: x._id, boards: 40, attempts: 80, average: 2, contributors: 1 }], winnerGroupId: x._id, closedAt: 0 })
+      await ctx.db.insert('leagueMonthResults', { leagueId: otherId, year: 2026, month: 8, standings: [], winnerGroupId: x._id, closedAt: 0 })
+      const out = (await standingsFor(ctx, 'starting-words', '2026-10-07'))!
+      if (!out.large) throw new Error('expected the large shape')
+      expect(out.shown.map((s) => s.groupId)).toEqual(ranked.slice(0, 10))
+      expect(out.unrankedCount).toBe(1)
+      expect(out.monthsWon).toEqual([{ groupId: group.crane, count: 1 }])
+      expect(out.lastMonth).toEqual({ month: '2026-09', winnerGroupId: group.crane, viewerRank: null })
     })
   })
 
