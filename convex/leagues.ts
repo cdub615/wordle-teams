@@ -300,8 +300,9 @@ export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDa
     month,
     groups: named.map(groupView),
     // The word picker's quick picks, as leaguesFor offers them. NOT referenced by
-    // the standings, so not in `groups`.
-    popular: (await popularGroupsOf(ctx, league._id)).map(groupView),
+    // the standings, so not in `groups`. Empty for a fixed league, whose picker
+    // uses `pickable`, so it is never read there.
+    popular: allGroups ? [] : (await popularGroupsOf(ctx, league._id)).map(groupView),
     shown,
     viewer,
     unrankedCount,

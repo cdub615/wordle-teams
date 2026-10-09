@@ -44,6 +44,11 @@ function LeaguePage() {
  * keep rendering through both. Safe because the component is keyed by slug, so
  * the last answer is always this league's. React's "store information from
  * previous renders" pattern: a state update during render, not a ref.
+ *
+ * IT RELIES ON STABLE DATA IDENTITY. React Query's structural sharing hands back
+ * the same object until the answer changes, so `data !== last` settles after one
+ * update. A `select` that returns a fresh object every render would make it
+ * true forever and loop ("Too many re-renders").
  */
 function useLastData<T>(data: T | undefined): T | undefined {
   const [last, setLast] = useState(data)
@@ -121,6 +126,8 @@ function LeagueFor({ slug }: { slug: string }) {
       today={today}
       standings={standings}
       mine={mine}
+      // Rendering the last answer through an error: say so, rather than pass it off as live.
+      stale={Boolean((standingsQuery.error && standings) || (mineQuery.error && mine))}
       contribution={contribution}
       busy={join.isPending || change.isPending || joinWord.isPending || switchWord.isPending || leave.isPending}
       onJoin={(groupId) =>

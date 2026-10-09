@@ -134,6 +134,8 @@ type Props = {
   /** A large league's "Find a group": the route owns the groupStanding query. */
   find: { onFind: (word: string) => void; result: FindResult | null }
   onUpgrade: (origin: UpgradeOrigin) => void
+  /** The route is showing the last standings or memberships it had, through a query error. */
+  stale?: boolean
 }
 
 /**
@@ -155,6 +157,7 @@ export function LeaguePageView({
   onLeave,
   find,
   onUpgrade,
+  stale = false,
 }: Props) {
   if (!standings.enabled || !mine.enabled) {
     return (
@@ -238,6 +241,11 @@ export function LeaguePageView({
             Your boards count from tomorrow, or from the 1st if you were in another group this month.
           </p>
         </section>
+      )}
+      {stale && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Couldn’t refresh the standings — showing the last ones we had.
+        </p>
       )}
       {view.large ? (
         <LeagueStandings

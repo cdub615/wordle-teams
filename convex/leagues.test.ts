@@ -1713,6 +1713,7 @@ describe('large-league standings', () => {
       expect(out.standings.map((s) => s.groupId)).toEqual([a._id])
       // Its picker gets EVERY group, not just the active one.
       expect(out.groupSource).toBe('fixed')
+      expect(out.popular).toEqual([])
       expect(out.pickable?.map((g) => g.slug)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g'])
     })
   })

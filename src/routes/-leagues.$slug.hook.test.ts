@@ -21,6 +21,7 @@ vi.mock('../../convex/_generated/api', () => ({
 type Call = { fn: string; args: unknown }
 const queries: Call[] = []
 const answers: Record<string, unknown> = {}
+const errors: Record<string, Error> = {}
 const mutations: Record<string, ReturnType<typeof vi.fn>> = {}
 
 vi.mock('@convex-dev/react-query', () => ({
@@ -31,7 +32,7 @@ vi.mock('@convex-dev/react-query', () => ({
 vi.mock('@tanstack/react-query', () => ({
   useQuery: (q: Call) => {
     queries.push(q)
-    return { data: q.args === 'skip' ? undefined : answers[q.fn], error: null }
+    return { data: q.args === 'skip' ? undefined : answers[q.fn], error: errors[q.fn] ?? null }
   },
   useMutation: ({ mutationFn }: { mutationFn: (args: unknown) => Promise<unknown> }) => ({ mutateAsync: mutationFn, isPending: false }),
 }))
@@ -78,6 +79,7 @@ const last = (fn: string) => queries.filter((q) => q.fn === fn).at(-1)?.args
 beforeEach(() => {
   queries.length = 0
   for (const k of Object.keys(answers)) delete answers[k]
+  for (const k of Object.keys(errors)) delete errors[k]
   for (const k of Object.keys(mutations)) delete mutations[k]
   answers.standings = { enabled: true, view: largeView }
 })
@@ -104,6 +106,22 @@ describe('/leagues/$slug wiring', () => {
     fireEvent.change(within(search).getByLabelText('Find a group'), { target: { value: 'crane' } })
     fireEvent.click(within(search).getByRole('button', { name: 'Find' }))
     expect(last('groupStanding')).toMatchObject({ slug: 'starting-words', word: 'crane' })
+  })
+
+  test('an error alongside data keeps the page and says the standings are stale', () => {
+    answers.myLeagues = { enabled: true, leagues: [slate] }
+    page()
+    expect(screen.queryByRole('status')).toBeNull()
+    cleanup()
+    errors.standings = new Error('subscription dropped')
+    page()
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Starting Words')
+    expect(screen.getByRole('status').textContent).toBe('Couldn’t refresh the standings — showing the last ones we had.')
+    cleanup()
+    delete errors.standings
+    errors.myLeagues = new Error('subscription dropped')
+    page()
+    expect(screen.getByRole('status')).toBeTruthy()
   })
 
   test('joinWord gets the league id, the word and a day', () => {
