@@ -899,8 +899,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index('by_slug', ['slug'])
-    // THE region league (leagues.ts regionLeagueOf), read on every board write
-    // by a player with a mapped time zone.
+    // THE region league (leagues.ts regionLeagueOf), read on every board write:
+    // it runs before the player is read, so even an un-zoned player pays it.
     .index('by_kind', ['kind']),
 
   leagueGroups: defineTable({

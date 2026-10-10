@@ -46,6 +46,25 @@ export function regionGroupFor<G extends string>(f: { optedOut: boolean; stickyG
 }
 
 /**
+ * WHICH OPT-OUT AND REJOIN BIND `month` (controller 2026-10-09). Both are
+ * DATED: leaving removes THIS month's row, not history. An opt-out binds only
+ * its own month and later ones, and a rejoin day only its own month and later
+ * ones. Without this, a board backfilled into an earlier month (or that
+ * month's recompute) would see today's opt-out, or a rejoin day later than
+ * every one of its days, and recompute the month's region row to nothing,
+ * making a leave retroactive.
+ */
+export function regionRulesFor(
+  month: PuzzleMonth,
+  f: { optOutDay: PuzzleDay | null; rejoinFrom: PuzzleDay | null },
+): { optedOut: boolean; rejoinFrom: PuzzleDay | null } {
+  return {
+    optedOut: f.optOutDay !== null && month >= monthOf(f.optOutDay),
+    rejoinFrom: f.rejoinFrom !== null && month >= monthOf(f.rejoinFrom) ? f.rejoinFrom : null,
+  }
+}
+
+/**
  * THE FIRST DAY a region board counts (owner 2026-10-09): the day after the
  * league was seeded (never retroactive, like a join), or `rejoinFrom` (the day
  * after a rejoin) if later.

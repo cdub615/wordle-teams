@@ -690,9 +690,9 @@ export async function upsertBoardFor(
   await recomputePlayerMonth(ctx, playerId, monthOf(puzzleDay), today)
   // PUBLIC LEAGUES (zic8.3): every board counts for the player's group too. NOT
   // gated on LEAGUES_ENABLED — the aggregate must already be right on the day
-  // the flag flips, and for a non-member this is a few point reads. REGION
-  // PLACEMENT (v2b) is not gated either (spec v2 §6): a player with a mapped
-  // time zone is placed in their region by this same call.
+  // the flag flips, and for a non-member with no mapped time zone this is a few
+  // point reads. REGION PLACEMENT (v2b) is not gated either (spec v2 §6): a
+  // player with a mapped time zone is placed in their region by this same call.
   await recomputeLeagueMonthFor(ctx, playerId, monthOf(puzzleDay))
   return { action }
 }

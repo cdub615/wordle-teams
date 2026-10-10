@@ -7,7 +7,7 @@ import { attemptsFor } from './lib/board.ts'
 import { addDays, addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { insightsAccess } from './lib/insightsAccess.ts'
 import { isAnswerWord, normalizeWord } from './lib/answerWords.ts'
-import { contributionOf, contributionUnlocked, groupAverageOf, groupDelta, isLargeLeague, largeLeagueSlice, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, OPENER_LEAGUE_SLUG, PICKER_INLINE_MAX, planJoin, planLeave, planSwitch, regionCountsFrom, regionGroupFor, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
+import { contributionOf, contributionUnlocked, groupAverageOf, groupDelta, isLargeLeague, largeLeagueSlice, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, OPENER_LEAGUE_SLUG, PICKER_INLINE_MAX, planJoin, planLeave, planSwitch, regionCountsFrom, regionGroupFor, regionRulesFor, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
 import type { Interval, LeagueKind, MembershipPlan, Standing } from './lib/league.ts'
 import { REGIONS, regionOf } from './lib/regions.ts'
@@ -622,24 +622,38 @@ type Placement = { groupId: GroupId; fromDay: PuzzleDay; sticky: boolean }
  * STICKY FOR THE MONTH: a member-month row already in the region league wins
  * over the time zone, so a zone change takes effect next month. With no row
  * yet, the CURRENT zone places (decision 4): a change before any board this
- * month moves the player at once, since there is nothing to stick to.
+ * month moves the player at once, since there is nothing to stick to. That
+ * holds for a PAST month too: a board backfilled into a month with no row
+ * places by today's zone. And stickiness IS the row: deleting the boards that
+ * made it deletes the row, and the next board places by the current zone.
+ *
+ * DATED OPT-OUT AND REJOIN (regionRulesFor): each binds only its own month and
+ * later ones, so leaving is never retroactive.
  *
  * OPEN-ENDED FROM regionCountsFrom: the day after the seed, or after a rejoin.
  *
- * NEVER THROWS: a zone with no seeded group is logged and places nowhere, since
- * this runs inside every board write.
+ * `stickyRow`: the caller's own read of this month's region row (null for
+ * none), which saves a read on every board write. Undefined reads it here.
+ *
+ * NEVER THROWS, since this runs inside every board write: .first(), never
+ * .unique() (plan decision 2), so duplicate rows cannot fail a write; and a
+ * zone with no seeded group is logged and places nowhere.
  */
 export async function regionPlacementOf(
   ctx: ReaderCtx,
   player: Doc<'players'>,
   league: Doc<'leagues'>,
   month: PuzzleMonth,
+  stickyRow?: Doc<'leagueMemberMonth'> | null,
 ): Promise<Placement | null> {
   const { year, month: m } = yearMonthOf(month)
-  const row = await ctx.db
-    .query('leagueMemberMonth')
-    .withIndex('by_player_league_year_month', (q) => q.eq('playerId', player._id).eq('leagueId', league._id).eq('year', year).eq('month', m))
-    .unique()
+  const row =
+    stickyRow !== undefined
+      ? stickyRow
+      : await ctx.db
+          .query('leagueMemberMonth')
+          .withIndex('by_player_league_year_month', (q) => q.eq('playerId', player._id).eq('leagueId', league._id).eq('year', year).eq('month', m))
+          .first()
   let zoneGroupId: GroupId | null = null
   // A sticky row decides alone, so the zone's group is not even read.
   const region = row ? null : regionOf(player.timeZone)
@@ -647,13 +661,17 @@ export async function regionPlacementOf(
     const group = await ctx.db
       .query('leagueGroups')
       .withIndex('by_league_and_slug', (q) => q.eq('leagueId', league._id).eq('slug', region.slug))
-      .unique()
+      .first()
     if (group) zoneGroupId = group._id
     else console.error(`leagues: region ${region.slug} has no seeded group in league ${league._id}`)
   }
-  const groupId = regionGroupFor({ optedOut: player.regionLeagueOptOut !== undefined, stickyGroupId: row?.groupId ?? null, zoneGroupId })
+  const rules = regionRulesFor(month, {
+    optOutDay: player.regionLeagueOptOut === undefined ? null : toPuzzleDay(new Date(player.regionLeagueOptOut)),
+    rejoinFrom: player.regionLeagueFrom ?? null,
+  })
+  const groupId = regionGroupFor({ optedOut: rules.optedOut, stickyGroupId: row?.groupId ?? null, zoneGroupId })
   if (groupId === null) return null
-  const fromDay = regionCountsFrom(toPuzzleDay(new Date(league.createdAt)), player.regionLeagueFrom ?? null)
+  const fromDay = regionCountsFrom(toPuzzleDay(new Date(league.createdAt)), rules.rejoinFrom)
   return { groupId, fromDay, sticky: row !== null }
 }
 
@@ -673,10 +691,11 @@ export async function regionPlacementOf(
  * nothing. A region has NO membership rows: its placement IS the interval.
  *
  * COST: for a player who has never joined a league AND has no mapped time zone,
- * a handful of point reads and nothing else: the membership and member-month
- * index reads (bounded to the player and, for member-month, to ONE month, never
- * their history), the region league lookup and, once it is seeded, the player
- * doc and their region member-month row. A player WITH a
+ * four cheap reads and nothing else: the membership and member-month index
+ * reads (bounded to the player and, for member-month, to ONE month, never their
+ * history), the by_kind region league lookup and, once it is seeded, the player
+ * doc. Their region row comes from the member-month read already made. A
+ * player WITH a
  * mapped zone now pays the member cost on every board write (plan decision 9):
  * the player doc, the region group, their month's boards and one group-month
  * row. Every US Eastern board writes the SAME leagueGroupMonth row, which makes
@@ -713,7 +732,8 @@ export async function recomputeLeagueMonthFor(ctx: WriterCtx, playerId: Id<'play
   const regionLeague = await regionLeagueOf(ctx)
   if (regionLeague) {
     const player = await ctx.db.get(playerId)
-    const placed = player ? await regionPlacementOf(ctx, player, regionLeague, month) : null
+    const sticky = existing.find((r) => r.leagueId === regionLeague._id) ?? null
+    const placed = player ? await regionPlacementOf(ctx, player, regionLeague, month, sticky) : null
     if (placed) byLeague.set(regionLeague._id, [{ groupId: placed.groupId, fromDay: placed.fromDay }])
   }
   if (byLeague.size === 0) return
