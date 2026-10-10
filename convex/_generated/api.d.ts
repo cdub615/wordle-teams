@@ -50,6 +50,7 @@ import type * as lib_pushErrors from "../lib/pushErrors.js";
 import type * as lib_pushText from "../lib/pushText.js";
 import type * as lib_puzzleDay from "../lib/puzzleDay.js";
 import type * as lib_redate from "../lib/redate.js";
+import type * as lib_regions from "../lib/regions.js";
 import type * as lib_relyingParty from "../lib/relyingParty.js";
 import type * as lib_reminders from "../lib/reminders.js";
 import type * as lib_scoring from "../lib/scoring.js";
@@ -124,6 +125,7 @@ declare const fullApi: ApiFromModules<{
   "lib/pushText": typeof lib_pushText;
   "lib/puzzleDay": typeof lib_puzzleDay;
   "lib/redate": typeof lib_redate;
+  "lib/regions": typeof lib_regions;
   "lib/relyingParty": typeof lib_relyingParty;
   "lib/reminders": typeof lib_reminders;
   "lib/scoring": typeof lib_scoring;
