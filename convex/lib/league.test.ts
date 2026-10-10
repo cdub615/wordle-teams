@@ -21,10 +21,14 @@ import {
   memberTotalsFor,
   MIN_LEAGUE_BOARDS,
   monthToClose,
+  OPENER_LEAGUE_SLUG,
   PICKER_INLINE_MAX,
+  pickerModeFor,
   planJoin,
   planLeave,
   planSwitch,
+  regionCountsFrom,
+  regionGroupFor,
   standingsOf,
   winnerOf,
   yearMonthOf,
@@ -644,5 +648,59 @@ describe('largeLeagueSlice', () => {
   test('no viewer, or a viewer with no row this month, adds nothing', () => {
     expect(largeLeagueSlice(table(12), null).viewer).toBeNull()
     expect(largeLeagueSlice(table(12), 'absent').viewer).toBeNull()
+  })
+})
+
+describe('regionGroupFor', () => {
+  test('opted out is no group, even with a row this month', () => {
+    expect(regionGroupFor({ optedOut: true, stickyGroupId: 'g1', zoneGroupId: 'g2' })).toBeNull()
+  })
+  test('MONTH-STICKY: the existing row beats the zone', () => {
+    expect(regionGroupFor({ optedOut: false, stickyGroupId: 'g1', zoneGroupId: 'g2' })).toBe('g1')
+  })
+  test('no row this month: the zone decides', () => {
+    expect(regionGroupFor({ optedOut: false, stickyGroupId: null, zoneGroupId: 'g2' })).toBe('g2')
+  })
+  test('neither a row nor a mapped zone is no group', () => {
+    expect(regionGroupFor({ optedOut: false, stickyGroupId: null, zoneGroupId: null })).toBeNull()
+  })
+})
+
+describe('regionCountsFrom', () => {
+  test('never rejoined: the day after the seed', () => {
+    expect(regionCountsFrom('2026-10-09', null)).toBe('2026-10-10')
+  })
+  test('a rejoin before the launch day does not pull boards forward', () => {
+    expect(regionCountsFrom('2026-10-09', '2026-10-05')).toBe('2026-10-10')
+    expect(regionCountsFrom('2026-10-09', '2026-10-10')).toBe('2026-10-10')
+  })
+  test('a later rejoin wins', () => {
+    expect(regionCountsFrom('2026-10-09', '2026-10-20')).toBe('2026-10-20')
+  })
+  test('a seed on a month’s last day counts from the 1st', () => {
+    expect(regionCountsFrom('2026-10-31', null)).toBe('2026-11-01')
+    expect(regionCountsFrom('2026-12-31', null)).toBe('2027-01-01')
+  })
+})
+
+describe('pickerModeFor', () => {
+  test('a region league has no picker, whatever its groupSource', () => {
+    expect(pickerModeFor({ kind: 'region' })).toBe('none')
+    expect(pickerModeFor({ kind: 'region', groupSource: 'answer-words' })).toBe('none')
+  })
+  test('a word league picks by word', () => {
+    expect(pickerModeFor({ kind: 'picked', groupSource: 'answer-words' })).toBe('words')
+    expect(pickerModeFor({ groupSource: 'answer-words' })).toBe('words')
+  })
+  test('anything else picks by group button, kind absent included', () => {
+    expect(pickerModeFor({ kind: 'picked', groupSource: 'fixed' })).toBe('groups')
+    expect(pickerModeFor({ groupSource: 'fixed' })).toBe('groups')
+    expect(pickerModeFor({})).toBe('groups')
+  })
+})
+
+describe('OPENER_LEAGUE_SLUG', () => {
+  test('is Starting Words', () => {
+    expect(OPENER_LEAGUE_SLUG).toBe('starting-words')
   })
 })

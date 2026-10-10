@@ -8,8 +8,9 @@ import { insightsAccess } from './lib/insightsAccess.ts'
 import { contributionUnlocked } from './lib/league.ts'
 import { aPlayer, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
+import { REGIONS } from './lib/regions.ts'
 import { upsertBoardFor } from './scores.ts'
-import { closeLeagueMonthFor, dismissLeagueOfferFor, groupStandingFor, groupsOf, joinGroupFor, joinWordFor, leaguesFor, leaveLeagueFor, myContributionFor, myLeaguesFor, readToday, recomputeLeagueMonthFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor, switchWordFor } from './leagues.ts'
+import { closeLeagueMonthFor, dismissLeagueOfferFor, groupStandingFor, groupsOf, joinGroupFor, joinWordFor, leaguesFor, leaveLeagueFor, myContributionFor, myLeaguesFor, readToday, recomputeLeagueMonthFor, REGION_LEAGUE, regionLeagueOf, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor, switchWordFor } from './leagues.ts'
 import type { DataModel, Id } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 
@@ -1871,5 +1872,149 @@ describe('the standings and groupStanding wrappers', () => {
   test('groupStanding is dark when leagues are off', async () => {
     const { as, day } = await setup('darksearch@example.com')
     expect(await as.query(api.leagues.groupStanding, { slug: 'starting-words', today: day, word: 'slate' })).toEqual({ enabled: false })
+  })
+})
+
+/**
+ * v2b's AUTOMATIC REGION LEAGUE (wordle-teams-zic8.3.21): seeded like any
+ * league, but placement is by time zone, so every picked-league write refuses it.
+ */
+describe('the region league', () => {
+  beforeEach(() => vi.useFakeTimers({ now: NOW, toFake: ['Date'] }))
+  afterEach(() => vi.useRealTimers())
+
+  const codeOf = async (p: Promise<unknown>) => {
+    try {
+      await p
+      return null
+    } catch (error) {
+      return (error as { data?: { code?: string } }).data?.code ?? String(error)
+    }
+  }
+  async function seedRegions(ctx: Ctx) {
+    const leagueId = await seedLeagueFor(ctx, REGION_LEAGUE, 0)
+    const groups = await groupsOf(ctx, leagueId)
+    return { leagueId, groups }
+  }
+
+  test('seeds kind region and the twelve REGIONS, in order', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, groups } = await seedRegions(ctx)
+      expect(await ctx.db.get(leagueId)).toMatchObject({ slug: 'regions', name: 'Regions', featured: false, kind: 'region' })
+      expect(groups.map((g) => [g.slug, g.name])).toEqual(REGIONS.map((r) => [r.slug, r.name]))
+      expect(groups).toHaveLength(12)
+    })
+  })
+
+  test('a Starting Words seed writes no kind: absent means picked', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedStartingWords(ctx)
+      expect((await ctx.db.get(leagueId))!.kind).toBeUndefined()
+    })
+  })
+
+  test('a re-seed is idempotent and patches kind onto a league that lacked it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const legacy = await ctx.db.insert('leagues', { slug: 'regions', name: 'Regions', featured: false, createdAt: 50 })
+      const id = await seedLeagueFor(ctx, REGION_LEAGUE, 999)
+      expect(id).toBe(legacy)
+      expect(await seedLeagueFor(ctx, REGION_LEAGUE, 1999)).toBe(legacy)
+      expect(await ctx.db.get(legacy)).toMatchObject({ kind: 'region', createdAt: 50 })
+      expect(await ctx.db.query('leagues').collect()).toHaveLength(1)
+      expect(await ctx.db.query('leagueGroups').collect()).toHaveLength(12)
+    })
+  })
+
+  test('regionLeagueOf is null before the seed and the league after', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await seedStartingWords(ctx)
+      expect(await regionLeagueOf(ctx)).toBeNull()
+      const { leagueId } = await seedRegions(ctx)
+      expect((await regionLeagueOf(ctx))?._id).toBe(leagueId)
+    })
+  })
+
+  test('leaguesFor carries kind for both leagues', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await seedStartingWords(ctx)
+      await seedRegions(ctx)
+      const out = await leaguesFor(ctx)
+      expect(out.map((l) => [l.slug, l.kind]).sort()).toEqual([
+        ['regions', 'region'],
+        ['starting-words', 'picked'],
+      ])
+      expect(out.find((l) => l.kind === 'region')!.groups).toHaveLength(12)
+    })
+  })
+
+  test('joinGroupFor and switchGroupFor refuse a region group AUTOMATIC_LEAGUE and write nothing', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { groups } = await seedRegions(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect(await codeOf(joinGroupFor(ctx, playerId, { groupId: groups[0]._id, today }))).toBe('AUTOMATIC_LEAGUE')
+      expect(await codeOf(switchGroupFor(ctx, playerId, { groupId: groups[0]._id, today }))).toBe('AUTOMATIC_LEAGUE')
+      expect(await ctx.db.query('leagueMemberships').collect()).toEqual([])
+      expect((await ctx.db.get(playerId))!.leagueJoinedAt).toBeUndefined()
+    })
+  })
+
+  test('a group whose league is missing is UNKNOWN_LEAGUE', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, groups } = await seedRegions(ctx)
+      await ctx.db.delete(leagueId)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect(await codeOf(joinGroupFor(ctx, playerId, { groupId: groups[0]._id, today }))).toBe('UNKNOWN_LEAGUE')
+      expect(await codeOf(switchGroupFor(ctx, playerId, { groupId: groups[0]._id, today }))).toBe('UNKNOWN_LEAGUE')
+    })
+  })
+
+  test('joinWordFor and switchWordFor refuse the region league AUTOMATIC_LEAGUE and create no group', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedRegions(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect(await codeOf(joinWordFor(ctx, playerId, { leagueId, word: 'crane', today }))).toBe('AUTOMATIC_LEAGUE')
+      expect(await codeOf(switchWordFor(ctx, playerId, { leagueId, word: 'crane', today }))).toBe('AUTOMATIC_LEAGUE')
+      expect(await ctx.db.query('leagueGroups').collect()).toHaveLength(12)
+      expect(await ctx.db.query('leagueMemberships').collect()).toEqual([])
+    })
+  })
+
+  test('leaveLeagueFor refuses the region league AUTOMATIC_LEAGUE', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId } = await seedRegions(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer())
+      expect(await codeOf(leaveLeagueFor(ctx, playerId, { leagueId, today }))).toBe('AUTOMATIC_LEAGUE')
+    })
+  })
+})
+
+/** THROUGH THE WRAPPER, with a real Better Auth session, at real time. */
+describe('joinGroup refuses a region group', () => {
+  const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth/**/*.ts'))
+  afterEach(() => vi.unstubAllEnvs())
+
+  test('AUTOMATIC_LEAGUE, and no membership row', async () => {
+    vi.stubEnv('LEAGUES_ENABLED', 'true')
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const groupId = await t.run(async (ctx) => {
+      await ctx.db.insert('players', aPlayer({ email: 'region@example.com' }))
+      const leagueId = await seedLeagueFor(ctx, REGION_LEAGUE, 0)
+      return (await groupsOf(ctx, leagueId))[0]._id
+    })
+    const as = await authenticatedAs(t, 'region@example.com')
+    await expect(as.mutation(api.leagues.joinGroup, { groupId, today: toPuzzleDay(new Date()) })).rejects.toMatchObject({
+      data: { code: 'AUTOMATIC_LEAGUE' },
+    })
+    expect(await t.run((ctx) => ctx.db.query('leagueMemberships').collect())).toEqual([])
   })
 })
