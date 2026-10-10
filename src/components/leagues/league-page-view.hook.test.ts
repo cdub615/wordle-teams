@@ -20,6 +20,7 @@ afterEach(cleanup)
 const groups = ['CRANE', 'SLATE', 'ADIEU'].map((name, i) => ({ _id: `g${i}`, name, memberCount: 3 }))
 const view = {
   large: false as const,
+  kind: 'picked' as const,
   league: { slug: 'starting-words', name: 'Starting Words' },
   month: '2026-10',
   groups,
@@ -205,6 +206,7 @@ describe('LeaguePageView for a large league', () => {
   ]
   const largeView = {
     large: true as const,
+    kind: 'picked' as const,
     groupSource: 'answer-words' as const,
     leagueId: 'l1',
     pickable: null,
@@ -345,6 +347,123 @@ describe('LeaguePageView for a large league', () => {
     expect(onJoin).toHaveBeenCalledWith('f6')
     expect(onJoinWord).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  test('"Find a group" only for a word league: a large FIXED league has no search', () => {
+    // It searches 5-letter words (decision 5), so it is wrong for any other group source.
+    showLarge()
+    expect(screen.getByRole('search', { name: 'Find a group' })).toBeTruthy()
+    cleanup()
+    const seven = ['AA', 'BB', 'CC', 'DD', 'EE', 'FF', 'GG'].map((name, i) => ({ _id: `f${i}`, slug: name.toLowerCase(), name, memberCount: i }))
+    showLarge({ groupSource: 'fixed', pickable: seven, popular: seven.slice(0, 6), groups: seven.slice(0, 1) })
+    expect(screen.queryByRole('search')).toBeNull()
+    expect(screen.queryByText('Find a group')).toBeNull()
+  })
+})
+
+/**
+ * The region league (v2b): placement is automatic, so the RegionPanel stands
+ * in for the membership line, the join section and the switch section. Since
+ * B5 myLeagues sends a region row, so without the region branch the page would
+ * treat it as a picked membership and offer Switch and Leave league.
+ */
+describe('LeaguePageView for the region league', () => {
+  const regions = ['US Eastern', 'US Central', 'US Mountain', 'US Pacific', 'Alaska', 'Hawaii', 'UK & Ireland', 'Western Europe', 'Eastern Europe', 'India', 'East Asia', 'Australia & Pacific'].map(
+    (name, i) => ({ _id: `r${i}`, slug: `r${i}`, name, memberCount: 0 }),
+  )
+  const shown = [
+    { groupId: 'r0', rank: 1, average: 3.7, boards: 400, contributors: 60 },
+    { groupId: 'r1', rank: 2, average: 3.9, boards: 300, contributors: 40 },
+  ]
+  const regionView = {
+    large: true as const,
+    kind: 'region' as const,
+    groupSource: 'fixed' as const,
+    leagueId: 'R',
+    pickable: regions,
+    popular: regions.slice(0, 6),
+    league: { slug: 'regions', name: 'Regions' },
+    month: '2026-10',
+    groups: regions.slice(0, 2),
+    shown,
+    viewer: null,
+    unrankedCount: 0,
+    standings: shown,
+    lastMonth: null,
+    monthsWon: [],
+  }
+  const regionRow = {
+    kind: 'region' as const,
+    league: { slug: 'regions', name: 'Regions' },
+    leagueId: 'R',
+    group: { _id: 'r1', name: 'US Central' },
+    since: '2026-10-01',
+    pending: null,
+  }
+  const placed = { state: 'placed' as const, group: { _id: 'r1', name: 'US Central' }, countsFrom: '2026-10-01', next: null }
+  const showRegion = (overrides: Record<string, unknown> = {}) =>
+    show({
+      slug: 'regions',
+      standings: { enabled: true, view: regionView },
+      mine: { enabled: true, leagues: [regionRow] },
+      region: { status: placed, onLeave: vi.fn(), onRejoin: vi.fn() },
+      ...overrides,
+    })
+
+  test('a placed player gets the panel, and no picker, membership line, switch or Leave league', () => {
+    showRegion()
+    expect(screen.getByRole('region', { name: 'Your region' })).toBeTruthy()
+    expect(screen.getByTestId('region-status').textContent).toBe('You’re in US Central, based on your time zone.')
+    expect(screen.queryByTestId('league-membership')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Join the opener wars' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Switch group' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Switch group' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Pick a group' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Leave league' })).toBeNull()
+    // Standings still mark the viewer's region, from the region row.
+    expect(screen.getByTestId('standing-US Central').textContent).toContain('you')
+  })
+
+  test('an opted-out player (no region row) gets Rejoin, and no picker to join with', () => {
+    const onRejoin = vi.fn()
+    showRegion({ mine: { enabled: true, leagues: [] }, region: { status: { state: 'opted-out' }, onLeave: vi.fn(), onRejoin } })
+    expect(screen.queryByRole('heading', { name: 'Join the opener wars' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Choose a group' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Pick a group' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Rejoin' }))
+    expect(onRejoin).toHaveBeenCalledTimes(1)
+  })
+
+  test('Leave region goes to the region callback, never to onLeave', () => {
+    const onLeave = vi.fn()
+    const leaveRegion = vi.fn()
+    showRegion({ onLeave, region: { status: placed, onLeave: leaveRegion, onRejoin: vi.fn() } })
+    fireEvent.click(screen.getByRole('button', { name: 'Leave region' }))
+    expect(leaveRegion).toHaveBeenCalledTimes(1)
+    expect(onLeave).not.toHaveBeenCalled()
+  })
+
+  test('busy reaches the panel', () => {
+    showRegion({ busy: true })
+    expect((screen.getByRole('button', { name: 'Leave region' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  test('no "Find a group": regions are not words', () => {
+    showRegion()
+    expect(screen.queryByRole('search')).toBeNull()
+    expect(screen.queryByText('Find a group')).toBeNull()
+  })
+
+  test('the contribution row and nudge render as for any league', () => {
+    showRegion()
+    expect(screen.getByRole('button', { name: 'See how much you move US Central' })).toBeTruthy()
+    expect(screen.getByTestId('league-nudge').textContent).toContain('US Central is 0.2 guesses off the lead')
+  })
+
+  test('a picked league never renders the region panel', () => {
+    show({ region: { status: placed, onLeave: vi.fn(), onRejoin: vi.fn() } })
+    expect(screen.queryByRole('region', { name: 'Your region' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Join the opener wars' })).toBeTruthy()
   })
 })
 
