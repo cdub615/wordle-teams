@@ -50,6 +50,7 @@ import {
 } from '#/components/dashboard-skeletons.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { monthWindowFor, proTeaserMonth } from '../../convex/lib/monthWindow.ts'
+import { OPENER_LEAGUE_SLUG } from '../../convex/lib/league.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
 /**
@@ -860,10 +861,11 @@ function Dashboard() {
       }}
       onTeam={() => setCreateOpen(true)}
       // PUBLIC LEAGUES (zic8.3): THE teamless league offer — the leagues card
-      // never shows its picker on the team-less branch. /leagues redirects to
-      // the featured league's page while there is exactly one, which is where
-      // the "Join the opener wars" picker lives.
-      onLeague={() => void navigate({ to: '/leagues' })}
+      // never shows its picker on the team-less branch. STRAIGHT TO THE OPENER
+      // LEAGUE, where the "Join the opener wars" picker lives (v2b decision 7):
+      // with a region league beside it, /leagues is the directory rather than
+      // a redirect to the one league, and the step's copy names this league.
+      onLeague={() => void navigate({ to: '/leagues/$slug', params: { slug: OPENER_LEAGUE_SLUG } })}
       // OPENS THE DIALOG HERE RATHER THAN NAVIGATING TO /team, which is what
       // this used to do. The task's whole job is to get one more person into
       // the room, and a route change to a settings page — where the invite

@@ -2,6 +2,8 @@ import { Link } from '@tanstack/react-router'
 
 /** PLAIN STRUCTURAL SHAPE of one api.leagues.myLeagues row. */
 export type MyLeagueRowData = {
+  /** 'region' is the automatic region row (v2b), always last; 'picked' is a joined league. */
+  kind: 'picked' | 'region'
   league: { slug: string; name: string }
   group: { _id: string; name: string }
   rank: number | null

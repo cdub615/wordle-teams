@@ -14,6 +14,7 @@ afterEach(cleanup)
 
 const league = (slug: string, name: string, disclaimer?: string) => ({ slug, name, disclaimer })
 const row = (slug: string, rank: number | null) => ({
+  kind: 'picked' as const,
   league: { slug, name: slug },
   group: { _id: 'g0', name: 'CRANE' },
   rank,
