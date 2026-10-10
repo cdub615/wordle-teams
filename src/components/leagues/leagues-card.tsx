@@ -41,6 +41,7 @@ type FeaturedLeague = {
   slug: string
   name: string
   groupSource: 'fixed' | 'answer-words'
+  /** leaguesFor sends it, so pickerModeFor can see a region league. */
   kind?: LeagueKind
   groups: PopularWord[]
 }
@@ -120,7 +121,8 @@ function OfferBody({ featured, onJoin, onJoinWord, onDismiss, busy, headingId }:
     <>
       {/* Groups are SIDES to play for, not a claim about the player's own opener (§8.4). */}
       <p className="text-sm text-muted-foreground">Pick a side — your boards count whatever word you start with.</p>
-      {/* BY pickerModeFor, as league-page-view's pickerModeOf: a word league is
+      {/* BY pickerModeFor (league-page-view's pickerModeOf makes the same split
+          until B7 switches it to pickerModeFor): a word league is
           joined by word (popular quick picks + any answer word; the answer
           list is lazy-loaded inside WordPicker, never in this chunk), a
           fixed league by group id. */}
@@ -208,12 +210,11 @@ export function LeaguesCard({ mine, featured, onJoin, onJoinWord, onDismiss, bus
         )}
         {/* ROWS AND THE OFFER, ONE CARD (owner decision 2026-10-09): a region
             row never hides the opener offer. The offer is a SUB-SECTION under
-            the card's "Leagues" h2, so its title steps down to an h3. A
-            PICKED row never shows it, whatever the caller passes: the same
-            rule as pickerCouldShow, held here too so a member is never
-            offered a second join. */}
-        {featured && mine.every((l) => l.kind === 'region') && (
-          <div className="mt-2 flex flex-col gap-2">
+            the card's "Leagues" h2, so its title steps down to an h3, and a
+            rule above it keeps "your standing" and "an offer" apart. Shown iff
+            `featured`: leaguesCardInput owns who is offered. */}
+        {featured && (
+          <div className="mt-2 flex flex-col gap-2 border-t pt-3">
             <h3 id={headingId} className="font-semibold">
               Join the opener wars
             </h3>

@@ -26,7 +26,14 @@ export function MyLeagueRow({ row }: { row: MyLeagueRowData }) {
       params={{ slug: row.league.slug }}
       className="flex min-w-0 items-center gap-3 rounded-md border p-3 hover:bg-muted"
     >
-      <span className="font-mono tracking-widest">{row.group.name}</span>
+      {/* A REGION NAME IS WORDS, NOT A WORDLE WORD ("Latin America &
+          Caribbean"): in the mono tile style beside the shrink-0 rank it
+          overflows a 320px phone, which must never scroll sideways. So a
+          region is plain text, and both truncate; the full name is still
+          the link's visible text, so the WCAG 2.5.3 note above holds. */}
+      <span className={row.kind === 'region' ? 'min-w-0 truncate font-medium' : 'min-w-0 truncate font-mono tracking-widest'}>
+        {row.group.name}
+      </span>
       <span className="min-w-0 truncate text-sm text-muted-foreground">{row.league.name}</span>
       <span className="ml-auto shrink-0 tabular-nums">{ranked ? `#${row.rank} · ${average}` : 'not yet ranked'}</span>
     </Link>
