@@ -10,7 +10,7 @@ import { aPlayer, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
 import { REGIONS } from './lib/regions.ts'
 import { upsertBoardFor } from './scores.ts'
-import { closeLeagueMonthFor, dismissLeagueOfferFor, groupStandingFor, groupsOf, joinGroupFor, joinWordFor, leaguesFor, leaveLeagueFor, leaveRegionFor, myContributionFor, myLeaguesFor, readToday, recomputeLeagueMonthFor, REGION_LEAGUE, regionLeagueOf, regionPlacementOf, rejoinRegionFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor, switchWordFor } from './leagues.ts'
+import { closeLeagueMonthFor, dismissLeagueOfferFor, groupStandingFor, groupsOf, joinGroupFor, joinWordFor, leaguesFor, leaveLeagueFor, leaveRegionFor, myContributionFor, myLeaguesFor, myRegionFor, readToday, recomputeLeagueMonthFor, REGION_LEAGUE, regionLeagueOf, regionPlacementOf, rejoinRegionFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor, switchWordFor } from './leagues.ts'
 import type { DataModel, Id } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 
@@ -1046,6 +1046,7 @@ describe('myLeaguesFor', () => {
       await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.crane, year: 2026, month: 10, boards: 10, attempts: 38, contributors: 3 })
       expect(await myLeaguesFor(ctx, playerId, today)).toEqual([
         {
+          kind: 'picked',
           league: { slug: 'starting-words', name: 'Starting Words' },
           leagueId,
           group: { _id: group.crane, name: 'CRANE' },
@@ -1068,6 +1069,7 @@ describe('myLeaguesFor', () => {
       await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group.slate, year: 2026, month: 10, boards: 10, attempts: 40, contributors: 2 })
       expect(await myLeaguesFor(ctx, playerId, today)).toEqual([
         {
+          kind: 'picked',
           league: { slug: 'starting-words', name: 'Starting Words' },
           leagueId,
           group: { _id: group.slate, name: 'SLATE' },
@@ -1242,7 +1244,7 @@ describe('the my* wrappers are gated', () => {
   }
   const DARK = 'if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }'
 
-  test.each(['myLeagues', 'myContribution'])('%s answers { enabled: false } first when dark', (name) => {
+  test.each(['myLeagues', 'myContribution', 'myRegion'])('%s answers { enabled: false } first when dark', (name) => {
     expect(handlerLines(name)[0]).toBe(DARK)
   })
 
@@ -1739,7 +1741,7 @@ describe('large-league standings', () => {
       const { leagueId, group } = await seedFixedOpeners(ctx)
       await ctx.db.insert('leagueMonthResults', { leagueId, year: 2026, month: 9, standings: [], winnerGroupId: group.crane, closedAt: 0 })
       const out = (await standingsFor(ctx, 'starting-words', '2026-10-07', group.slate))!
-      expect(Object.keys(out).sort()).toEqual(['groups', 'large', 'lastMonth', 'league', 'month', 'monthsWon', 'standings'])
+      expect(Object.keys(out).sort()).toEqual(['groups', 'kind', 'large', 'lastMonth', 'league', 'month', 'monthsWon', 'standings'])
       expect(out.large).toBe(false)
       expect(out.standings).toHaveLength(5)
       expect(out.groups).toHaveLength(5)
@@ -2563,5 +2565,278 @@ describe('leaveRegion and rejoinRegion wrappers', () => {
     const day = toPuzzleDay(new Date())
     await expect(as.mutation(api.leagues.leaveRegion, { today: day })).rejects.toMatchObject({ data: { code: 'UNKNOWN_LEAGUE' } })
     await expect(as.mutation(api.leagues.rejoinRegion, { today: day })).rejects.toMatchObject({ data: { code: 'UNKNOWN_LEAGUE' } })
+  })
+})
+
+/**
+ * v2b's REGION READS (plan task B5): myRegionFor's four states, the region row
+ * myLeaguesFor appends, and `kind` on the standings payload. At NOW (Oct 7),
+ * with the region league seeded on Oct 5, so boards count from Oct 6.
+ */
+describe('region reads', () => {
+  beforeEach(() => vi.useFakeTimers({ now: NOW, toFake: ['Date'] }))
+  afterEach(() => vi.useRealTimers())
+
+  const SEEDED = Date.UTC(2026, 9, 5, 12)
+
+  async function seedRegions(ctx: Ctx) {
+    const leagueId = await seedLeagueFor(ctx, REGION_LEAGUE, SEEDED)
+    const groups = await groupsOf(ctx, leagueId)
+    const group = Object.fromEntries(groups.map((g) => [g.slug, g._id])) as Record<string, Id<'leagueGroups'>>
+    return { leagueId, group, ref: { leagueId, slug: 'regions', name: 'Regions' } }
+  }
+  const stickyRow = (ctx: Ctx, playerId: Id<'players'>, leagueId: Id<'leagues'>, groupId: Id<'leagueGroups'>, boards = 1, attempts = 4) =>
+    ctx.db.insert('leagueMemberMonth', { playerId, leagueId, groupId, year: 2026, month: 10, boards, attempts })
+
+  describe('myRegionFor', () => {
+    test('null before the region league is seeded', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
+        expect(await myRegionFor(ctx, playerId, today)).toBeNull()
+      })
+    })
+
+    test('no-time-zone', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { ref } = await seedRegions(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer())
+        expect(await myRegionFor(ctx, playerId, today)).toEqual({ state: 'no-time-zone', league: ref })
+      })
+    })
+
+    test('unmapped carries the zone', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { ref } = await seedRegions(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'UTC' }))
+        expect(await myRegionFor(ctx, playerId, today)).toEqual({ state: 'unmapped', league: ref, timeZone: 'UTC' })
+      })
+    })
+
+    test('opted-out names the zone’s region, or null with no mapped zone', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { ref } = await seedRegions(ctx)
+        const mapped = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', regionLeagueOptOutDay: '2026-10-03' }))
+        const unmapped = await ctx.db.insert('players', aPlayer({ email: 'u@example.com', timeZone: 'UTC', regionLeagueOptOutDay: '2026-10-03' }))
+        expect(await myRegionFor(ctx, mapped, today)).toEqual({ state: 'opted-out', league: ref, region: { name: 'US Central' } })
+        expect(await myRegionFor(ctx, unmapped, today)).toEqual({ state: 'opted-out', league: ref, region: null })
+      })
+    })
+
+    test('placed by zone in the launch month counts from the day after the seed', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { ref, group } = await seedRegions(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
+        expect(await myRegionFor(ctx, playerId, today)).toEqual({
+          state: 'placed',
+          league: ref,
+          group: { _id: group['us-central'], name: 'US Central' },
+          countsFrom: '2026-10-06',
+          next: null,
+        })
+      })
+    })
+
+    test('a later month counts from the 1st', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        await seedRegions(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
+        expect(await myRegionFor(ctx, playerId, '2026-11-10')).toMatchObject({ state: 'placed', countsFrom: '2026-11-01' })
+      })
+    })
+
+    test('after a rejoin, counts from the rejoin', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        await seedRegions(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', regionLeagueFrom: '2026-11-20' }))
+        expect(await myRegionFor(ctx, playerId, '2026-11-25')).toMatchObject({ state: 'placed', countsFrom: '2026-11-20' })
+      })
+    })
+
+    test('sticky but the zone now maps elsewhere: next names the new region from the 1st', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { leagueId, group } = await seedRegions(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/New_York' }))
+        await stickyRow(ctx, playerId, leagueId, group['us-central'])
+        expect(await myRegionFor(ctx, playerId, today)).toMatchObject({
+          state: 'placed',
+          group: { _id: group['us-central'], name: 'US Central' },
+          next: { name: 'US Eastern', from: '2026-11-01' },
+        })
+      })
+    })
+
+    test('next is null when sticky in the zone’s own region, and when not sticky', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { leagueId, group } = await seedRegions(ctx)
+        const same = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
+        await stickyRow(ctx, same, leagueId, group['us-central'])
+        const moved = await ctx.db.insert('players', aPlayer({ email: 'm@example.com', timeZone: 'America/New_York' }))
+        expect(await myRegionFor(ctx, same, today)).toMatchObject({ state: 'placed', next: null })
+        // No row to stick to: the new zone places at once (plan decision 4).
+        expect(await myRegionFor(ctx, moved, today)).toMatchObject({ state: 'placed', group: { _id: group['us-eastern'] }, next: null })
+      })
+    })
+
+    test('next is null when sticky but the zone is now unmapped', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { leagueId, group } = await seedRegions(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'UTC' }))
+        await stickyRow(ctx, playerId, leagueId, group['us-central'])
+        expect(await myRegionFor(ctx, playerId, today)).toMatchObject({ state: 'placed', group: { _id: group['us-central'] }, next: null })
+      })
+    })
+  })
+
+  describe('myLeaguesFor’s region row', () => {
+    test('picked rows gain kind: picked, and the region row comes last with this month’s numbers', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const sw = await seedStartingWords(ctx)
+        const { leagueId, group } = await seedRegions(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
+        await ctx.db.insert('leagueMemberships', { playerId, leagueId: sw.leagueId, groupId: sw.group.crane, fromDay: '2026-09-01' })
+        await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group['us-central'], year: 2026, month: 10, boards: 10, attempts: 35, contributors: 2 })
+        await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group['us-eastern'], year: 2026, month: 10, boards: 10, attempts: 40, contributors: 2 })
+        // Last month's numbers must not leak in.
+        await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group['us-central'], year: 2026, month: 9, boards: 50, attempts: 300, contributors: 9 })
+        const rows = await myLeaguesFor(ctx, playerId, today)
+        expect(rows.map((r) => r.kind)).toEqual(['picked', 'region'])
+        expect(rows[1]).toEqual({
+          kind: 'region',
+          league: { slug: 'regions', name: 'Regions' },
+          leagueId,
+          group: { _id: group['us-central'], name: 'US Central' },
+          since: '2026-10-06',
+          pending: null,
+          rank: 1,
+          average: 3.5,
+          boards: 10,
+        })
+      })
+    })
+
+    test('a sticky player whose zone moved gets a pending switch to the zone group’s real id', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { leagueId, group } = await seedRegions(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/New_York' }))
+        await stickyRow(ctx, playerId, leagueId, group['us-central'])
+        const [row] = await myLeaguesFor(ctx, playerId, today)
+        expect(row).toMatchObject({
+          kind: 'region',
+          group: { _id: group['us-central'], name: 'US Central' },
+          pending: { group: { _id: group['us-eastern'], name: 'US Eastern' }, from: '2026-11-01' },
+          rank: null,
+          average: null,
+          boards: 0,
+        })
+      })
+    })
+
+    test.each([
+      { label: 'opted out', over: { timeZone: 'America/Chicago', regionLeagueOptOutDay: '2026-10-03' } },
+      { label: 'no time zone', over: {} },
+      { label: 'unmapped', over: { timeZone: 'UTC' } },
+    ])('no region row when $label', async ({ over }) => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        await seedRegions(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer(over))
+        expect(await myLeaguesFor(ctx, playerId, today)).toEqual([])
+      })
+    })
+  })
+
+  describe('standings kind', () => {
+    test('the region league takes the large shape with kind: region and the viewer row', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { group } = await seedRegions(ctx)
+        const out = (await standingsFor(ctx, 'regions', today, group['us-central']))!
+        if (!out.large) throw new Error('expected the large shape')
+        expect(out.kind).toBe('region')
+        expect(out.pickable).toHaveLength(12)
+        expect(out.viewer).toMatchObject({ groupId: group['us-central'], boards: 0, rank: null })
+      })
+    })
+
+    test('a picked league says kind: picked, in both shapes', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        await seedFixedOpeners(ctx)
+        expect((await standingsFor(ctx, 'starting-words', today))!.kind).toBe('picked')
+      })
+      const t2 = convexTest(schema, modules)
+      await t2.run(async (ctx) => {
+        await seedStartingWords(ctx)
+        expect((await standingsFor(ctx, 'starting-words', today))!.kind).toBe('picked')
+      })
+    })
+  })
+
+  describe('privacy', () => {
+    /** Every key name anywhere in a payload. */
+    const keysOf = (v: unknown): string[] =>
+      Array.isArray(v) ? v.flatMap(keysOf) : v && typeof v === 'object' ? Object.entries(v).flatMap(([k, x]) => [k, ...keysOf(x)]) : []
+
+    test('no region payload carries another player’s id, or any player field', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { leagueId, group } = await seedRegions(ctx)
+        const me = await ctx.db.insert('players', aPlayer({ timeZone: 'America/New_York' }))
+        const other = await ctx.db.insert('players', aPlayer({ email: 'o@example.com', timeZone: 'America/Chicago' }))
+        await stickyRow(ctx, me, leagueId, group['us-central'])
+        await stickyRow(ctx, other, leagueId, group['us-central'], 3, 10)
+        await ctx.db.insert('leagueGroupMonth', { leagueId, groupId: group['us-central'], year: 2026, month: 10, boards: 4, attempts: 14, contributors: 2 })
+        const region = await myRegionFor(ctx, me, today)
+        const rows = await myLeaguesFor(ctx, me, today)
+        for (const payload of [region, rows]) {
+          const text = JSON.stringify(payload)
+          expect(text).not.toContain(other)
+          expect(keysOf(payload).filter((k) => /player|email|first|last/i.test(k))).toEqual([])
+        }
+        expect(Object.keys(region!).sort()).toEqual(['countsFrom', 'group', 'league', 'next', 'state'])
+        expect(Object.keys(rows[0]).sort()).toEqual(['average', 'boards', 'group', 'kind', 'league', 'leagueId', 'pending', 'rank', 'since'])
+      })
+    })
+  })
+})
+
+/** THROUGH THE WRAPPER, with a real Better Auth session, at real time. */
+describe('the myRegion wrapper', () => {
+  const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth/**/*.ts'))
+  afterEach(() => vi.unstubAllEnvs())
+
+  async function signedIn(email: string) {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    const groupId = await t.run(async (ctx) => {
+      const leagueId = await seedLeagueFor(ctx, REGION_LEAGUE, 0)
+      await ctx.db.insert('players', aPlayer({ email, timeZone: 'America/Chicago' }))
+      return (await groupsOf(ctx, leagueId)).find((g) => g.slug === 'us-central')!._id
+    })
+    return { groupId, as: await authenticatedAs(t, email) }
+  }
+
+  test('enabled: the caller’s status', async () => {
+    vi.stubEnv('LEAGUES_ENABLED', 'true')
+    const { as, groupId } = await signedIn('myregion@example.com')
+    const res = await as.query(api.leagues.myRegion, { today: toPuzzleDay(new Date()) })
+    expect(res).toMatchObject({ enabled: true, region: { state: 'placed', group: { _id: groupId, name: 'US Central' } } })
+  })
+
+  test('dark: { enabled: false }', async () => {
+    const { as } = await signedIn('darkmyregion@example.com')
+    expect(await as.query(api.leagues.myRegion, { today: toPuzzleDay(new Date()) })).toEqual({ enabled: false })
   })
 })
