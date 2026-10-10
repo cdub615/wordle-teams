@@ -2137,7 +2137,7 @@ describe('region placement on the board write path', () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       await seedRegionsOnOct5(ctx)
-      const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', regionLeagueOptOut: 1 }))
+      const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', regionLeagueOptOut: NOW.getTime() }))
       await enter(ctx, playerId, '2026-10-06', 3)
       expect(await memberRows(ctx)).toEqual([])
       expect(await groupRows(ctx)).toEqual([])
@@ -2151,10 +2151,93 @@ describe('region placement on the board write path', () => {
       const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
       await enter(ctx, playerId, '2026-10-06', 3)
       expect(await memberRows(ctx)).toHaveLength(1)
-      await ctx.db.patch(playerId, { regionLeagueOptOut: 1 })
+      // An opt-out THIS month still removes this month's row.
+      await ctx.db.patch(playerId, { regionLeagueOptOut: NOW.getTime() })
       await recomputeLeagueMonthFor(ctx, playerId, '2026-10')
       expect(await memberRows(ctx)).toEqual([])
       expect(await groupRows(ctx)).toEqual([expect.objectContaining({ groupId: group['us-central'], boards: 0, attempts: 0, contributors: 0 })])
+      await expectGroupRowsAreSums(ctx)
+    })
+  })
+
+  /** November 5th: October is now a past month, still open to a backfilled board. */
+  const NOV_5 = new Date('2026-11-05T12:00:00Z')
+  async function backfill(ctx: Ctx, playerId: Id<'players'>, day: string, n: number) {
+    const guesses = [...Array(n - 1).fill('slate'), 'crane', ...Array(6 - n).fill('')]
+    await upsertBoardFor(ctx, playerId, { puzzleDay: day, answer: 'crane', guesses, today: '2026-11-05' })
+  }
+
+  test('DATED OPT-OUT: opted out in November, an October backfill still counts and nothing is removed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { group } = await seedRegionsOnOct5(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
+      await enter(ctx, playerId, '2026-10-06', 3)
+      vi.setSystemTime(NOV_5)
+      await ctx.db.patch(playerId, { regionLeagueOptOut: Date.UTC(2026, 10, 3, 12) })
+      await backfill(ctx, playerId, '2026-10-07', 4)
+      expect(await memberRows(ctx)).toEqual([expect.objectContaining({ groupId: group['us-central'], month: 10, boards: 2, attempts: 7 })])
+      expect(await groupRows(ctx)).toEqual([expect.objectContaining({ groupId: group['us-central'], month: 10, boards: 2, attempts: 7, contributors: 1 })])
+      await expectGroupRowsAreSums(ctx)
+    })
+  })
+
+  test('DATED OPT-OUT: a sticky October row survives an October recompute after a November opt-out', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await seedRegionsOnOct5(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
+      await enter(ctx, playerId, '2026-10-06', 3)
+      const before = { members: await memberRows(ctx), groups: await groupRows(ctx) }
+      vi.setSystemTime(NOV_5)
+      await ctx.db.patch(playerId, { regionLeagueOptOut: Date.UTC(2026, 10, 3, 12) })
+      await recomputeLeagueMonthFor(ctx, playerId, '2026-10')
+      expect({ members: await memberRows(ctx), groups: await groupRows(ctx) }).toEqual(before)
+    })
+  })
+
+  test('DATED REJOIN: rejoined in November, an October backfill counts from launch', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { group } = await seedRegionsOnOct5(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', regionLeagueFrom: '2026-11-06' }))
+      vi.setSystemTime(NOV_5)
+      await backfill(ctx, playerId, '2026-10-06', 3)
+      expect(await memberRows(ctx)).toEqual([expect.objectContaining({ groupId: group['us-central'], month: 10, boards: 1, attempts: 3 })])
+      await expectGroupRowsAreSums(ctx)
+    })
+  })
+
+  test('duplicate region member-month rows in one month: a board write does not throw', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedRegionsOnOct5(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
+      for (let i = 0; i < 2; i++) {
+        await ctx.db.insert('leagueMemberMonth', { playerId, leagueId, groupId: group['us-central'], year: 2026, month: 10, boards: 0, attempts: 0 })
+      }
+      await enter(ctx, playerId, '2026-10-06', 3)
+      expect(await ctx.db.query('dailyScores').collect()).toHaveLength(1)
+    })
+  })
+
+  test('joining or leaving Starting Words leaves the region row and its group untouched', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const sw = await seedStartingWords(ctx)
+      const regions = await seedRegionsOnOct5(ctx)
+      const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
+      await enter(ctx, playerId, '2026-10-06', 3)
+      const regionRows = async () => ({
+        member: (await memberRows(ctx)).filter((r) => r.leagueId === regions.leagueId),
+        group: (await groupRows(ctx)).filter((r) => r.leagueId === regions.leagueId),
+      })
+      const before = await regionRows()
+      expect(before.member).toEqual([expect.objectContaining({ groupId: regions.group['us-central'], boards: 1, attempts: 3 })])
+      await joinGroupFor(ctx, playerId, { groupId: sw.group.crane, today })
+      expect(await regionRows()).toEqual(before)
+      await leaveLeagueFor(ctx, playerId, { leagueId: sw.leagueId, today })
+      expect(await regionRows()).toEqual(before)
       await expectGroupRowsAreSums(ctx)
     })
   })

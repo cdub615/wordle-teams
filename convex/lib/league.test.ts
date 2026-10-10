@@ -28,6 +28,7 @@ import {
   planSwitch,
   regionCountsFrom,
   regionGroupFor,
+  regionRulesFor,
   standingsOf,
   winnerOf,
   yearMonthOf,
@@ -679,6 +680,40 @@ describe('regionCountsFrom', () => {
   test('a seed on a month’s last day counts from the 1st', () => {
     expect(regionCountsFrom('2026-10-31', null)).toBe('2026-11-01')
     expect(regionCountsFrom('2026-12-31', null)).toBe('2027-01-01')
+  })
+})
+
+describe('regionRulesFor', () => {
+  const none = { optOutDay: null, rejoinFrom: null }
+  test('never opted out or rejoined: the raw (empty) rules', () => {
+    expect(regionRulesFor('2026-10', none)).toEqual({ optedOut: false, rejoinFrom: null })
+  })
+  test('an opt-out binds its own month and every later one', () => {
+    expect(regionRulesFor('2026-11', { ...none, optOutDay: '2026-11-15' })).toEqual({ optedOut: true, rejoinFrom: null })
+    expect(regionRulesFor('2027-01', { ...none, optOutDay: '2026-11-15' })).toEqual({ optedOut: true, rejoinFrom: null })
+  })
+  test('an opt-out never reaches back into an earlier month', () => {
+    expect(regionRulesFor('2026-10', { ...none, optOutDay: '2026-11-15' })).toEqual({ optedOut: false, rejoinFrom: null })
+  })
+  test('the opt-out month boundary: the 1st binds its month, the 31st does not bind the next one early', () => {
+    expect(regionRulesFor('2026-10', { ...none, optOutDay: '2026-11-01' }).optedOut).toBe(false)
+    expect(regionRulesFor('2026-11', { ...none, optOutDay: '2026-11-01' }).optedOut).toBe(true)
+    expect(regionRulesFor('2026-10', { ...none, optOutDay: '2026-10-31' }).optedOut).toBe(true)
+  })
+  test('a rejoin day binds its own month and every later one', () => {
+    expect(regionRulesFor('2026-11', { ...none, rejoinFrom: '2026-11-06' })).toEqual({ optedOut: false, rejoinFrom: '2026-11-06' })
+    expect(regionRulesFor('2026-12', { ...none, rejoinFrom: '2026-11-06' })).toEqual({ optedOut: false, rejoinFrom: '2026-11-06' })
+  })
+  test('a rejoin never reaches back into an earlier month', () => {
+    expect(regionRulesFor('2026-10', { ...none, rejoinFrom: '2026-11-06' })).toEqual({ optedOut: false, rejoinFrom: null })
+  })
+  test('the rejoin month boundary: a rejoin from the 1st does not bind the month before', () => {
+    expect(regionRulesFor('2026-10', { ...none, rejoinFrom: '2026-11-01' }).rejoinFrom).toBeNull()
+    expect(regionRulesFor('2026-11', { ...none, rejoinFrom: '2026-11-01' }).rejoinFrom).toBe('2026-11-01')
+  })
+  test('both at once are judged independently', () => {
+    expect(regionRulesFor('2026-11', { optOutDay: '2026-12-02', rejoinFrom: '2026-11-06' })).toEqual({ optedOut: false, rejoinFrom: '2026-11-06' })
+    expect(regionRulesFor('2026-12', { optOutDay: '2026-12-02', rejoinFrom: '2026-11-06' })).toEqual({ optedOut: true, rejoinFrom: '2026-11-06' })
   })
 })
 
