@@ -2377,6 +2377,20 @@ describe("the home leagues card joins a word league by word", () => {
   })
 })
 
+describe('the teamless onboarding step goes straight to the opener league (v2b decision 7)', () => {
+  const APP = './routes/app.tsx'
+
+  test('onLeague navigates to /leagues/$slug with OPENER_LEAGUE_SLUG, not to the /leagues directory', () => {
+    // With a region league beside Starting Words, /leagues is the directory
+    // rather than a redirect to the one league, and the step says "Join the
+    // opener wars". e2e/leagues.spec.ts lands on /leagues/starting-words.
+    expect(jsxProps(APP, 'NextStepCard').get('onLeague')).toBe(
+      "() => void navigate({ to: '/leagues/$slug', params: { slug: OPENER_LEAGUE_SLUG } })",
+    )
+    expect(codeOf(read(APP))).toMatch(/import \{[^}]*\bOPENER_LEAGUE_SLUG\b[^}]*\} from '\.\.\/\.\.\/convex\/lib\/league\.ts'/)
+  })
+})
+
 /**
  * initializerOf, ON THE NORMALISATION THE BLOCK ABOVE LEANS ON.
  *
