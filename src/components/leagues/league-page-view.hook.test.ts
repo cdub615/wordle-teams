@@ -54,6 +54,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   onJoinWord: vi.fn(),
   onSwitchWord: vi.fn(),
   find: { onFind: vi.fn(), result: null },
+  region: undefined,
   onUpgrade: vi.fn(),
   ...overrides,
 })

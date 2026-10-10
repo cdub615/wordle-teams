@@ -6,7 +6,7 @@ import { Label } from '#/components/ui/label.tsx'
 import { cn } from '#/lib/utils.ts'
 import { lettersOf } from '#/lib/word-letters.ts'
 import { MIN_LEAGUE_BOARDS } from '../../../convex/lib/league.ts'
-import { fromPuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
+import { fromPuzzleDay, monthOf, type PuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
 
 type Row = { groupId: string; rank: number | null; average: number | null; boards: number; contributors: number }
 
@@ -42,6 +42,11 @@ const longMonth = new Intl.DateTimeFormat('en-US', { month: 'long' })
 /** 'YYYY-MM' -> 'October'. fromPuzzleDay is local noon, so no timezone rolls it back a month. */
 export function monthName(month: PuzzleMonth): string {
   return longMonth.format(fromPuzzleDay(`${month}-01`))
+}
+
+/** 'October 8': a day as the league page and region panel name it. */
+export function dayName(day: PuzzleDay): string {
+  return `${monthName(monthOf(day))} ${fromPuzzleDay(day).getDate()}`
 }
 
 /** One standings row: the rank, the group, and its average or its progress to the floor. */

@@ -16,7 +16,8 @@ import { LeagueFrame, LeaguePageView, leaveMessage, membershipIn } from '#/compo
 
 /**
  * /leagues/$slug — one league's standings, the viewer's group, and the
- * join/switch/leave controls (spec §8.2). A FLAT FILE with no leagues.tsx
+ * join/switch/leave controls (spec §8.2), or the region league's RegionPanel
+ * (v2b). A FLAT FILE with no leagues.tsx
  * parent, so nothing needs an <Outlet/>. Signed-in only, with the same guard
  * as /insights, /chat and /team: every query here goes through requirePlayer.
  */
@@ -81,12 +82,18 @@ function LeagueFor({ slug }: { slug: string }) {
   const { data: contribution } = useQuery(
     convexQuery(api.leagues.myContribution, today && membership ? { slug, today } : 'skip'),
   )
+  // Only the region league's page reads the viewer's region (RegionPanel). A
+  // failure leaves the panel on its skeleton; the standings still render.
+  const onRegion = Boolean(standings?.enabled && standings.view?.kind === 'region')
+  const { data: myRegion } = useQuery(convexQuery(api.leagues.myRegion, today && onRegion ? { today } : 'skip'))
 
   const join = useMutation({ mutationFn: useConvexMutation(api.leagues.joinGroup) })
   const change = useMutation({ mutationFn: useConvexMutation(api.leagues.switchGroup) })
   const joinWord = useMutation({ mutationFn: useConvexMutation(api.leagues.joinWord) })
   const switchWord = useMutation({ mutationFn: useConvexMutation(api.leagues.switchWord) })
   const leave = useMutation({ mutationFn: useConvexMutation(api.leagues.leaveLeague) })
+  const leaveRegion = useMutation({ mutationFn: useConvexMutation(api.leagues.leaveRegion) })
+  const rejoinRegion = useMutation({ mutationFn: useConvexMutation(api.leagues.rejoinRegion) })
 
   // useQuery DOES NOT THROW, so without this a failed query would leave the
   // page in skeletons forever. Rethrown during render, it reaches this route's
@@ -129,7 +136,15 @@ function LeagueFor({ slug }: { slug: string }) {
       // Rendering the last answer through an error: say so, rather than pass it off as live.
       stale={Boolean((standingsQuery.error && standings) || (mineQuery.error && mine))}
       contribution={contribution}
-      busy={join.isPending || change.isPending || joinWord.isPending || switchWord.isPending || leave.isPending}
+      busy={
+        join.isPending ||
+        change.isPending ||
+        joinWord.isPending ||
+        switchWord.isPending ||
+        leave.isPending ||
+        leaveRegion.isPending ||
+        rejoinRegion.isPending
+      }
       onJoin={(groupId) =>
         run((day) => join.mutateAsync({ groupId: groupId as Id<'leagueGroups'>, today: day }), 'Could not join that group')
       }
@@ -158,6 +173,18 @@ function LeagueFor({ slug }: { slug: string }) {
           (day) => leaveMessage(m.group.name, m.since, day),
         )
       }
+      region={{
+        // `region` is null only before the region league is seeded, and then there is no region page.
+        status: myRegion?.enabled ? (myRegion.region ?? undefined) : undefined,
+        onLeave: () =>
+          run(
+            (day) => leaveRegion.mutateAsync({ today: day }),
+            'Could not leave your region',
+            () => 'You left your region. Rejoin any time — your boards count from the day after.',
+          ),
+        onRejoin: () =>
+          run((day) => rejoinRegion.mutateAsync({ today: day }), 'Could not rejoin your region', () => 'You’re back in your region from tomorrow.'),
+      }}
       onUpgrade={openUpgrade}
     />
   )

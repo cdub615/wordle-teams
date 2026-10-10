@@ -4,11 +4,13 @@ import type { ReactNode } from 'react'
 import { Button } from '#/components/ui/button.tsx'
 import { GroupPicker, type PickerGroup } from '#/components/leagues/group-picker.tsx'
 import { WordPicker, type PopularWord } from '#/components/leagues/word-picker.tsx'
-import { LeagueStandings, monthName, type FindResult } from '#/components/leagues/league-standings.tsx'
+import { LeagueStandings, dayName, monthName, type FindResult } from '#/components/leagues/league-standings.tsx'
 import { ContributionRow } from '#/components/leagues/contribution-row.tsx'
+import { RegionPanel, type RegionPanelStatus } from '#/components/leagues/region-panel.tsx'
 import { leaguePageNudge } from '#/lib/league-nudges.ts'
 import type { UpgradeOrigin } from '#/lib/plans.ts'
-import { addMonths, fromPuzzleDay, monthOf, type PuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
+import { pickerModeFor, type LeagueKind } from '../../../convex/lib/league.ts'
+import { addMonths, monthOf, type PuzzleDay, type PuzzleMonth } from '../../../convex/lib/puzzleDay.ts'
 
 /*
  * PLAIN STRUCTURAL SHAPES of api.leagues.standings / myLeagues / myContribution,
@@ -19,6 +21,8 @@ type Row = { groupId: string; rank: number | null; average: number | null; board
 
 type SmallView = {
   large: false
+  /** 'region' is the automatic region league (v2b): no picker, no leave, a RegionPanel instead. */
+  kind: LeagueKind
   league: { slug: string; name: string }
   month: PuzzleMonth
   groups: PickerGroup[]
@@ -42,21 +46,6 @@ type LargeView = Omit<SmallView, 'large' | 'lastMonth'> & {
 }
 
 type StandingsResult = { enabled: false } | { enabled: true; view: null | SmallView | LargeView }
-
-/**
- * HOW THIS LEAGUE IS JOINED, by its group source, not its size: a word league
- * by word (WordPicker), a fixed league by group id over every group
- * (GroupPicker, whose searchable sheet takes over above PICKER_INLINE_MAX).
- * v2b: a region league will be `{ kind: 'region' }`, with no picker at all
- * (placement is automatic) — add it here and to the switch in pickerFor.
- */
-type PickerMode = { kind: 'words'; leagueId: string; popular: PopularWord[] } | { kind: 'groups'; groups: PickerGroup[] }
-
-function pickerModeOf(view: SmallView | LargeView): PickerMode {
-  if (!view.large) return { kind: 'groups', groups: view.groups }
-  if (view.groupSource === 'answer-words') return { kind: 'words', leagueId: view.leagueId, popular: view.popular }
-  return { kind: 'groups', groups: view.pickable ?? [] }
-}
 
 export type LeagueMembership = {
   league: { slug: string; name: string }
@@ -110,11 +99,6 @@ export function LeagueFrame({ title, children }: { title: ReactNode; children?: 
   )
 }
 
-/** 'October 8': a day as the membership line names it. */
-function dayName(day: PuzzleDay): string {
-  return `${monthName(monthOf(day))} ${fromPuzzleDay(day).getDate()}`
-}
-
 type Props = {
   slug: string
   /** The viewer's local day: a membership whose `since` is after it has not started. */
@@ -131,8 +115,10 @@ type Props = {
   onJoinWord: (leagueId: string, word: string) => void
   onSwitchWord: (leagueId: string, word: string) => void
   onLeave: (membership: LeagueMembership) => void
-  /** A large league's "Find a group": the route owns the groupStanding query. */
+  /** A word league's "Find a group": the route owns the groupStanding query. */
   find: { onFind: (word: string) => void; result: FindResult | null }
+  /** The region league's panel: the route subscribes to myRegion only on a region view. */
+  region: { status: RegionPanelStatus | undefined; onLeave: () => void; onRejoin: () => void } | undefined
   onUpgrade: (origin: UpgradeOrigin) => void
   /** The route is showing the last standings or memberships it had, through a query error. */
   stale?: boolean
@@ -156,6 +142,7 @@ export function LeaguePageView({
   onSwitchWord,
   onLeave,
   find,
+  region,
   onUpgrade,
   stale = false,
 }: Props) {
@@ -202,28 +189,51 @@ export function LeaguePageView({
         })
       : null
 
-  const mode = pickerModeOf(view)
+  /*
+   * HOW THIS LEAGUE IS JOINED, by its group source, not its size
+   * (pickerModeFor): a word league by word (WordPicker), a fixed league by
+   * group id over every group (GroupPicker, whose searchable sheet takes over
+   * above PICKER_INLINE_MAX). A region has no picker ('none'), and the page
+   * never asks for one there.
+   */
   const pickerFor = (label: string, submitLabel: string, current: { _id: string; name: string } | null, onGroup: (groupId: string) => void, onWord: (leagueId: string, word: string) => void) => {
-    switch (mode.kind) {
-      case 'words':
+    switch (pickerModeFor({ kind: view.kind, groupSource: view.large ? view.groupSource : undefined })) {
+      case 'words': {
+        // Only an answer-words league picks by word, and a word league is always large.
+        if (!view.large) return null
+        const { leagueId, popular } = view
         return (
           <WordPicker
-            popular={mode.popular}
+            popular={popular}
             currentWord={current?.name ?? null}
             disabled={busy}
             label={label}
             submitLabel={submitLabel}
-            onPick={(word) => onWord(mode.leagueId, word)}
+            onPick={(word) => onWord(leagueId, word)}
           />
         )
-      case 'groups':
-        return <GroupPicker groups={mode.groups} currentGroupId={current?._id ?? null} disabled={busy} label={label} onPick={onGroup} />
+      }
+      case 'groups': {
+        const groups = view.large ? (view.pickable ?? []) : view.groups
+        return <GroupPicker groups={groups} currentGroupId={current?._id ?? null} disabled={busy} label={label} onPick={onGroup} />
+      }
+      case 'none':
+        return null
     }
   }
 
+  // THE REGION LEAGUE REPLACES ALL THREE picked-league controls: the
+  // membership line, the join section and the switch section. myLeagues sends
+  // its region row (B5), so `membership` is set for a placed player, and
+  // without this the page would offer them Switch group and Leave league.
+  // Standings, the nudge and the contribution row use that row like any other.
+  const isRegion = view.kind === 'region'
+
   return (
     <LeagueFrame title={view.league.name}>
-      {membership ? (
+      {isRegion ? (
+        region && <RegionPanel status={region.status} today={today} busy={busy} onLeave={region.onLeave} onRejoin={region.onRejoin} />
+      ) : membership ? (
         <p data-testid="league-membership" className="text-sm">
           You play for <span className="font-mono tracking-widest">{membership.group.name}</span>
           {membership.since > today && ` from ${dayName(membership.since)}`}
@@ -255,7 +265,8 @@ export function LeaguePageView({
           standings={view.shown}
           viewer={view.viewer}
           unrankedCount={view.unrankedCount}
-          find={find}
+          // "Find a group" searches 5-letter words (decision 5): wrong for a fixed league or a region.
+          find={view.groupSource === 'answer-words' ? find : undefined}
           myGroupId={myGroupId}
           lastMonth={view.lastMonth}
           monthsWon={view.monthsWon}
@@ -285,7 +296,7 @@ export function LeaguePageView({
           onUpgrade={() => onUpgrade('leagues')}
         />
       )}
-      {membership && (
+      {!isRegion && membership && (
         <section aria-labelledby="league-switch-heading" className="flex flex-col gap-2">
           <h2 id="league-switch-heading" className="font-medium">
             Switch group
