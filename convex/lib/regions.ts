@@ -1,6 +1,9 @@
 /**
  * REGIONS (spec v2 §4.3/§4.4): a player's saved IANA time zone → the region
- * group they play for. Client-safe: no imports. Static, so no upkeep.
+ * group they play for. Client-safe: no imports.
+ *
+ * NEW US OR CANADIAN ZONES MUST BE ADDED BY HAND. America/* falls back to
+ * Latin America, and no test notices: the coverage test only checks non-null.
  *
  * ORDER IS EXPLICIT TABLE, THEN PREFIX FALLBACK, THEN NULL. The table holds
  * every US and Canadian zone (they cannot use a prefix: America/* is mostly
@@ -37,51 +40,44 @@ const BY_SLUG = new Map<string, Region>(REGIONS.map((r) => [r.slug, r]))
 function block(slug: Slug, zones: ReadonlyArray<string>): Array<[string, Slug]> {
   return zones.map((z) => [z, slug])
 }
-/** `America/<city>` for each bare name. */
-const am = (cities: ReadonlyArray<string>) => cities.map((c) => `America/${c}`)
 
 const ZONES: Record<string, Slug> = Object.fromEntries([
   // Eastern, plus Atlantic and Newfoundland Canada (nearest group).
+  // Miquelon (French, UTC-3) folds into Eastern, the nearest, like Newfoundland.
   // Atikokan/Coral_Harbour/Blanc-Sablon keep fixed offsets (EST/AST all year);
   // Atikokan is EST, so Eastern; Blanc-Sablon is AST, so it folds like Atlantic.
   ...block('us-eastern', [
-    ...am([
-      'New_York', 'Detroit', 'Kentucky/Louisville', 'Kentucky/Monticello', 'Louisville',
-      'Indiana/Indianapolis', 'Indianapolis', 'Fort_Wayne', 'Indiana/Vincennes',
-      'Indiana/Winamac', 'Indiana/Marengo', 'Indiana/Petersburg', 'Indiana/Vevay',
-      'Toronto', 'Montreal', 'Nipigon', 'Thunder_Bay', 'Iqaluit', 'Pangnirtung',
-      'Halifax', 'Glace_Bay', 'Moncton', 'Goose_Bay', 'St_Johns',
-      'Atikokan', 'Coral_Harbour', 'Blanc-Sablon',
-    ]),
+    'America/New_York', 'America/Detroit', 'America/Kentucky/Louisville', 'America/Kentucky/Monticello', 'America/Louisville',
+    'America/Indiana/Indianapolis', 'America/Indianapolis', 'America/Fort_Wayne', 'America/Indiana/Vincennes',
+    'America/Indiana/Winamac', 'America/Indiana/Marengo', 'America/Indiana/Petersburg', 'America/Indiana/Vevay',
+    'America/Toronto', 'America/Montreal', 'America/Nipigon', 'America/Thunder_Bay', 'America/Iqaluit', 'America/Pangnirtung',
+    'America/Halifax', 'America/Glace_Bay', 'America/Moncton', 'America/Goose_Bay', 'America/St_Johns',
+    'America/Miquelon', 'America/Atikokan', 'America/Coral_Harbour', 'America/Blanc-Sablon',
     'US/Eastern', 'US/Michigan', 'US/East-Indiana', 'Canada/Eastern', 'Canada/Atlantic',
     'Canada/Newfoundland', 'EST5EDT', 'EST',
   ]),
   ...block('us-central', [
-    ...am([
-      'Chicago', 'Indiana/Knox', 'Knox_IN', 'Indiana/Tell_City', 'Menominee',
-      'North_Dakota/Center', 'North_Dakota/New_Salem', 'North_Dakota/Beulah',
-      'Winnipeg', 'Rainy_River', 'Rankin_Inlet', 'Resolute', 'Regina', 'Swift_Current',
-    ]),
+    'America/Chicago', 'America/Indiana/Knox', 'America/Knox_IN', 'America/Indiana/Tell_City', 'America/Menominee',
+    'America/North_Dakota/Center', 'America/North_Dakota/New_Salem', 'America/North_Dakota/Beulah',
+    'America/Winnipeg', 'America/Rainy_River', 'America/Rankin_Inlet', 'America/Resolute', 'America/Regina', 'America/Swift_Current',
     'US/Central', 'US/Indiana-Starke', 'Canada/Central', 'Canada/Saskatchewan', 'CST6CDT',
   ]),
   ...block('us-mountain', [
-    ...am([
-      'Denver', 'Boise', 'Phoenix', 'Shiprock', 'Edmonton', 'Cambridge_Bay', 'Yellowknife',
-      'Inuvik', 'Creston', 'Dawson_Creek', 'Fort_Nelson', 'Whitehorse', 'Dawson',
-    ]),
+    'America/Denver', 'America/Boise', 'America/Phoenix', 'America/Shiprock', 'America/Edmonton', 'America/Cambridge_Bay', 'America/Yellowknife',
+    'America/Inuvik', 'America/Creston', 'America/Dawson_Creek', 'America/Fort_Nelson', 'America/Whitehorse', 'America/Dawson',
     'US/Mountain', 'US/Arizona', 'Navajo', 'Canada/Mountain', 'Canada/Yukon', 'MST7MDT', 'MST',
   ]),
   ...block('us-pacific', [
-    ...am(['Los_Angeles', 'Vancouver']),
+    'America/Los_Angeles', 'America/Vancouver',
     'US/Pacific', 'Canada/Pacific', 'PST8PDT',
   ]),
   ...block('alaska', [
-    ...am(['Anchorage', 'Juneau', 'Sitka', 'Metlakatla', 'Yakutat', 'Nome']),
+    'America/Anchorage', 'America/Juneau', 'America/Sitka', 'America/Metlakatla', 'America/Yakutat', 'America/Nome',
     'US/Alaska',
   ]),
   // The Aleutians (Adak) share Hawaii's offset.
   ...block('hawaii', [
-    'Pacific/Honolulu', 'Pacific/Johnston', ...am(['Adak', 'Atka']),
+    'Pacific/Honolulu', 'Pacific/Johnston', 'America/Adak', 'America/Atka',
     'US/Hawaii', 'US/Aleutian', 'HST',
   ]),
   ...block('uk-ireland', [
@@ -92,6 +88,11 @@ const ZONES: Record<string, Slug> = Object.fromEntries([
   ...block('europe', [
     'Atlantic/Reykjavik', 'Atlantic/Azores', 'Atlantic/Madeira', 'Atlantic/Canary',
     'Atlantic/Faroe', 'Atlantic/Faeroe', 'Atlantic/Jan_Mayen',
+    // Greenland sits with Iceland and the Faroes.
+    'America/Nuuk', 'America/Godthab', 'America/Danmarkshavn', 'America/Scoresbysund',
+    'America/Thule',
+    // Asia/* links whose targets are Europe/*, and the legacy Moscow link.
+    'Asia/Istanbul', 'Asia/Nicosia', 'W-SU',
     'Iceland', 'Poland', 'Portugal', 'Turkey', 'WET', 'CET', 'MET', 'EET',
   ]),
   // Indian/* defaults to Asia (prefix); the African islands are listed.
@@ -103,6 +104,7 @@ const ZONES: Record<string, Slug> = Object.fromEntries([
   ...block('asia', ['Japan', 'ROK', 'PRC', 'ROC', 'Hongkong', 'Singapore', 'Israel', 'Iran']),
   ...block('latin-america', [
     'Atlantic/Bermuda', 'Atlantic/Stanley', 'Atlantic/South_Georgia', 'Cuba', 'Jamaica',
+    'Pacific/Easter', // Chilean, like Chile/EasterIsland (Chile prefix)
   ]),
   // US/Samoa is American Samoa (Pacific/Pago_Pago), not a US-mainland zone.
   ...block('australia-pacific', ['Kwajalein', 'NZ-CHAT', 'US/Samoa']),

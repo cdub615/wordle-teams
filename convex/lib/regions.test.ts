@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+// Test-only: do not copy this convex->src import into runtime code.
 import { TIME_ZONE_GROUPS } from '../../src/lib/time-zones.ts'
 import { REGIONS, regionOf } from './regions.ts'
 
@@ -18,7 +19,7 @@ const lists: Array<[string, Array<string>]> = [
         'Indiana/Winamac', 'Indiana/Marengo', 'Indiana/Petersburg', 'Indiana/Vevay',
         'Toronto', 'Montreal', 'Nipigon', 'Thunder_Bay', 'Iqaluit', 'Pangnirtung',
         'Halifax', 'Glace_Bay', 'Moncton', 'Goose_Bay', 'St_Johns',
-        'Atikokan', 'Coral_Harbour', 'Blanc-Sablon',
+        'Atikokan', 'Coral_Harbour', 'Blanc-Sablon', 'Miquelon',
       ].map((c) => A + c),
       'US/Eastern', 'US/Michigan', 'US/East-Indiana', 'Canada/Eastern', 'Canada/Atlantic',
       'Canada/Newfoundland', 'EST5EDT', 'EST',
@@ -71,6 +72,8 @@ const lists: Array<[string, Array<string>]> = [
     'Europe',
     [
       ...['Reykjavik', 'Azores', 'Madeira', 'Canary', 'Faroe', 'Faeroe', 'Jan_Mayen'].map((c) => 'Atlantic/' + c),
+      ...['Nuuk', 'Godthab', 'Danmarkshavn', 'Scoresbysund', 'Thule'].map((c) => A + c),
+      'Asia/Istanbul', 'Asia/Nicosia', 'Europe/Istanbul', 'Europe/Nicosia', 'W-SU',
       'Iceland', 'Poland', 'Portugal', 'Turkey', 'WET', 'CET', 'MET', 'EET',
     ],
   ],
@@ -85,7 +88,12 @@ const lists: Array<[string, Array<string>]> = [
   ['Asia', ['Japan', 'ROK', 'PRC', 'ROC', 'Hongkong', 'Singapore', 'Israel', 'Iran']],
   [
     'Latin America & Caribbean',
-    ['Atlantic/Bermuda', 'Atlantic/Stanley', 'Atlantic/South_Georgia', 'Cuba', 'Jamaica', A + 'Nassau', A + 'Puerto_Rico', A + 'Panama'],
+    [
+      'Atlantic/Bermuda', 'Atlantic/Stanley', 'Atlantic/South_Georgia', 'Cuba', 'Jamaica',
+      'Pacific/Easter', 'Chile/EasterIsland',
+      // negative guards: must NOT be pulled into US Eastern
+      A + 'Nassau', A + 'Puerto_Rico', A + 'Panama',
+    ],
   ],
   ['Australia & Pacific', ['Kwajalein', 'NZ-CHAT', 'US/Samoa']],
 ]
@@ -124,6 +132,21 @@ describe('regionOf: no region', () => {
   })
 })
 
+describe('regionOf: re-pointed link/target pairs', () => {
+  test('Greenland is Europe', () => {
+    for (const c of ['Nuuk', 'Godthab', 'Danmarkshavn', 'Scoresbysund', 'Thule'])
+      expect(regionOf(A + c)?.slug).toBe('europe')
+  })
+  test('each link agrees with its target', () => {
+    expect(regionOf('Asia/Istanbul')).toEqual(regionOf('Europe/Istanbul'))
+    expect(regionOf('Asia/Nicosia')).toEqual(regionOf('Europe/Nicosia'))
+    expect(regionOf('Pacific/Easter')).toEqual(regionOf('Chile/EasterIsland'))
+    expect(regionOf('W-SU')).toEqual(regionOf('Europe/Moscow'))
+    expect(regionOf('Pacific/Easter')?.slug).toBe('latin-america')
+    expect(regionOf('America/Miquelon')?.slug).toBe('us-eastern')
+  })
+})
+
 describe('regionOf: Postgres spellings', () => {
   test.each([
     ['Asia/Calcutta', 'Asia/Kolkata'],
@@ -149,6 +172,7 @@ describe('REGIONS', () => {
 })
 
 describe('regionOf: coverage', () => {
+  // Cannot detect a mis-bucketed America/* zone: it only checks non-null.
   test('every zone Node knows has a region, except UTC, Etc/* and Antarctica/*', () => {
     const unmapped = Intl.supportedValuesOf('timeZone').filter(
       (z) => regionOf(z) === null && z !== 'UTC' && !z.startsWith('Etc/') && !z.startsWith('Antarctica/'),
