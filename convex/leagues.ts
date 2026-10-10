@@ -255,7 +255,8 @@ async function activeStandings(ctx: ReaderCtx, leagueId: Id<'leagues'>, month: P
  * shown + viewer, the rows the page lists, and `groups` names only the groups
  * the rows and the winners reference. For the page's pickers it also carries
  * `groupSource`, `leagueId`, `popular` (the POPULAR_GROUPS quick picks) and,
- * for a fixed league, `pickable` (every group). `viewerGroupId`
+ * for a fixed league, `pickable` (every group). Both shapes carry `kind`; the
+ * region league (12 groups) takes the large fixed path. `viewerGroupId`
  * is any group id the client passes: group totals are public (§3.2), so a
  * foreign id learns nothing new.
  */
@@ -263,6 +264,9 @@ export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDa
   const league = await ctx.db.query('leagues').withIndex('by_slug', (q) => q.eq('slug', slug)).unique()
   if (!league) return null
   const month = monthOf(today)
+  // The page tells a region from a picked league by this (B6): a region has no
+  // picker, no "Find a group" and no leave button.
+  const kind = league.kind ?? ('picked' as const)
 
   const results = await ctx.db
     .query('leagueMonthResults')
@@ -277,6 +281,7 @@ export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDa
   if (allGroups && !isLargeLeague(league.groupSource, allGroups.length)) {
     return {
       large: false as const,
+      kind,
       league: { slug: league.slug, name: league.name },
       month,
       groups: allGroups.map(groupView),
@@ -325,6 +330,7 @@ export async function standingsFor(ctx: ReaderCtx, slug: string, today: PuzzleDa
 
   return {
     large: true as const,
+    kind,
     // The page picks its picker by source: words for 'answer-words', group
     // buttons (over `pickable`) for a fixed league.
     groupSource: league.groupSource ?? ('fixed' as const),
@@ -632,9 +638,9 @@ export async function leaveRegionFor(ctx: WriterCtx, playerId: Id<'players'>, ar
  *
  * KNOWN LIMIT (accepted, B4): rejoining CLEARS the opt-out, so the history of
  * having left is gone. A player who opts out on Nov 3 and rejoins on Dec 10,
- * and LATER backfills a November board, is re-placed in November from launch.
- * That needs a backfill into an EARLIER month you left, after a rejoin in a
- * later month; keeping a list of out-intervals to close it is not worth the
+ * and LATER writes or edits any board in November, is re-placed in November
+ * from launch. That needs a write into an EARLIER month you left, after a
+ * rejoin in a later month; keeping a list of out-intervals to close it is not worth the
  * cost.
  */
 export async function rejoinRegionFor(ctx: WriterCtx, playerId: Id<'players'>, args: { today: string }) {
@@ -1061,7 +1067,90 @@ export const closeLeagueMonth = internalMutation({
   },
 })
 
-/** The home card and the standings header: one row per league the caller is in. */
+type RegionLeagueRef = { leagueId: Id<'leagues'>; slug: string; name: string }
+
+/** The caller's place in the region league this month. Only their own group and region names: no other player (§3.2). */
+export type RegionStatus =
+  | { state: 'no-time-zone'; league: RegionLeagueRef }
+  | { state: 'unmapped'; league: RegionLeagueRef; timeZone: string }
+  | { state: 'opted-out'; league: RegionLeagueRef; region: { name: string } | null }
+  | {
+      state: 'placed'
+      league: RegionLeagueRef
+      group: { _id: GroupId; name: string }
+      /** The first day a board counts this month: the month start, or later after a launch or rejoin. */
+      countsFrom: PuzzleDay
+      /** Sticky this month, but the zone now maps elsewhere: where they move on the 1st. */
+      next: { name: string; from: PuzzleDay } | null
+    }
+
+/**
+ * myRegionFor plus the id of the `next` group, which myLeaguesFor's pending
+ * switch needs and RegionStatus does not carry.
+ */
+async function regionStatusOf(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  today: PuzzleDay,
+): Promise<{ status: RegionStatus; nextGroupId: GroupId | null } | null> {
+  const league = await regionLeagueOf(ctx)
+  const player = await ctx.db.get(playerId)
+  if (!league || !player) return null
+  const ref = { leagueId: league._id, slug: league.slug, name: league.name }
+  const region = regionOf(player.timeZone)
+  // OPTED OUT AT ALL, not just for this month: the page offers a rejoin either way.
+  if (player.regionLeagueOptOutDay !== undefined) {
+    return { status: { state: 'opted-out', league: ref, region: region ? { name: region.name } : null }, nextGroupId: null }
+  }
+  if (!player.timeZone) return { status: { state: 'no-time-zone', league: ref }, nextGroupId: null }
+  const month = monthOf(today)
+  // THE ONE DEFINITION (plan decision 3): the dated opt-out and rejoin are already in it.
+  const placement = await regionPlacementOf(ctx, player, league, month)
+  const group = placement ? await ctx.db.get(placement.groupId) : null
+  if (!placement || !group) {
+    // A placement naming a missing group is a broken invariant: shown as unmapped, never a blank name.
+    if (placement) console.error('myRegionFor: placement names a missing group', { playerId, groupId: placement.groupId })
+    return { status: { state: 'unmapped', league: ref, timeZone: player.timeZone }, nextGroupId: null }
+  }
+  // A MOVE IS SHOWN ONLY WHERE IT WILL HAPPEN (plan decision 4): sticky this
+  // month, and the zone maps to a DIFFERENT, SEEDED group. An unmapped zone, or
+  // a region with no group, places nowhere next month, so it names no move.
+  let next: { name: string; from: PuzzleDay } | null = null
+  let nextGroupId: GroupId | null = null
+  if (placement.sticky && region && region.slug !== group.slug) {
+    const zoneGroup = await ctx.db
+      .query('leagueGroups')
+      .withIndex('by_league_and_slug', (q) => q.eq('leagueId', league._id).eq('slug', region.slug))
+      .first()
+    if (zoneGroup) {
+      next = { name: zoneGroup.name, from: monthRange(addMonths(month, 1)).start }
+      nextGroupId = zoneGroup._id
+    }
+  }
+  const start = monthRange(month).start
+  return {
+    status: {
+      state: 'placed',
+      league: ref,
+      group: { _id: group._id, name: group.name },
+      countsFrom: placement.fromDay > start ? placement.fromDay : start,
+      next,
+    },
+    nextGroupId,
+  }
+}
+
+/** Null before the region league is seeded (the directory and page then show no region). */
+export async function myRegionFor(ctx: ReaderCtx, playerId: Id<'players'>, today: PuzzleDay): Promise<RegionStatus | null> {
+  return (await regionStatusOf(ctx, playerId, today))?.status ?? null
+}
+
+/**
+ * The home card and the standings header: one row per league the caller is in.
+ * PICKED ROWS FIRST, THE REGION ROW LAST, so the home card's cap of 3 drops the
+ * region before a league the player chose. The region row exists only while
+ * 'placed'; it has no membership rows, so its `since` is countsFrom.
+ */
 export async function myLeaguesFor(ctx: ReaderCtx, playerId: Id<'players'>, today: PuzzleDay) {
   const rows = await ctx.db
     .query('leagueMemberships')
@@ -1095,6 +1184,7 @@ export async function myLeaguesFor(ctx: ReaderCtx, playerId: Id<'players'>, toda
       : (await activeStandings(ctx, leagueId, monthOf(today))).standings
     const standing = standings.find((s) => s.groupId === membership.groupId)
     out.push({
+      kind: 'picked' as const,
       league: { slug: league.slug, name: league.name },
       leagueId,
       group,
@@ -1105,7 +1195,25 @@ export async function myLeaguesFor(ctx: ReaderCtx, playerId: Id<'players'>, toda
       boards: standing?.boards ?? 0,
     })
   }
-  return out
+
+  const region = await regionStatusOf(ctx, playerId, today)
+  if (region?.status.state !== 'placed') return out
+  const placed = region.status
+  // 12 groups: one range read, zero-filled, as for a small fixed league.
+  const standings = await currentStandings(ctx, placed.league.leagueId, await groupsOf(ctx, placed.league.leagueId), monthOf(today))
+  const standing = standings.find((s) => s.groupId === placed.group._id)
+  const regionRow = {
+    kind: 'region' as const,
+    league: { slug: placed.league.slug, name: placed.league.name },
+    leagueId: placed.league.leagueId,
+    group: placed.group,
+    since: placed.countsFrom,
+    pending: placed.next && region.nextGroupId ? { group: { _id: region.nextGroupId, name: placed.next.name }, from: placed.next.from } : null,
+    rank: standing?.rank ?? null,
+    average: standing?.average ?? null,
+    boards: standing?.boards ?? 0,
+  }
+  return [...out, regionRow]
 }
 
 /**
@@ -1135,6 +1243,16 @@ export const myLeagues = query({
     if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }
     const player = await requirePlayer(ctx)
     return { enabled: true as const, leagues: await myLeaguesFor(ctx, player._id, readToday(today)) }
+  },
+})
+
+/** `region` is null before the region league is seeded. */
+export const myRegion = query({
+  args: { today: v.string() },
+  handler: async (ctx, { today }) => {
+    if (!leaguesEnabled(process.env.LEAGUES_ENABLED)) return { enabled: false as const }
+    const player = await requirePlayer(ctx)
+    return { enabled: true as const, region: await myRegionFor(ctx, player._id, readToday(today)) }
   },
 })
 
