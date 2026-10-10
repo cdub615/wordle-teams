@@ -7,10 +7,10 @@ import { attemptsFor } from './lib/board.ts'
 import { addDays, addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { insightsAccess } from './lib/insightsAccess.ts'
 import { isAnswerWord, normalizeWord } from './lib/answerWords.ts'
-import { contributionOf, contributionUnlocked, groupAverageOf, groupDelta, isLargeLeague, largeLeagueSlice, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, OPENER_LEAGUE_SLUG, PICKER_INLINE_MAX, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
+import { contributionOf, contributionUnlocked, groupAverageOf, groupDelta, isLargeLeague, largeLeagueSlice, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, OPENER_LEAGUE_SLUG, PICKER_INLINE_MAX, planJoin, planLeave, planSwitch, regionCountsFrom, regionGroupFor, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
-import type { LeagueKind, MembershipPlan, Standing } from './lib/league.ts'
-import { REGIONS } from './lib/regions.ts'
+import type { Interval, LeagueKind, MembershipPlan, Standing } from './lib/league.ts'
+import { REGIONS, regionOf } from './lib/regions.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader, GenericDatabaseWriter, Scheduler } from 'convex/server'
 
@@ -612,24 +612,78 @@ async function recomputeAfterMembershipChange(ctx: WriterCtx, playerId: Id<'play
   if (reach !== thisMonth) await recomputeLeagueMonthFor(ctx, playerId, reach)
 }
 
+type Placement = { groupId: GroupId; fromDay: PuzzleDay; sticky: boolean }
+
+/**
+ * A player's region placement for ONE month (spec v2 §4.4), or null. The ONE
+ * definition (plan decision 3): the write path, myRegionFor and myLeaguesFor
+ * all call this.
+ *
+ * STICKY FOR THE MONTH: a member-month row already in the region league wins
+ * over the time zone, so a zone change takes effect next month. With no row
+ * yet, the CURRENT zone places (decision 4): a change before any board this
+ * month moves the player at once, since there is nothing to stick to.
+ *
+ * OPEN-ENDED FROM regionCountsFrom: the day after the seed, or after a rejoin.
+ *
+ * NEVER THROWS: a zone with no seeded group is logged and places nowhere, since
+ * this runs inside every board write.
+ */
+export async function regionPlacementOf(
+  ctx: ReaderCtx,
+  player: Doc<'players'>,
+  league: Doc<'leagues'>,
+  month: PuzzleMonth,
+): Promise<Placement | null> {
+  const { year, month: m } = yearMonthOf(month)
+  const row = await ctx.db
+    .query('leagueMemberMonth')
+    .withIndex('by_player_league_year_month', (q) => q.eq('playerId', player._id).eq('leagueId', league._id).eq('year', year).eq('month', m))
+    .unique()
+  let zoneGroupId: GroupId | null = null
+  // A sticky row decides alone, so the zone's group is not even read.
+  const region = row ? null : regionOf(player.timeZone)
+  if (region) {
+    const group = await ctx.db
+      .query('leagueGroups')
+      .withIndex('by_league_and_slug', (q) => q.eq('leagueId', league._id).eq('slug', region.slug))
+      .unique()
+    if (group) zoneGroupId = group._id
+    else console.error(`leagues: region ${region.slug} has no seeded group in league ${league._id}`)
+  }
+  const groupId = regionGroupFor({ optedOut: player.regionLeagueOptOut !== undefined, stickyGroupId: row?.groupId ?? null, zoneGroupId })
+  if (groupId === null) return null
+  const fromDay = regionCountsFrom(toPuzzleDay(new Date(league.createdAt)), player.regionLeagueFrom ?? null)
+  return { groupId, fromDay, sticky: row !== null }
+}
+
 /**
  * Rebuild ONE player's league rows for ONE month from their own boards, and
  * move each group row by the difference. Called on every board write
  * (scores.ts) and after every membership change.
  *
  * WHICH LEAGUES: every league the player holds a membership row in, UNIONED
- * with every league they already have a member-month row in for THIS month.
- * The second half is not redundant: a leave before the interval opened DELETES
+ * with every league they already have a member-month row in for THIS month,
+ * plus THE REGION LEAGUE when regionPlacementOf places them this month. The
+ * second source is not redundant: a leave before the interval opened DELETES
  * that row (planLeave), and a board for tomorrow (accepted up to the server's
  * today + 1) may already have counted for it. Without the union nothing would
- * name that league, and its member row and group contribution would be stranded.
+ * name that league, and its member row and group contribution would be
+ * stranded. The same union recomputes an opted-out player's region row to
+ * nothing. A region has NO membership rows: its placement IS the interval.
  *
- * COST: for a player who has NEVER joined a league, two empty index reads and
- * nothing else — which is almost everyone. Both reads are bounded to the player
- * and (for member-month) to ONE month, never their history. A FORMER member
- * still pays the member cost, because a left interval survives a leave. For a
- * member, their month's boards plus one group row per league. Never O(group
- * size): the group row moves by delta (§7).
+ * COST: for a player who has never joined a league AND has no mapped time zone,
+ * a handful of point reads and nothing else: the membership and member-month
+ * index reads (bounded to the player and, for member-month, to ONE month, never
+ * their history), the region league lookup and, once it is seeded, the player
+ * doc and their region member-month row. A player WITH a
+ * mapped zone now pays the member cost on every board write (plan decision 9):
+ * the player doc, the region group, their month's boards and one group-month
+ * row. Every US Eastern board writes the SAME leagueGroupMonth row, which makes
+ * hot-group OCC contention (wordle-teams-1hfl) real rather than theoretical;
+ * Convex's retries absorb it at today's scale. A FORMER member of a picked
+ * league still pays the member cost, because a left interval survives a leave.
+ * Never O(group size): the group row moves by delta (§7).
  *
  * WRITES NOTHING WHEN NOTHING CHANGED, so a board edit that does not move the
  * totals does not invalidate every standings subscription.
@@ -648,8 +702,21 @@ export async function recomputeLeagueMonthFor(ctx: WriterCtx, playerId: Id<'play
     .query('leagueMemberMonth')
     .withIndex('by_player_year_month', (q) => q.eq('playerId', playerId).eq('year', year).eq('month', m))
     .collect()
-  const leagueIds = new Set([...memberships.map((r) => r.leagueId), ...existing.map((r) => r.leagueId)])
-  if (leagueIds.size === 0) return
+  // Not intervalsOf: that name is the module's membership reader.
+  const byLeague = new Map<Id<'leagues'>, Interval<GroupId>[]>()
+  for (const r of memberships) byLeague.set(r.leagueId, [...(byLeague.get(r.leagueId) ?? []), r])
+  for (const r of existing) if (!byLeague.has(r.leagueId)) byLeague.set(r.leagueId, [])
+  // REGIONS (spec v2 §4.4): no membership rows. The placement IS the interval,
+  // open-ended from regionCountsFrom. An existing row with no placement (opted
+  // out) keeps its empty entry above, so it is recomputed to nothing. NOT gated
+  // on LEAGUES_ENABLED (spec §6), like the rest of this function.
+  const regionLeague = await regionLeagueOf(ctx)
+  if (regionLeague) {
+    const player = await ctx.db.get(playerId)
+    const placed = player ? await regionPlacementOf(ctx, player, regionLeague, month) : null
+    if (placed) byLeague.set(regionLeague._id, [{ groupId: placed.groupId, fromDay: placed.fromDay }])
+  }
+  if (byLeague.size === 0) return
 
   const { start, end } = monthRange(month)
   const boards = (
@@ -659,8 +726,8 @@ export async function recomputeLeagueMonthFor(ctx: WriterCtx, playerId: Id<'play
       .collect()
   ).map((b) => ({ puzzleDay: b.puzzleDay, attempts: attemptsFor(b.guesses, b.answer ?? '') }))
 
-  for (const leagueId of leagueIds) {
-    const after = memberTotalsFor(boards, memberships.filter((r) => r.leagueId === leagueId), month)
+  for (const [leagueId, intervals] of byLeague) {
+    const after = memberTotalsFor(boards, intervals, month)
     const before = existing.find((r) => r.leagueId === leagueId) ?? null
     if (before && after && before.groupId === after.groupId && before.boards === after.boards && before.attempts === after.attempts) continue
 
