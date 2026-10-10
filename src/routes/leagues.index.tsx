@@ -39,6 +39,8 @@ function LeaguesIndex() {
   const today = hydrated ? toPuzzleDay(new Date()) : null
   const mineQuery = useQuery(convexQuery(api.leagues.myLeagues, today ? { today } : 'skip'))
   const mine = mineQuery.data
+  const regionQuery = useQuery(convexQuery(api.leagues.myRegion, today ? { today } : 'skip'))
+  const myRegion = regionQuery.data
   // A failed myLeagues goes to the route's errorComponent rather than a
   // forever "Loading…" (as the league page does).
   if (mineQuery.error && !mine) throw mineQuery.error
@@ -48,11 +50,18 @@ function LeaguesIndex() {
         <p>Leagues aren’t available yet.</p>
       ) : data.leagues.length === 0 ? (
         <p>There are no leagues yet.</p>
-      ) : !mine ? (
-        // Until myLeagues answers we cannot tell which leagues are the viewer's.
+      ) : !mine || (!myRegion && !regionQuery.error) ? (
+        // Until myLeagues answers we cannot tell which leagues are the viewer's,
+        // and until myRegion does the region card's status line would pop in.
+        // A FAILED myRegion with no data does not wait: the directory renders
+        // without region status text rather than loading forever.
         <p role="status">Loading…</p>
       ) : (
-        <LeagueDirectory leagues={data.leagues} mine={mine.enabled ? mine.leagues : []} />
+        <LeagueDirectory
+          leagues={data.leagues}
+          mine={mine.enabled ? mine.leagues : []}
+          region={myRegion?.enabled ? myRegion.region : null}
+        />
       )}
     </LeagueFrame>
   )

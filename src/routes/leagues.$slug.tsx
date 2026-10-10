@@ -179,7 +179,7 @@ function LeagueFor({ slug }: { slug: string }) {
       }
       region={{
         // `region` is null only before the region league is seeded (requirePlayer
-        // rules out a missing player), and then there is no region page to show.
+        // rules out a missing player), and then the page says it couldn’t load your region.
         status: regionPanelStatus(myRegion, regionQuery.error),
         onLeave: () =>
           run(

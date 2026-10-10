@@ -8,7 +8,7 @@ import { createElement, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 vi.mock('../../convex/_generated/api', () => ({
-  api: { players: { needsProfile: 'needsProfile' }, leagues: { leagues: 'leagues', myLeagues: 'myLeagues' } },
+  api: { players: { needsProfile: 'needsProfile' }, leagues: { leagues: 'leagues', myLeagues: 'myLeagues', myRegion: 'myRegion' } },
 }))
 
 const answers: Record<string, unknown> = {}
@@ -59,7 +59,26 @@ describe('/leagues route', () => {
   })
   test('myLeagues answered: the directory renders', () => {
     answers.myLeagues = { enabled: true, leagues: [] }
+    answers.myRegion = { enabled: true, region: null }
     page()
     expect(screen.getByRole('heading', { name: 'Join a league' })).toBeTruthy()
+  })
+  test('myLeagues answered but myRegion still loading: keeps Loading…', () => {
+    answers.myLeagues = { enabled: true, leagues: [] }
+    page()
+    expect(screen.getByRole('status').textContent).toBe('Loading…')
+  })
+  test('a failed myRegion with no data renders the directory without a status line', () => {
+    answers.myLeagues = { enabled: true, leagues: [] }
+    errors.myRegion = new Error('boom')
+    page()
+    expect(screen.getByRole('heading', { name: 'Join a league' })).toBeTruthy()
+  })
+  test('myRegion answered: an unplaced status line shows on its league card', () => {
+    answers.leagues = { enabled: true, leagues: [{ slug: 'region', name: 'Region' }] }
+    answers.myLeagues = { enabled: true, leagues: [] }
+    answers.myRegion = { enabled: true, region: { state: 'no-time-zone', league: { leagueId: 'L', slug: 'region', name: 'Region' } } }
+    page()
+    expect(screen.getByText('Set your time zone to join your region.')).toBeTruthy()
   })
 })
