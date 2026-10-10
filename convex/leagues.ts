@@ -713,10 +713,7 @@ export async function regionPlacementOf(
   // A sticky row decides alone, so the zone's group is not even read.
   const region = row ? null : regionOf(player.timeZone)
   if (region) {
-    const group = await ctx.db
-      .query('leagueGroups')
-      .withIndex('by_league_and_slug', (q) => q.eq('leagueId', league._id).eq('slug', region.slug))
-      .first()
+    const group = await zoneGroupOf(ctx, league._id, region.slug)
     if (group) zoneGroupId = group._id
     else console.error(`leagues: region ${region.slug} has no seeded group in league ${league._id}`)
   }
@@ -1069,7 +1066,10 @@ export const closeLeagueMonth = internalMutation({
 
 type RegionLeagueRef = { leagueId: Id<'leagues'>; slug: string; name: string }
 
-/** The caller's place in the region league this month. Only their own group and region names: no other player (§3.2). */
+/**
+ * The caller's place in the region league this month. Only their own league,
+ * group and region: no other player (§3.2). Group ids are public (§3.2).
+ */
 export type RegionStatus =
   | { state: 'no-time-zone'; league: RegionLeagueRef }
   | { state: 'unmapped'; league: RegionLeagueRef; timeZone: string }
@@ -1078,71 +1078,66 @@ export type RegionStatus =
       state: 'placed'
       league: RegionLeagueRef
       group: { _id: GroupId; name: string }
-      /** The first day a board counts this month: the month start, or later after a launch or rejoin. */
+      /**
+       * The first day a board counts this month: the month start, or later after
+       * a launch or rejoin. It CAN BE AFTER TODAY (launch day, or the day of a
+       * rejoin: both count from tomorrow), and even AFTER THIS MONTH: a rejoin
+       * on the last day counts from the 1st of next month.
+       */
       countsFrom: PuzzleDay
-      /** Sticky this month, but the zone now maps elsewhere: where they move on the 1st. */
-      next: { name: string; from: PuzzleDay } | null
+      /** Sticky this month, but the zone now maps elsewhere: the group they move to on the 1st. */
+      next: { _id: GroupId; name: string; from: PuzzleDay } | null
     }
 
-/**
- * myRegionFor plus the id of the `next` group, which myLeaguesFor's pending
- * switch needs and RegionStatus does not carry.
- */
-async function regionStatusOf(
-  ctx: ReaderCtx,
-  playerId: Id<'players'>,
-  today: PuzzleDay,
-): Promise<{ status: RegionStatus; nextGroupId: GroupId | null } | null> {
+/** A region's group in the region league, by slug. .first(): runs inside every board write, so it never throws. */
+async function zoneGroupOf(ctx: ReaderCtx, leagueId: Id<'leagues'>, slug: string) {
+  return await ctx.db
+    .query('leagueGroups')
+    .withIndex('by_league_and_slug', (q) => q.eq('leagueId', leagueId).eq('slug', slug))
+    .first()
+}
+
+/** Null before the region league is seeded (the directory and page then show no region). */
+export async function myRegionFor(ctx: ReaderCtx, playerId: Id<'players'>, today: PuzzleDay): Promise<RegionStatus | null> {
   const league = await regionLeagueOf(ctx)
   const player = await ctx.db.get(playerId)
   if (!league || !player) return null
   const ref = { leagueId: league._id, slug: league.slug, name: league.name }
   const region = regionOf(player.timeZone)
-  // OPTED OUT AT ALL, not just for this month: the page offers a rejoin either way.
+  // ANY OPT-OUT, even one dated after this month: that can happen only through
+  // requirePlausibleToday's one-day skew (a leave dated the 1st, read on the
+  // 31st), and the page offers a rejoin either way.
   if (player.regionLeagueOptOutDay !== undefined) {
-    return { status: { state: 'opted-out', league: ref, region: region ? { name: region.name } : null }, nextGroupId: null }
+    return { state: 'opted-out', league: ref, region: region ? { name: region.name } : null }
   }
-  if (!player.timeZone) return { status: { state: 'no-time-zone', league: ref }, nextGroupId: null }
+  if (!player.timeZone) return { state: 'no-time-zone', league: ref }
   const month = monthOf(today)
   // THE ONE DEFINITION (plan decision 3): the dated opt-out and rejoin are already in it.
   const placement = await regionPlacementOf(ctx, player, league, month)
   const group = placement ? await ctx.db.get(placement.groupId) : null
   if (!placement || !group) {
-    // A placement naming a missing group is a broken invariant: shown as unmapped, never a blank name.
+    // A placement naming a missing group is a broken invariant: shown as
+    // unmapped, never a blank name. A SEEDING BUG therefore reads as 'unmapped'
+    // and logs on every re-run of this query.
     if (placement) console.error('myRegionFor: placement names a missing group', { playerId, groupId: placement.groupId })
-    return { status: { state: 'unmapped', league: ref, timeZone: player.timeZone }, nextGroupId: null }
+    return { state: 'unmapped', league: ref, timeZone: player.timeZone }
   }
   // A MOVE IS SHOWN ONLY WHERE IT WILL HAPPEN (plan decision 4): sticky this
   // month, and the zone maps to a DIFFERENT, SEEDED group. An unmapped zone, or
   // a region with no group, places nowhere next month, so it names no move.
-  let next: { name: string; from: PuzzleDay } | null = null
-  let nextGroupId: GroupId | null = null
+  let next: { _id: GroupId; name: string; from: PuzzleDay } | null = null
   if (placement.sticky && region && region.slug !== group.slug) {
-    const zoneGroup = await ctx.db
-      .query('leagueGroups')
-      .withIndex('by_league_and_slug', (q) => q.eq('leagueId', league._id).eq('slug', region.slug))
-      .first()
-    if (zoneGroup) {
-      next = { name: zoneGroup.name, from: monthRange(addMonths(month, 1)).start }
-      nextGroupId = zoneGroup._id
-    }
+    const zoneGroup = await zoneGroupOf(ctx, league._id, region.slug)
+    if (zoneGroup) next = { _id: zoneGroup._id, name: zoneGroup.name, from: monthRange(addMonths(month, 1)).start }
   }
   const start = monthRange(month).start
   return {
-    status: {
-      state: 'placed',
-      league: ref,
-      group: { _id: group._id, name: group.name },
-      countsFrom: placement.fromDay > start ? placement.fromDay : start,
-      next,
-    },
-    nextGroupId,
+    state: 'placed',
+    league: ref,
+    group: { _id: group._id, name: group.name },
+    countsFrom: placement.fromDay > start ? placement.fromDay : start,
+    next,
   }
-}
-
-/** Null before the region league is seeded (the directory and page then show no region). */
-export async function myRegionFor(ctx: ReaderCtx, playerId: Id<'players'>, today: PuzzleDay): Promise<RegionStatus | null> {
-  return (await regionStatusOf(ctx, playerId, today))?.status ?? null
 }
 
 /**
@@ -1150,6 +1145,14 @@ export async function myRegionFor(ctx: ReaderCtx, playerId: Id<'players'>, today
  * PICKED ROWS FIRST, THE REGION ROW LAST, so the home card's cap of 3 drops the
  * region before a league the player chose. The region row exists only while
  * 'placed'; it has no membership rows, so its `since` is countsFrom.
+ *
+ * COST: the region row reads the region league's whole live month
+ * (currentStandings over 12 groups), so EVERY board write by ANY placed player
+ * re-runs this for every open subscription of every placed player: the
+ * dashboard, /leagues and /leagues/$slug. Picked leagues already behave this
+ * way for their members, but the region league holds almost everyone. Kept
+ * (spec §5 wants the region, with its rank, on the home card); a measurement
+ * follow-up is filed under wordle-teams-zic8.3.21.
  */
 export async function myLeaguesFor(ctx: ReaderCtx, playerId: Id<'players'>, today: PuzzleDay) {
   const rows = await ctx.db
@@ -1196,9 +1199,8 @@ export async function myLeaguesFor(ctx: ReaderCtx, playerId: Id<'players'>, toda
     })
   }
 
-  const region = await regionStatusOf(ctx, playerId, today)
-  if (region?.status.state !== 'placed') return out
-  const placed = region.status
+  const placed = await myRegionFor(ctx, playerId, today)
+  if (placed?.state !== 'placed') return out
   // 12 groups: one range read, zero-filled, as for a small fixed league.
   const standings = await currentStandings(ctx, placed.league.leagueId, await groupsOf(ctx, placed.league.leagueId), monthOf(today))
   const standing = standings.find((s) => s.groupId === placed.group._id)
@@ -1208,7 +1210,7 @@ export async function myLeaguesFor(ctx: ReaderCtx, playerId: Id<'players'>, toda
     leagueId: placed.league.leagueId,
     group: placed.group,
     since: placed.countsFrom,
-    pending: placed.next && region.nextGroupId ? { group: { _id: region.nextGroupId, name: placed.next.name }, from: placed.next.from } : null,
+    pending: placed.next ? { group: { _id: placed.next._id, name: placed.next.name }, from: placed.next.from } : null,
     rank: standing?.rank ?? null,
     average: standing?.average ?? null,
     boards: standing?.boards ?? 0,
