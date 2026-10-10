@@ -2392,6 +2392,43 @@ describe('region placement on the board write path', () => {
       })
     })
 
+    test('a LAST-DAY rejoin does not restore the month: no October day counts, November does', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { group } = await seedRegionsOnOct5(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
+        vi.setSystemTime(new Date('2026-10-10T12:00:00Z'))
+        const at = (day: string, puzzleDay: string, n: number) =>
+          upsertBoardFor(ctx, playerId, { puzzleDay, answer: 'crane', guesses: [...Array(n - 1).fill('slate'), 'crane', ...Array(6 - n).fill('')], today: day })
+        await at('2026-10-10', '2026-10-06', 3)
+        await leaveRegionFor(ctx, playerId, { today: '2026-10-10' })
+        expect(await memberRows(ctx)).toEqual([])
+        await at('2026-10-10', '2026-10-10', 4)
+        vi.setSystemTime(new Date('2026-10-31T12:00:00Z'))
+        await rejoinRegionFor(ctx, playerId, { today: '2026-10-31' })
+        expect(await memberRows(ctx)).toEqual([])
+        await at('2026-10-31', '2026-10-31', 2)
+        expect(await memberRows(ctx)).toEqual([])
+        await at('2026-10-31', '2026-11-01', 5)
+        expect(await memberRows(ctx)).toEqual([expect.objectContaining({ groupId: group['us-central'], month: 11, boards: 1, attempts: 5 })])
+        await expectGroupRowsAreSums(ctx)
+      })
+    })
+
+    test('the rejoin recomputes: a board entered for tomorrow while opted out counts once rejoined', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        const { group } = await seedRegionsOnOct5(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
+        await leaveRegionFor(ctx, playerId, { today })
+        await enter(ctx, playerId, '2026-10-08', 4)
+        expect(await memberRows(ctx)).toEqual([])
+        await rejoinRegionFor(ctx, playerId, { today })
+        expect(await memberRows(ctx)).toEqual([expect.objectContaining({ groupId: group['us-central'], month: 10, boards: 1, attempts: 4 })])
+        await expectGroupRowsAreSums(ctx)
+      })
+    })
+
     test('a leave on the last day also removes a board already entered for the 1st of next month', async () => {
       const t = convexTest(schema, modules)
       await t.run(async (ctx) => {
