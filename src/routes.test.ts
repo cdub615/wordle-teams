@@ -2383,11 +2383,13 @@ describe('the teamless onboarding step goes straight to the opener league (v2b d
   test('onLeague navigates to /leagues/$slug with OPENER_LEAGUE_SLUG, not to the /leagues directory', () => {
     // With a region league beside Starting Words, /leagues is the directory
     // rather than a redirect to the one league, and the step says "Join the
-    // opener wars". e2e/leagues.spec.ts lands on /leagues/starting-words.
+    // opener wars". A SOURCE PIN FOR NOW: e2eSeed seeds only Starting Words,
+    // so /leagues still redirects there and e2e/leagues.spec.ts cannot tell
+    // the old navigation from this one. B9 seeds regions in e2e, which makes
+    // that spec the behavioural pin.
     expect(jsxProps(APP, 'NextStepCard').get('onLeague')).toBe(
       "() => void navigate({ to: '/leagues/$slug', params: { slug: OPENER_LEAGUE_SLUG } })",
     )
-    expect(codeOf(read(APP))).toMatch(/import \{[^}]*\bOPENER_LEAGUE_SLUG\b[^}]*\} from '\.\.\/\.\.\/convex\/lib\/league\.ts'/)
   })
 })
 

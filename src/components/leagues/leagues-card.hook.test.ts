@@ -85,7 +85,7 @@ describe('LeaguesCard', () => {
     expect(describedBy && document.getElementById(describedBy)?.textContent).toBe('Join the opener wars')
   })
   test('in a league: one row with rank and average, linking to the league', () => {
-    render(createElement(LeaguesCard, { mine: [row('starting-words', 1)], featured, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false }))
+    render(createElement(LeaguesCard, { mine: [row('starting-words', 1)], featured: null, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false }))
     const link = screen.getByRole('link', { name: /CRANE/ })
     expect(link.getAttribute('href')).toBe('/leagues/starting-words')
     expect(link.textContent).toContain('#1')
@@ -97,7 +97,7 @@ describe('LeaguesCard', () => {
     expect(screen.getByRole('link', { name: /CRANE/ }).textContent).toContain('not yet ranked')
   })
   test('caps at HOME_CARD_MAX_LEAGUES with See all', () => {
-    render(createElement(LeaguesCard, { mine: ['a', 'b', 'c', 'd'].map((s) => row(s, null)), featured, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false }))
+    render(createElement(LeaguesCard, { mine: ['a', 'b', 'c', 'd'].map((s) => row(s, null)), featured: null, onJoin: vi.fn(), onJoinWord: vi.fn(), onDismiss: vi.fn(), busy: false }))
     expect(screen.getAllByRole('link').map((l) => l.textContent)).toContain('See all')
     expect(screen.getAllByRole('link')).toHaveLength(4)
   })
@@ -109,6 +109,7 @@ describe('LeaguesCard', () => {
     // BYTE FOR BYTE (zic8.3.21.6): the combined card reuses the offer's body,
     // so this pins the no-rows card as it was before regions existed. The
     // useId values vary with render order, so they are normalised.
+    // A shadcn Button/Card variant change is an EXPECTED reason to update it.
     const { container } = card({ featured })
     expect(container.innerHTML.replace(/_r_[0-9a-z]+_/g, 'ID')).toMatchInlineSnapshot(`"<div class="rounded-lg border bg-card text-card-foreground shadow-sm" role="region" aria-label="Leagues"><div class="flex flex-col space-y-1.5 p-6"><h2 id="ID" class="text-2xl font-semibold leading-none tracking-tight">Join the opener wars</h2></div><div class="p-6 pt-0 flex flex-col gap-2"><p class="text-sm text-muted-foreground">Pick a side — your boards count whatever word you start with.</p><div role="group" aria-label="Choose a group" class="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap"><button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2 font-mono tracking-widest" type="button" aria-pressed="false" aria-describedby="ID-g0-count">CRANE<span aria-hidden="true" class="ml-2 text-xs font-normal tracking-normal tabular-nums opacity-70">0</span><span id="ID-g0-count" aria-hidden="true" class="sr-only">0 members</span></button><button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2 font-mono tracking-widest" type="button" aria-pressed="false" aria-describedby="ID-g1-count">SLATE<span aria-hidden="true" class="ml-2 text-xs font-normal tracking-normal tabular-nums opacity-70">0</span><span id="ID-g1-count" aria-hidden="true" class="sr-only">0 members</span></button></div><button class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground h-9 rounded-md px-3 self-start" type="button" aria-describedby="ID">Not now</button></div></div>"`)
   })
@@ -163,8 +164,8 @@ describe('LeaguesCard with rows AND the offer (v2b regions, owner decision 2026-
     expect((screen.getByRole('button', { name: 'SLATE' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Not now' }) as HTMLButtonElement).disabled).toBe(true)
   })
-  test('the cap is still HOME_CARD_MAX_LEAGUES rows with See all, offer or not', () => {
-    card({ mine: [...['a', 'b', 'c'].map((s) => row(s, null)), regionRow] })
+  test('the cap is still HOME_CARD_MAX_LEAGUES rows with See all; the region row, sent last, is the one cut', () => {
+    card({ mine: [...['a', 'b', 'c'].map((s) => row(s, null)), regionRow], featured: null })
     const links = screen.getAllByRole('link')
     expect(links).toHaveLength(4)
     expect(links.map((l) => l.textContent)).toContain('See all')
@@ -267,6 +268,13 @@ describe('leaguesCardInput', () => {
   test('a Starting Words member with a region gets both rows and no offer', () => {
     const both = [row('starting-words', 1), regionRow]
     expect(leaguesCardInput({ enabled: true, leagues: both }, enabled, { ...team, everJoined: true })).toEqual({ mine: both, featured: null })
+  })
+  test('a picked row means no offer even for a never-joined player: the card trusts this rule', () => {
+    // LeaguesCard shows the offer iff it is handed `featured`, so THIS is the
+    // only place "a member is never offered a second join" is enforced.
+    for (const leagues of [mine, [row('starting-words', 1), regionRow]]) {
+      expect(leaguesCardInput({ enabled: true, leagues }, enabled, team)).toEqual({ mine: leagues, featured: null })
+    }
   })
   test('a DISMISSED region-only player gets the row only', () => {
     expect(leaguesCardInput({ enabled: true, leagues: [regionRow] }, enabled, { ...team, dismissed: true })).toEqual({ mine: [regionRow], featured: null })
