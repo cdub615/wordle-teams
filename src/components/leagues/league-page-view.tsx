@@ -118,7 +118,7 @@ type Props = {
   /** A word league's "Find a group": the route owns the groupStanding query. */
   find: { onFind: (word: string) => void; result: FindResult | null }
   /** The region league's panel: the route subscribes to myRegion only on a region view. */
-  region: { status: RegionPanelStatus | undefined; onLeave: () => void; onRejoin: () => void } | undefined
+  region: { status: RegionPanelStatus | 'unavailable' | undefined; onLeave: () => void; onRejoin: () => void } | undefined
   onUpgrade: (origin: UpgradeOrigin) => void
   /** The route is showing the last standings or memberships it had, through a query error. */
   stale?: boolean
@@ -229,30 +229,35 @@ export function LeaguePageView({
   // Standings, the nudge and the contribution row use that row like any other.
   const isRegion = view.kind === 'region'
 
+  // The membership line, the join section, or (a region) the RegionPanel.
+  const controls = isRegion ? (
+    region ? (
+      <RegionPanel status={region.status} today={today} busy={busy} onLeave={region.onLeave} onRejoin={region.onRejoin} />
+    ) : null
+  ) : membership ? (
+    <p data-testid="league-membership" className="text-sm">
+      You play for <span className="font-mono tracking-widest">{membership.group.name}</span>
+      {membership.since > today && ` from ${dayName(membership.since)}`}
+      {membership.pending &&
+        ` · switching to ${membership.pending.group.name} on ${monthName(monthOf(membership.pending.from))} 1`}
+    </p>
+  ) : (
+    <section aria-labelledby="league-join-heading" className="flex flex-col gap-2">
+      <h2 id="league-join-heading" className="font-medium">
+        Join the opener wars
+      </h2>
+      <p className="text-sm text-muted-foreground">Pick a side — your boards count whatever word you start with.</p>
+      {pickerFor('Choose a group', 'Join', null, onJoin, onJoinWord)}
+      {/* planJoin: tomorrow, or the 1st if a DIFFERENT group already counted this month. */}
+      <p className="text-xs text-muted-foreground">
+        Your boards count from tomorrow, or from the 1st if you were in another group this month.
+      </p>
+    </section>
+  )
+
   return (
     <LeagueFrame title={view.league.name}>
-      {isRegion ? (
-        region && <RegionPanel status={region.status} today={today} busy={busy} onLeave={region.onLeave} onRejoin={region.onRejoin} />
-      ) : membership ? (
-        <p data-testid="league-membership" className="text-sm">
-          You play for <span className="font-mono tracking-widest">{membership.group.name}</span>
-          {membership.since > today && ` from ${dayName(membership.since)}`}
-          {membership.pending &&
-            ` · switching to ${membership.pending.group.name} on ${monthName(monthOf(membership.pending.from))} 1`}
-        </p>
-      ) : (
-        <section aria-labelledby="league-join-heading" className="flex flex-col gap-2">
-          <h2 id="league-join-heading" className="font-medium">
-            Join the opener wars
-          </h2>
-          <p className="text-sm text-muted-foreground">Pick a side — your boards count whatever word you start with.</p>
-          {pickerFor('Choose a group', 'Join', null, onJoin, onJoinWord)}
-          {/* planJoin: tomorrow, or the 1st if a DIFFERENT group already counted this month. */}
-          <p className="text-xs text-muted-foreground">
-            Your boards count from tomorrow, or from the 1st if you were in another group this month.
-          </p>
-        </section>
-      )}
+      {controls}
       {stale && (
         <p role="status" className="text-sm text-muted-foreground">
           Couldn’t refresh the standings — showing the last ones we had.

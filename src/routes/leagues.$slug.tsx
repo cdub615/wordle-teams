@@ -13,6 +13,7 @@ import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { DashboardError } from '#/components/dashboard-error.tsx'
 import { Skeleton } from '#/components/ui/skeleton.tsx'
 import { LeagueFrame, LeaguePageView, leaveMessage, membershipIn } from '#/components/leagues/league-page-view.tsx'
+import { regionPanelStatus } from '#/components/leagues/region-panel.tsx'
 
 /**
  * /leagues/$slug — one league's standings, the viewer's group, and the
@@ -82,10 +83,13 @@ function LeagueFor({ slug }: { slug: string }) {
   const { data: contribution } = useQuery(
     convexQuery(api.leagues.myContribution, today && membership ? { slug, today } : 'skip'),
   )
-  // Only the region league's page reads the viewer's region (RegionPanel). A
-  // failure leaves the panel on its skeleton; the standings still render.
+  // Only the region league's page reads the viewer's region (RegionPanel).
+  // useLastData keeps it through a new key (midnight) that then fails; a
+  // failure with no data says so in the panel (regionPanelStatus), never a
+  // skeleton forever, and the standings still render.
   const onRegion = Boolean(standings?.enabled && standings.view?.kind === 'region')
-  const { data: myRegion } = useQuery(convexQuery(api.leagues.myRegion, today && onRegion ? { today } : 'skip'))
+  const regionQuery = useQuery(convexQuery(api.leagues.myRegion, today && onRegion ? { today } : 'skip'))
+  const myRegion = useLastData(regionQuery.data)
 
   const join = useMutation({ mutationFn: useConvexMutation(api.leagues.joinGroup) })
   const change = useMutation({ mutationFn: useConvexMutation(api.leagues.switchGroup) })
@@ -174,8 +178,9 @@ function LeagueFor({ slug }: { slug: string }) {
         )
       }
       region={{
-        // `region` is null only before the region league is seeded, and then there is no region page.
-        status: myRegion?.enabled ? (myRegion.region ?? undefined) : undefined,
+        // `region` is null only before the region league is seeded (requirePlayer
+        // rules out a missing player), and then there is no region page to show.
+        status: regionPanelStatus(myRegion, regionQuery.error),
         onLeave: () =>
           run(
             (day) => leaveRegion.mutateAsync({ today: day }),

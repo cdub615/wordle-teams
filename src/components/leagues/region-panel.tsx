@@ -19,9 +19,24 @@ export type RegionPanelStatus =
       next: { _id: string; name: string; from: PuzzleDay } | null
     }
 
+/** PLAIN STRUCTURAL SHAPE of api.leagues.myRegion's result. */
+type MyRegionResult = { enabled: false } | { enabled: true; region: RegionPanelStatus | null }
+
+/**
+ * WHAT THE PANEL SHOWS for the route's myRegion query: undefined only while it
+ * loads, so a failure is never a skeleton forever. The data wins over an
+ * error (the route keeps the last data through one, useLastData). Dark, or a
+ * region league not seeded yet (region: null), has nothing to show either.
+ */
+export function regionPanelStatus(result: MyRegionResult | undefined, error: unknown): RegionPanelStatus | 'unavailable' | undefined {
+  if (!result) return error ? 'unavailable' : undefined
+  if (!result.enabled || !result.region) return 'unavailable'
+  return result.region
+}
+
 type Props = {
-  /** Undefined while myRegion loads. */
-  status: RegionPanelStatus | undefined
+  /** Undefined while myRegion loads; 'unavailable' when it failed or has no region to give. */
+  status: RegionPanelStatus | 'unavailable' | undefined
   /** The viewer's local day: a `countsFrom` after it has not started. */
   today: PuzzleDay
   busy: boolean
@@ -53,7 +68,15 @@ function RegionBody({ status, today, busy, onLeave, onRejoin }: Props) {
     return (
       <div aria-busy="true">
         <Skeleton className="h-5 w-full" />
+        <span className="sr-only">Loading your region</span>
       </div>
+    )
+  }
+  if (status === 'unavailable') {
+    return (
+      <p role="status" className="text-sm text-muted-foreground">
+        Couldn’t load your region.
+      </p>
     )
   }
   switch (status.state) {
@@ -65,7 +88,7 @@ function RegionBody({ status, today, busy, onLeave, onRejoin }: Props) {
       )
     case 'unmapped':
       return (
-        <p data-testid="region-status" className="text-sm">
+        <p data-testid="region-status" className="text-sm break-words">
           Your time zone ({status.timeZone}) isn’t part of a region yet.
         </p>
       )
