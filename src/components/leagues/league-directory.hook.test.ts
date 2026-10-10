@@ -99,7 +99,7 @@ describe('LeagueDirectory', () => {
     test('a placed region appears under Your leagues only, with no status line', () => {
       dir({
         leagues,
-        mine: [{ ...row('region', 1), kind: 'region' as never }],
+        mine: [{ ...row('region', 1), kind: 'region' as const }],
         region: placed,
       })
       expect(within(screen.getByRole('region', { name: 'Your leagues' })).getByRole('link', { name: /region/ })).toBeTruthy()

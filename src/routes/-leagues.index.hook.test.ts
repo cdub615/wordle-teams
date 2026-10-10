@@ -69,10 +69,13 @@ describe('/leagues route', () => {
     expect(screen.getByRole('status').textContent).toBe('Loading…')
   })
   test('a failed myRegion with no data renders the directory without a status line', () => {
+    answers.leagues = { enabled: true, leagues: [{ slug: 'region', name: 'Region' }] }
     answers.myLeagues = { enabled: true, leagues: [] }
     errors.myRegion = new Error('boom')
     page()
-    expect(screen.getByRole('heading', { name: 'Join a league' })).toBeTruthy()
+    expect(screen.getByText('Region')).toBeTruthy()
+    for (const t of ['You left — rejoin from its page.', 'Set your time zone to join your region.', 'Your time zone isn’t part of a region yet.'])
+      expect(screen.queryByText(t)).toBeNull()
   })
   test('myRegion answered: an unplaced status line shows on its league card', () => {
     answers.leagues = { enabled: true, leagues: [{ slug: 'region', name: 'Region' }] }
