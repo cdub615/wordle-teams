@@ -5,7 +5,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { RegionPanel } from './region-panel.tsx'
+import { RegionPanel, regionPanelStatus } from './region-panel.tsx'
 
 afterEach(cleanup)
 
@@ -24,6 +24,16 @@ describe('RegionPanel', () => {
     show({ status: undefined })
     expect(within(panel()).getByRole('heading', { level: 2 }).textContent).toBe('Your region')
     expect(panel().querySelector('[aria-busy="true"]')).toBeTruthy()
+    expect(screen.queryByTestId('region-status')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+    // The skeleton says what is loading to a screen reader.
+    expect(within(panel()).getByText('Loading your region')).toBeTruthy()
+  })
+
+  test('unavailable: says so, never a skeleton forever', () => {
+    show({ status: 'unavailable' })
+    expect(within(panel()).getByRole('status').textContent).toBe('Couldn’t load your region.')
+    expect(panel().querySelector('[aria-busy="true"]')).toBeNull()
     expect(screen.queryByTestId('region-status')).toBeNull()
     expect(screen.queryByRole('button')).toBeNull()
   })
@@ -79,6 +89,8 @@ describe('RegionPanel', () => {
   test('unmapped: names the zone', () => {
     show({ status: { state: 'unmapped', timeZone: 'UTC' } })
     expect(screen.getByTestId('region-status').textContent).toBe('Your time zone (UTC) isn’t part of a region yet.')
+    // An IANA zone can be one long unbroken token on a phone row.
+    expect(screen.getByTestId('region-status').className).toContain('break-words')
     expect(screen.queryByRole('button')).toBeNull()
   })
 
@@ -88,5 +100,25 @@ describe('RegionPanel', () => {
     cleanup()
     show({ busy: true, status: { state: 'opted-out' } })
     expect((screen.getByRole('button', { name: 'Rejoin' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
+describe('regionPanelStatus', () => {
+  test('loading: no data and no error', () => {
+    expect(regionPanelStatus(undefined, null)).toBeUndefined()
+  })
+  test('a failed query with no data is unavailable, not loading', () => {
+    expect(regionPanelStatus(undefined, new Error('offline'))).toBe('unavailable')
+  })
+  test('the last data wins over a later error', () => {
+    expect(regionPanelStatus({ enabled: true, region: placed }, new Error('offline'))).toBe(placed)
+  })
+  test('dark, or no region league seeded: unavailable', () => {
+    expect(regionPanelStatus({ enabled: false }, null)).toBe('unavailable')
+    expect(regionPanelStatus({ enabled: true, region: null }, null)).toBe('unavailable')
+  })
+  test('otherwise the status', () => {
+    const optedOut = { state: 'opted-out' as const }
+    expect(regionPanelStatus({ enabled: true, region: optedOut }, null)).toBe(optedOut)
   })
 })
