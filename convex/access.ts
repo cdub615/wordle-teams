@@ -173,8 +173,8 @@ export type AccessCode =
   | 'UNKNOWN_WORD'
   // convex/leagues.ts requirePickedLeague, from joinGroup, switchGroup, joinWord,
   // switchWord and leaveLeague: the league is the region league, whose
-  // placement is automatic (by time zone), so there is nothing to join or leave
-  // there. Leaving a region is leaveRegion.
+  // placement is set automatically (by time zone), never by a join, switch or
+  // leave. Leaving a region is leaveRegion.
   | 'AUTOMATIC_LEAGUE'
 
 /**

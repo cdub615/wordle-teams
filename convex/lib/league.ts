@@ -47,7 +47,8 @@ export function regionGroupFor<G extends string>(f: { optedOut: boolean; stickyG
 
 /**
  * THE FIRST DAY a region board counts (owner 2026-10-09): the day after the
- * league was seeded (never retroactive, like a join), or the rejoin day if later.
+ * league was seeded (never retroactive, like a join), or `rejoinFrom` (the day
+ * after a rejoin) if later.
  */
 export function regionCountsFrom(seededDay: PuzzleDay, rejoinFrom: PuzzleDay | null): PuzzleDay {
   const launch = addDays(seededDay, 1)

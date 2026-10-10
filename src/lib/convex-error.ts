@@ -321,9 +321,9 @@ export function typedCodeMessage(code: AccessCode): string {
     case 'UNKNOWN_WORD':
       return "That isn't a Wordle answer word."
     case 'AUTOMATIC_LEAGUE':
-      // A picked-league control aimed at the region league. Names WHY, since
-      // the player did nothing wrong: placement follows their time zone.
-      return "Your region comes from your time zone, so there's nothing to join."
+      // A picked-league join, switch or leave aimed at the region league. Names
+      // WHY, since the player did nothing wrong: placement follows their time zone.
+      return "Your region comes from your time zone, so it's set automatically."
     default: {
       const _exhaustive: never = code
       return _exhaustive

@@ -5,7 +5,7 @@ import schema from './schema'
 import type { MutationCtx } from './_generated/server'
 import { api, internal } from './_generated/api'
 import { insightsAccess } from './lib/insightsAccess.ts'
-import { contributionUnlocked } from './lib/league.ts'
+import { contributionUnlocked, OPENER_LEAGUE_SLUG } from './lib/league.ts'
 import { aPlayer, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
 import { REGIONS } from './lib/regions.ts'
@@ -1905,6 +1905,10 @@ describe('the region league', () => {
       expect(groups.map((g) => [g.slug, g.name])).toEqual(REGIONS.map((r) => [r.slug, r.name]))
       expect(groups).toHaveLength(12)
     })
+  })
+
+  test('Starting Words is the opener league', () => {
+    expect(STARTING_WORDS.slug).toBe(OPENER_LEAGUE_SLUG)
   })
 
   test('a Starting Words seed writes no kind: absent means picked', async () => {

@@ -58,6 +58,12 @@ export const STARTING_WORDS: LeagueSpec = {
  * v2b's automatic league: groups are REGIONS (lib/regions.ts), placement is by
  * time zone. Region memberCount is NOT maintained (owner 2026-10-09): it stays
  * 0, and nothing renders it for a region (there is no picker).
+ *
+ * DO NOT SEED IT ON A REAL DEPLOYMENT UNTIL THE v2b UI HAS SHIPPED (plan task
+ * B9). Until then the league page would offer a group picker whose every
+ * button refuses AUTOMATIC_LEAGUE, with "0 members" counts. Seeding also fixes
+ * the launch day for good: createdAt drives regionCountsFrom, so boards count
+ * from the day after the seed. Seeding is owner-run (plan task B10).
  */
 export const REGION_LEAGUE: LeagueSpec = {
   slug: 'regions',

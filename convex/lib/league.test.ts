@@ -21,7 +21,6 @@ import {
   memberTotalsFor,
   MIN_LEAGUE_BOARDS,
   monthToClose,
-  OPENER_LEAGUE_SLUG,
   PICKER_INLINE_MAX,
   pickerModeFor,
   planJoin,
@@ -696,11 +695,5 @@ describe('pickerModeFor', () => {
     expect(pickerModeFor({ kind: 'picked', groupSource: 'fixed' })).toBe('groups')
     expect(pickerModeFor({ groupSource: 'fixed' })).toBe('groups')
     expect(pickerModeFor({})).toBe('groups')
-  })
-})
-
-describe('OPENER_LEAGUE_SLUG', () => {
-  test('is Starting Words', () => {
-    expect(OPENER_LEAGUE_SLUG).toBe('starting-words')
   })
 })
