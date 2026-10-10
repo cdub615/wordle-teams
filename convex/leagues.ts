@@ -7,9 +7,10 @@ import { attemptsFor } from './lib/board.ts'
 import { addDays, addMonths, isPlausibleToday, monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
 import { insightsAccess } from './lib/insightsAccess.ts'
 import { isAnswerWord, normalizeWord } from './lib/answerWords.ts'
-import { contributionOf, contributionUnlocked, groupAverageOf, groupDelta, isLargeLeague, largeLeagueSlice, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, PICKER_INLINE_MAX, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
+import { contributionOf, contributionUnlocked, groupAverageOf, groupDelta, isLargeLeague, largeLeagueSlice, leaguesEnabled, membershipOf, memberTotalsFor, monthToClose, OPENER_LEAGUE_SLUG, PICKER_INLINE_MAX, planJoin, planLeave, planSwitch, standingsOf, winnerOf, yearMonthOf } from './lib/league.ts'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
-import type { MembershipPlan, Standing } from './lib/league.ts'
+import type { LeagueKind, MembershipPlan, Standing } from './lib/league.ts'
+import { REGIONS } from './lib/regions.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader, GenericDatabaseWriter, Scheduler } from 'convex/server'
 
@@ -39,19 +40,37 @@ export type LeagueSpec = {
   featured: boolean
   /** Absent leaves a stored value alone on re-seed; a stored absence means 'fixed'. */
   groupSource?: 'fixed' | 'answer-words'
+  /** As groupSource: absent leaves a stored value alone; a stored absence means 'picked'. */
+  kind?: LeagueKind
   groups: { slug: string; name: string }[]
 }
 
 /** v1's one league (§1). Seeded per deployment by `seedLeague`. */
 export const STARTING_WORDS: LeagueSpec = {
-  slug: 'starting-words',
+  slug: OPENER_LEAGUE_SLUG,
   name: 'Starting Words',
   featured: true,
   groupSource: 'answer-words',
   groups: ['CRANE', 'SLATE', 'ADIEU', 'STARE', 'ORATE'].map((name) => ({ slug: name.toLowerCase(), name })),
 }
 
-const LEAGUE_SPECS: Record<string, LeagueSpec> = { [STARTING_WORDS.slug]: STARTING_WORDS }
+/**
+ * v2b's automatic league: groups are REGIONS (lib/regions.ts), placement is by
+ * time zone. Region memberCount is NOT maintained (owner 2026-10-09): it stays
+ * 0, and nothing renders it for a region (there is no picker).
+ */
+export const REGION_LEAGUE: LeagueSpec = {
+  slug: 'regions',
+  name: 'Regions',
+  featured: false,
+  kind: 'region',
+  groups: REGIONS.map(({ slug, name }) => ({ slug, name })),
+}
+
+const LEAGUE_SPECS: Record<string, LeagueSpec> = {
+  [STARTING_WORDS.slug]: STARTING_WORDS,
+  [REGION_LEAGUE.slug]: REGION_LEAGUE,
+}
 
 /**
  * Create or update a league and its groups, matched by slug. IDEMPOTENT: a
@@ -69,6 +88,7 @@ export async function seedLeagueFor(ctx: WriterCtx, spec: LeagueSpec, now: numbe
       name: spec.name,
       featured: spec.featured,
       ...(spec.groupSource ? { groupSource: spec.groupSource } : {}),
+      ...(spec.kind ? { kind: spec.kind } : {}),
       createdAt: now,
     }))
   if (found) {
@@ -76,6 +96,7 @@ export async function seedLeagueFor(ctx: WriterCtx, spec: LeagueSpec, now: numbe
       name: spec.name,
       featured: spec.featured,
       ...(spec.groupSource ? { groupSource: spec.groupSource } : {}),
+      ...(spec.kind ? { kind: spec.kind } : {}),
     })
   }
 
@@ -163,6 +184,11 @@ async function popularGroupsOf(ctx: ReaderCtx, leagueId: Id<'leagues'>): Promise
 
 const groupView = (g: Doc<'leagueGroups'>) => ({ _id: g._id, slug: g.slug, name: g.name, memberCount: g.memberCount })
 
+/** THE region league, or null before it is seeded. .first(): the write path must never throw on a duplicate. */
+export async function regionLeagueOf(ctx: ReaderCtx) {
+  return await ctx.db.query('leagues').withIndex('by_kind', (q) => q.eq('kind', 'region')).first()
+}
+
 /**
  * Every league, with the groups its picker offers: a fixed league's groups in
  * order, a word league's POPULAR_GROUPS (never the dictionary).
@@ -179,6 +205,7 @@ export async function leaguesFor(ctx: ReaderCtx) {
         name: league.name,
         featured: league.featured,
         groupSource,
+        kind: league.kind ?? ('picked' as const),
         groups: groups.map(groupView),
       }
     }),
@@ -442,9 +469,26 @@ async function requireGroup(ctx: ReaderCtx, groupId: GroupId) {
   return group
 }
 
+/**
+ * A REGION LEAGUE IS NEVER JOINED, SWITCHED OR LEFT through the picked-league
+ * paths (v2b): placement is by time zone, with no membership rows to plan
+ * over. Opting out is leaveRegion. Before any plan, so nothing is written.
+ */
+function requirePickedLeague(league: Doc<'leagues'>) {
+  if (league.kind === 'region') throw accessError('AUTOMATIC_LEAGUE')
+}
+
+/** A group's league, which must exist and be a picked one. */
+async function requirePickedLeagueOf(ctx: ReaderCtx, group: Doc<'leagueGroups'>) {
+  const league = await ctx.db.get(group.leagueId)
+  if (!league) throw accessError('UNKNOWN_LEAGUE')
+  requirePickedLeague(league)
+}
+
 export async function joinGroupFor(ctx: WriterCtx, playerId: Id<'players'>, args: { groupId: GroupId; today: string }) {
   const today = requirePlausibleToday(args.today)
   const group = await requireGroup(ctx, args.groupId)
+  await requirePickedLeagueOf(ctx, group)
   const rows = await intervalsOf(ctx, playerId, group.leagueId)
   await applyPlan(ctx, playerId, group.leagueId, rows, planJoin(rows, today, group._id))
   // "EVER JOINED" (spec §8.4), stamped once and never overwritten or cleared:
@@ -458,6 +502,7 @@ export async function joinGroupFor(ctx: WriterCtx, playerId: Id<'players'>, args
 export async function switchGroupFor(ctx: WriterCtx, playerId: Id<'players'>, args: { groupId: GroupId; today: string }) {
   const today = requirePlausibleToday(args.today)
   const group = await requireGroup(ctx, args.groupId)
+  await requirePickedLeagueOf(ctx, group)
   const rows = await intervalsOf(ctx, playerId, group.leagueId)
   await applyPlan(ctx, playerId, group.leagueId, rows, planSwitch(rows, today, group._id))
   await recomputeAfterMembershipChange(ctx, playerId, today)
@@ -517,10 +562,11 @@ async function requireLeague(ctx: ReaderCtx, leagueId: Id<'leagues'>) {
 
 type WordArgs = { leagueId: Id<'leagues'>; word: string; today: string }
 
-/** Validation order as joinGroupFor's: today, the league, the plan, then the word. */
+/** Validation order as joinGroupFor's: today, the league (and its kind), the plan, then the word. */
 export async function joinWordFor(ctx: WriterCtx, playerId: Id<'players'>, args: WordArgs) {
   const today = requirePlausibleToday(args.today)
   const league = await requireLeague(ctx, args.leagueId)
+  requirePickedLeague(league)
   const plan = planJoin(await intervalsOf(ctx, playerId, league._id), today, PRECHECK_TARGET)
   if ('refused' in plan) throw accessError(plan.refused)
   const groupId = await resolveWordGroupFor(ctx, league, args.word)
@@ -530,6 +576,7 @@ export async function joinWordFor(ctx: WriterCtx, playerId: Id<'players'>, args:
 export async function switchWordFor(ctx: WriterCtx, playerId: Id<'players'>, args: WordArgs) {
   const today = requirePlausibleToday(args.today)
   const league = await requireLeague(ctx, args.leagueId)
+  requirePickedLeague(league)
   const plan = planSwitch(await intervalsOf(ctx, playerId, league._id), today, PRECHECK_TARGET)
   if ('refused' in plan) throw accessError(plan.refused)
   const groupId = await resolveWordGroupFor(ctx, league, args.word)
@@ -538,7 +585,7 @@ export async function switchWordFor(ctx: WriterCtx, playerId: Id<'players'>, arg
 
 export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, args: { leagueId: Id<'leagues'>; today: string }) {
   const today = requirePlausibleToday(args.today)
-  if (!(await ctx.db.get(args.leagueId))) throw accessError('UNKNOWN_LEAGUE')
+  requirePickedLeague(await requireLeague(ctx, args.leagueId))
   const rows = await intervalsOf(ctx, playerId, args.leagueId)
   await applyPlan(ctx, playerId, args.leagueId, rows, planLeave(rows, today))
   await recomputeAfterMembershipChange(ctx, playerId, today)

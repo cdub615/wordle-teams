@@ -91,7 +91,8 @@ const ZONES: Record<string, Slug> = Object.fromEntries([
     // Greenland sits with Iceland and the Faroes.
     'America/Nuuk', 'America/Godthab', 'America/Danmarkshavn', 'America/Scoresbysund',
     'America/Thule',
-    // Asia/* links whose targets are Europe/*, and the legacy Moscow link.
+    // Istanbul and Nicosia, which tz files under both Asia/ and Europe/, plus
+    // the legacy Moscow link.
     'Asia/Istanbul', 'Asia/Nicosia', 'W-SU',
     'Iceland', 'Poland', 'Portugal', 'Turkey', 'WET', 'CET', 'MET', 'EET',
   ]),

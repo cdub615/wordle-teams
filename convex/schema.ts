@@ -242,6 +242,14 @@ export default defineSchema({
     // onboarding. The Leagues menu item stays either way.
     leagueOfferDismissedAt: v.optional(v.number()),
 
+    // REGION OPT-OUT (spec v2 §4.4): when the player left their region league;
+    // absent = in it. Set by leagues.leaveRegion, cleared by rejoinRegion.
+    regionLeagueOptOut: v.optional(v.number()),
+    // The first PuzzleDay a REJOINED player's boards count for their region
+    // (tomorrow at the rejoin). Absent = never rejoined. Never cleared: once in
+    // the past it no longer binds (regionCountsFrom takes the later day).
+    regionLeagueFrom: v.optional(v.string()),
+
     /**
      * THE PROVIDER'S OWN URL, mirrored from Better Auth's `user.image` by
      * players.syncSocialImage. Never bytes we host: this is
@@ -883,8 +891,17 @@ export default defineSchema({
     // ABSENT MEANS 'fixed' (rows seeded before this field existed); a re-seed
     // patches it in place (seedLeagueFor).
     groupSource: v.optional(v.union(v.literal('fixed'), v.literal('answer-words'))),
+    // How a player gets into the league: 'picked' is a join (a group or a word),
+    // 'region' is automatic placement by saved time zone (v2b), with no
+    // leagueMemberships rows. ABSENT MEANS 'picked' (rows seeded before this
+    // field existed); a re-seed patches it in place (seedLeagueFor).
+    kind: v.optional(v.union(v.literal('picked'), v.literal('region'))),
     createdAt: v.number(),
-  }).index('by_slug', ['slug']),
+  })
+    .index('by_slug', ['slug'])
+    // THE region league (leagues.ts regionLeagueOf), read on every board write
+    // by a player with a mapped time zone.
+    .index('by_kind', ['kind']),
 
   leagueGroups: defineTable({
     leagueId: v.id('leagues'),

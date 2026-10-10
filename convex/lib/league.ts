@@ -29,6 +29,41 @@ export const PICKER_INLINE_MAX = 6
 /** Joined leagues the home card lists before "See all". */
 export const HOME_CARD_MAX_LEAGUES = 3
 
+/** How a player gets into a league: by a join, or automatically (v2b regions). */
+export type LeagueKind = 'picked' | 'region'
+
+/** The opener league: the onboarding step and the home card's offer (spec §5). */
+export const OPENER_LEAGUE_SLUG = 'starting-words'
+
+/**
+ * WHICH REGION GROUP a player plays for this month (spec v2 §4.4). Opted out:
+ * none. Otherwise the month's existing row (MONTH-STICKY: a time-zone change
+ * waits for next month), else the group for their time zone, else none.
+ */
+export function regionGroupFor<G extends string>(f: { optedOut: boolean; stickyGroupId: G | null; zoneGroupId: G | null }): G | null {
+  if (f.optedOut) return null
+  return f.stickyGroupId ?? f.zoneGroupId
+}
+
+/**
+ * THE FIRST DAY a region board counts (owner 2026-10-09): the day after the
+ * league was seeded (never retroactive, like a join), or the rejoin day if later.
+ */
+export function regionCountsFrom(seededDay: PuzzleDay, rejoinFrom: PuzzleDay | null): PuzzleDay {
+  const launch = addDays(seededDay, 1)
+  return rejoinFrom !== null && rejoinFrom > launch ? rejoinFrom : launch
+}
+
+/**
+ * HOW A LEAGUE IS JOINED (vzvp), shared by league-page-view and leagues-card:
+ * a region never by a picker (placement is automatic), a word league by word,
+ * anything else by group button.
+ */
+export function pickerModeFor(l: { groupSource?: 'fixed' | 'answer-words'; kind?: LeagueKind }): 'words' | 'groups' | 'none' {
+  if (l.kind === 'region') return 'none'
+  return l.groupSource === 'answer-words' ? 'words' : 'groups'
+}
+
 /**
  * WHETHER LEAGUES ARE ON FOR THIS DEPLOYMENT. Read from LEAGUES_ENABLED.
  * AN ALLOW-LIST, for lib/challenge.ts's reason: only the exact string 'true'

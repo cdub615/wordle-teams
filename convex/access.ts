@@ -160,7 +160,8 @@ export type AccessCode =
   | 'CHALLENGE_NO_ACCEPTER'
   // Every public league function when the LEAGUES_ENABLED switch is off.
   | 'LEAGUES_DISABLED'
-  // convex/leagues.ts leaveLeague and seedLeague: no such league.
+  // convex/leagues.ts leaveLeague, joinWord, switchWord and seedLeague: no such
+  // league; joinGroup and switchGroup: the group's league is missing.
   | 'UNKNOWN_LEAGUE'
   // convex/leagues.ts joinGroup and switchGroup: no such group.
   | 'UNKNOWN_GROUP'
@@ -170,6 +171,11 @@ export type AccessCode =
   | 'NOT_IN_LEAGUE'
   // convex/leagues.ts resolveWordGroupFor: the typed word is not on the answer list.
   | 'UNKNOWN_WORD'
+  // convex/leagues.ts requirePickedLeague, from joinGroup, switchGroup, joinWord,
+  // switchWord and leaveLeague: the league is the region league, whose
+  // placement is automatic (by time zone), so there is nothing to join or leave
+  // there. Leaving a region is leaveRegion.
+  | 'AUTOMATIC_LEAGUE'
 
 /**
  * Throws a ConvexError carrying `{ code }`.
