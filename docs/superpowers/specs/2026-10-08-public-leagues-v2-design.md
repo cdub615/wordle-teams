@@ -65,9 +65,11 @@ The constraint rules out every source of user-written names. What remains is fle
 - **No `leagueMemberships` rows.** In `recomputeLeagueMonthFor`, a region league's member-month group is:
   - the existing member-month row's group for that month, if one exists (**month-sticky**: a time-zone change counts from next month); otherwise
   - `regionOf(player.timeZone)`, if the player has a time zone and has not opted out; otherwise no row.
-- Boards count for the region from the **first board written after launch**. Like joining, this is never retroactive: placement starts at the first recompute after the flag is on. Past months are not backfilled.
-- **Opt-out:** `players.regionLeagueOptOutDay?: string`, the player's local PuzzleDay of the leave (a UTC timestamp would land in the wrong month near a boundary). Leaving sets it and removes this month's member row through the normal delta path. Rejoining clears it and counts from tomorrow. A player with no time zone sees "Set your time zone to join your region" with a link to settings.
-- `memberCount` for region groups is maintained when a player's first member-month row in a region is created or moved, so the picker and standings show it. The exact maintenance point is left to the v2b plan.
+  - A time-zone change before any board this month moves the player at once: month-stickiness needs a row to stick to.
+- Boards count from the day **after** the region league is seeded (`regionCountsFrom`, derived from the league's `createdAt`). Like joining, this is never retroactive, and past months are not backfilled. Placement itself runs regardless of the flag; the date alone gates what counts.
+- **Opt-out:** `players.regionLeagueOptOutDay?: string`, a PuzzleDay (the player's local day of the leave; a UTC timestamp would land in the wrong month near a boundary). Leaving sets it and removes this month's member row through the normal delta path. Rejoining clears it and counts from tomorrow. Opt-out and rejoin are **dated**: each binds only months at or after its own month, and a rejoin dates by the day it happened, so leaving never rewrites an earlier month. A known limit is tracked as `wordle-teams-le1q`.
+- A player with no time zone sees "Set your time zone to join your region", plain text naming Settings → Alerts → Time Zone (settings is a dialog with no route, so there is nothing to link to).
+- **`memberCount` is not maintained for region groups** (owner decision 2026-10-09). It stays 0, and nothing renders it: a region league has no picker.
 
 ### 4.5 Standings for large leagues
 

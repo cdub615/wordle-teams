@@ -64,6 +64,8 @@ export const STARTING_WORDS: LeagueSpec = {
  * button refuses AUTOMATIC_LEAGUE, with "0 members" counts. Seeding also fixes
  * the launch day for good: createdAt drives regionCountsFrom, so boards count
  * from the day after the seed. Seeding is owner-run (plan task B10).
+ * The launch day is the seed's UTC day + 1 (Convex runs in UTC), so seed early
+ * in the UTC day or US players lose their local seed+1 day.
  */
 export const REGION_LEAGUE: LeagueSpec = {
   slug: 'regions',

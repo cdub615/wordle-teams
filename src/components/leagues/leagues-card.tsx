@@ -121,8 +121,7 @@ function OfferBody({ featured, onJoin, onJoinWord, onDismiss, busy, headingId }:
     <>
       {/* Groups are SIDES to play for, not a claim about the player's own opener (§8.4). */}
       <p className="text-sm text-muted-foreground">Pick a side — your boards count whatever word you start with.</p>
-      {/* BY pickerModeFor (league-page-view's pickerModeOf makes the same split
-          until B7 switches it to pickerModeFor): a word league is
+      {/* BY pickerModeFor (the card and the league page both use it): a word league is
           joined by word (popular quick picks + any answer word; the answer
           list is lazy-loaded inside WordPicker, never in this chunk), a
           fixed league by group id. */}

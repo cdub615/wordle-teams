@@ -609,7 +609,7 @@ Wrap the panel in `<section aria-labelledby>` with an `h2` "Your region". Use `d
 ### Task B10: Dev rollout (owner-run, no code)
 
 1. CI is green on the final v2b commit. The controller watches it by SHA.
-2. The owner seeds the region league on dev, early in a month if possible (see `seedLeague`'s note):
+2. The owner seeds the region league on dev, early in a month if possible (see `seedLeague`'s note). The launch day is the seed's UTC day + 1 (Convex runs in UTC), so seed early in the UTC day or US players lose their local seed+1 day:
    ```
    ! CONVEX_URL=https://successful-canary-135.convex.cloud CONVEX_MIGRATION_KEY="$(sed -n 's/^CONVEX_DEPLOY_KEY=//p' .env.dev.local | tr -d '"')" node scripts/seed-league.mjs --confirm-host=successful-canary-135.convex.cloud --slug=regions
    ```
