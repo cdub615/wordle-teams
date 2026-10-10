@@ -1152,7 +1152,7 @@ export async function myRegionFor(ctx: ReaderCtx, playerId: Id<'players'>, today
  * dashboard, /leagues and /leagues/$slug. Picked leagues already behave this
  * way for their members, but the region league holds almost everyone. Kept
  * (spec §5 wants the region, with its rank, on the home card); a measurement
- * follow-up is filed under wordle-teams-zic8.3.21.
+ * follow-up is filed as wordle-teams-fjuq.
  */
 export async function myLeaguesFor(ctx: ReaderCtx, playerId: Id<'players'>, today: PuzzleDay) {
   const rows = await ctx.db
