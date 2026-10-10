@@ -25,6 +25,7 @@ const dir = (props: Partial<Parameters<typeof LeagueDirectory>[0]> = {}) =>
     createElement(LeagueDirectory, {
       leagues: [league('a', 'Alpha'), league('b', 'Beta')],
       mine: [row('a', 2)],
+      region: null,
       ...props,
     }),
   )
@@ -70,5 +71,49 @@ describe('LeagueDirectory', () => {
   test('when every league is joined there is no "Join a league" section', () => {
     dir({ mine: [row('a', 1), row('b', 1)] })
     expect(screen.queryByRole('heading', { name: 'Join a league' })).toBeNull()
+  })
+
+  describe('region status', () => {
+    const lg = { leagueId: 'L', slug: 'region', name: 'Region' }
+    const leagues = [league('words', 'Starting Words', 'Not affiliated.'), league('region', 'Region')]
+    const placed = { state: 'placed' as const, league: lg, group: { _id: 'g1', name: 'Pacific' }, countsFrom: '2026-10-09', next: null }
+    const lines = {
+      'opted-out': 'You left — rejoin from its page.',
+      'no-time-zone': 'Set your time zone to join your region.',
+      unmapped: 'Your time zone isn’t part of a region yet.',
+    }
+    const unplaced = {
+      'opted-out': { state: 'opted-out' as const, league: lg },
+      'no-time-zone': { state: 'no-time-zone' as const, league: lg },
+      unmapped: { state: 'unmapped' as const, timeZone: 'Mars/Base', league: lg },
+    }
+    const join = () => within(screen.getByRole('region', { name: 'Join a league' }))
+
+    test.each(Object.keys(lines) as (keyof typeof lines)[])('%s shows its line under Join a league, on the region card', (k) => {
+      dir({ leagues, mine: [], region: unplaced[k] })
+      const card = join().getByText('Region').closest('a')!
+      expect(within(card).getByText(lines[k])).toBeTruthy()
+      expect(card.getAttribute('href')).toBe('/leagues/region')
+      expect(screen.getAllByText(lines[k])).toHaveLength(1)
+    })
+    test('a placed region appears under Your leagues only, with no status line', () => {
+      dir({
+        leagues,
+        mine: [{ ...row('region', 1), kind: 'region' as never }],
+        region: placed,
+      })
+      expect(within(screen.getByRole('region', { name: 'Your leagues' })).getByRole('link', { name: /region/ })).toBeTruthy()
+      expect(join().queryByText('Region')).toBeNull()
+      for (const t of Object.values(lines)) expect(screen.queryByText(t)).toBeNull()
+    })
+    test('region: null (not seeded) shows no status text', () => {
+      dir({ leagues, mine: [], region: null })
+      for (const t of Object.values(lines)) expect(screen.queryByText(t)).toBeNull()
+    })
+    test('the Starting Words card is unchanged by an unplaced region', () => {
+      dir({ leagues, mine: [], region: unplaced['opted-out'] })
+      const card = join().getByText('Starting Words').closest('a')!
+      expect(card.textContent).toBe('Starting WordsNot affiliated.')
+    })
   })
 })
