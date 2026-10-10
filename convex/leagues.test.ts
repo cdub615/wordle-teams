@@ -2668,7 +2668,7 @@ describe('region reads', () => {
         expect(await myRegionFor(ctx, playerId, today)).toMatchObject({
           state: 'placed',
           group: { _id: group['us-central'], name: 'US Central' },
-          next: { name: 'US Eastern', from: '2026-11-01' },
+          next: { _id: group['us-eastern'], name: 'US Eastern', from: '2026-11-01' },
         })
       })
     })
@@ -2694,6 +2694,49 @@ describe('region reads', () => {
         await stickyRow(ctx, playerId, leagueId, group['us-central'])
         expect(await myRegionFor(ctx, playerId, today)).toMatchObject({ state: 'placed', group: { _id: group['us-central'] }, next: null })
       })
+    })
+
+    test('next is null when sticky but the zone’s region has no seeded group', async () => {
+      const t = convexTest(schema, modules)
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        await t.run(async (ctx) => {
+          const { leagueId, group } = await seedRegions(ctx)
+          await ctx.db.delete(group['us-eastern'])
+          const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/New_York' }))
+          await stickyRow(ctx, playerId, leagueId, group['us-central'])
+          expect(await myRegionFor(ctx, playerId, today)).toMatchObject({ state: 'placed', group: { _id: group['us-central'] }, next: null })
+          expect((await myLeaguesFor(ctx, playerId, today))[0]).toMatchObject({ kind: 'region', pending: null })
+        })
+      } finally {
+        err.mockRestore()
+      }
+    })
+
+    test('a last-day rejoin counts from the 1st of next month, outside this month', async () => {
+      const t = convexTest(schema, modules)
+      await t.run(async (ctx) => {
+        await seedRegions(ctx)
+        const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago', regionLeagueFrom: '2026-11-01' }))
+        expect(await myRegionFor(ctx, playerId, '2026-10-31')).toMatchObject({ state: 'placed', countsFrom: '2026-11-01' })
+      })
+    })
+
+    test('a placement naming a missing group is unmapped, and logged', async () => {
+      const t = convexTest(schema, modules)
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        await t.run(async (ctx) => {
+          const { leagueId, group, ref } = await seedRegions(ctx)
+          const playerId = await ctx.db.insert('players', aPlayer({ timeZone: 'America/Chicago' }))
+          await stickyRow(ctx, playerId, leagueId, group['us-central'])
+          await ctx.db.delete(group['us-central'])
+          expect(await myRegionFor(ctx, playerId, today)).toEqual({ state: 'unmapped', league: ref, timeZone: 'America/Chicago' })
+        })
+        expect(err).toHaveBeenCalledWith('myRegionFor: placement names a missing group', expect.anything())
+      } finally {
+        err.mockRestore()
+      }
     })
   })
 
@@ -2806,6 +2849,10 @@ describe('region reads', () => {
           expect(keysOf(payload).filter((k) => /player|email|first|last/i.test(k))).toEqual([])
         }
         expect(Object.keys(region!).sort()).toEqual(['countsFrom', 'group', 'league', 'next', 'state'])
+        if (region?.state !== 'placed') throw new Error('expected placed')
+        expect(Object.keys(region.next!).sort()).toEqual(['_id', 'from', 'name'])
+        expect(Object.keys(region.group).sort()).toEqual(['_id', 'name'])
+        expect(Object.keys(region.league).sort()).toEqual(['leagueId', 'name', 'slug'])
         expect(Object.keys(rows[0]).sort()).toEqual(['average', 'boards', 'group', 'kind', 'league', 'leagueId', 'pending', 'rank', 'since'])
       })
     })
