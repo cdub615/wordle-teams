@@ -597,6 +597,51 @@ export async function leaveLeagueFor(ctx: WriterCtx, playerId: Id<'players'>, ar
   await recomputeAfterMembershipChange(ctx, playerId, today)
 }
 
+async function requireRegionLeague(ctx: ReaderCtx) {
+  const league = await regionLeagueOf(ctx)
+  if (!league) throw accessError('UNKNOWN_LEAGUE')
+  return league
+}
+
+/**
+ * OPT OUT of the region league (spec v2 §4.4). This month's row, and next
+ * month's near the end of one, go through the normal delta path.
+ *
+ * THE OPT-OUT IS `today`, the player's validated LOCAL PuzzleDay, never the
+ * server clock: months are local puzzle months, and a UTC day is off by one
+ * near a boundary (a US Pacific leave on the evening of Oct 31 is already Nov 1
+ * in UTC, and would leave October's row standing).
+ *
+ * IDEMPOTENT: a repeat leave keeps the FIRST day, so it cannot move the opt-out
+ * into a later month and revive a month already left.
+ */
+export async function leaveRegionFor(ctx: WriterCtx, playerId: Id<'players'>, args: { today: string }) {
+  const today = requirePlausibleToday(args.today)
+  await requireRegionLeague(ctx)
+  const player = await ctx.db.get(playerId)
+  if (player && player.regionLeagueOptOutDay === undefined) await ctx.db.patch(playerId, { regionLeagueOptOutDay: today })
+  await recomputeAfterMembershipChange(ctx, playerId, today)
+}
+
+/**
+ * REJOIN the region league: boards count from TOMORROW (spec v2 §4.4), like a
+ * join. A no-op, writing nothing, for a player who never left.
+ *
+ * KNOWN LIMIT (accepted, B4): rejoining CLEARS the opt-out, so the history of
+ * having left is gone. A player who opts out on Nov 3 and rejoins on Dec 10,
+ * and LATER backfills a November board, is re-placed in November from launch.
+ * That needs a backfill into a month you left, after rejoining; keeping a list
+ * of out-intervals to close it is not worth the cost.
+ */
+export async function rejoinRegionFor(ctx: WriterCtx, playerId: Id<'players'>, args: { today: string }) {
+  const today = requirePlausibleToday(args.today)
+  await requireRegionLeague(ctx)
+  const player = await ctx.db.get(playerId)
+  if (!player || player.regionLeagueOptOutDay === undefined) return
+  await ctx.db.patch(playerId, { regionLeagueOptOutDay: undefined, regionLeagueFrom: addDays(today, 1) })
+  await recomputeAfterMembershipChange(ctx, playerId, today)
+}
+
 /**
  * Every month a membership change can move a stored board in: this month AND,
  * near a month's end, the next. A board can be for up to the SERVER's today + 1
@@ -666,7 +711,7 @@ export async function regionPlacementOf(
     else console.error(`leagues: region ${region.slug} has no seeded group in league ${league._id}`)
   }
   const rules = regionRulesFor(month, {
-    optOutDay: player.regionLeagueOptOut === undefined ? null : toPuzzleDay(new Date(player.regionLeagueOptOut)),
+    optOutDay: player.regionLeagueOptOutDay ?? null,
     rejoinFrom: player.regionLeagueFrom ?? null,
   })
   const groupId = regionGroupFor({ optedOut: rules.optedOut, stickyGroupId: row?.groupId ?? null, zoneGroupId })
@@ -893,6 +938,24 @@ export const leaveLeague = mutation({
     gate()
     const player = await requirePlayer(ctx)
     await leaveLeagueFor(ctx, player._id, args)
+  },
+})
+
+export const leaveRegion = mutation({
+  args: { today: v.string() },
+  handler: async (ctx, args) => {
+    gate()
+    const player = await requirePlayer(ctx)
+    await leaveRegionFor(ctx, player._id, args)
+  },
+})
+
+export const rejoinRegion = mutation({
+  args: { today: v.string() },
+  handler: async (ctx, args) => {
+    gate()
+    const player = await requirePlayer(ctx)
+    await rejoinRegionFor(ctx, player._id, args)
   },
 })
 

@@ -242,9 +242,13 @@ export default defineSchema({
     // onboarding. The Leagues menu item stays either way.
     leagueOfferDismissedAt: v.optional(v.number()),
 
-    // REGION OPT-OUT (spec v2 §4.4): when the player left their region league;
-    // absent = in it. Set by leagues.leaveRegion, cleared by rejoinRegion.
-    regionLeagueOptOut: v.optional(v.number()),
+    // REGION OPT-OUT (spec v2 §4.4): the PuzzleDay the player left their region
+    // league, absent = in it. A PuzzleDay, NOT a timestamp: it is leaveRegion's
+    // validated `today`, the player's LOCAL day, because months are local puzzle
+    // months and a UTC stamp lands in the wrong month near a boundary. Binds its
+    // own month and later (regionRulesFor). Set once by leagues.leaveRegion (a
+    // repeat leave keeps the first day), cleared by rejoinRegion.
+    regionLeagueOptOutDay: v.optional(v.string()),
     // The first PuzzleDay a REJOINED player's boards count for their region
     // (tomorrow at the rejoin). Absent = never rejoined. Never cleared: once in
     // the past it no longer binds (regionCountsFrom takes the later day).

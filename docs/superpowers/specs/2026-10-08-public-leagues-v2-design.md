@@ -66,7 +66,7 @@ The constraint rules out every source of user-written names. What remains is fle
   - the existing member-month row's group for that month, if one exists (**month-sticky**: a time-zone change counts from next month); otherwise
   - `regionOf(player.timeZone)`, if the player has a time zone and has not opted out; otherwise no row.
 - Boards count for the region from the **first board written after launch**. Like joining, this is never retroactive: placement starts at the first recompute after the flag is on. Past months are not backfilled.
-- **Opt-out:** `players.regionLeagueOptOut?: number`. Leaving sets it and removes this month's member row through the normal delta path. Rejoining clears it and counts from tomorrow. A player with no time zone sees "Set your time zone to join your region" with a link to settings.
+- **Opt-out:** `players.regionLeagueOptOutDay?: string`, the player's local PuzzleDay of the leave (a UTC timestamp would land in the wrong month near a boundary). Leaving sets it and removes this month's member row through the normal delta path. Rejoining clears it and counts from tomorrow. A player with no time zone sees "Set your time zone to join your region" with a link to settings.
 - `memberCount` for region groups is maintained when a player's first member-month row in a region is created or moved, so the picker and standings show it. The exact maintenance point is left to the v2b plan.
 
 ### 4.5 Standings for large leagues

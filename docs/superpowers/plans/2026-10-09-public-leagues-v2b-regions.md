@@ -34,7 +34,7 @@
 ## Plan-level decisions (approve with the plan)
 
 1. **Opt-out and rejoin are their own mutations,** `leaveRegion({ today })` and `rejoinRegion({ today })`. Both are idempotent.
-   - Rejoin stores `players.regionLeagueFrom = tomorrow` next to the spec's `regionLeagueOptOut`, because "rejoin counts from tomorrow" needs a day to count from.
+   - Rejoin stores `players.regionLeagueFrom = tomorrow` next to the opt-out day `regionLeagueOptOutDay`, because "rejoin counts from tomorrow" needs a day to count from.
    - `joinGroup`, `switchGroup`, `joinWord`, `switchWord` and `leaveLeague` refuse a region league with a new code, **`AUTOMATIC_LEAGUE`**.
 2. **One region league, found by a new index `leagues.by_kind`.** The write path reads it with `.first()`, never `.unique()`: a board write must never throw because two region leagues exist.
 3. **Placement is defined in one place.** A player is placed in a month when they have not opted out and either:
@@ -72,7 +72,7 @@ These are the same as v2a. The controller writes them to the session's `scratchp
 | --- | --- | --- |
 | `convex/lib/regions.ts` (+ test) | create | `REGIONS`, `regionOf` |
 | `convex/lib/league.ts` (+ test) | modify | `regionGroupFor`, `regionCountsFrom`, `pickerModeFor`, `OPENER_LEAGUE_SLUG`, `LeagueKind` |
-| `convex/schema.ts` | modify | `leagues.kind` + `by_kind`; `players.regionLeagueOptOut`, `players.regionLeagueFrom` |
+| `convex/schema.ts` | modify | `leagues.kind` + `by_kind`; `players.regionLeagueOptOutDay`, `players.regionLeagueFrom` |
 | `convex/access.ts`, `src/lib/convex-error.ts` (+ test) | modify | `AUTOMATIC_LEAGUE` |
 | `convex/leagues.ts` (+ test) | modify | `REGION_LEAGUE` spec; `kind` in seed and payloads; refusals; `regionPlacementOf`; write path; `leaveRegion`/`rejoinRegion`; `myRegion`; region row in `myLeaguesFor` |
 | `convex/e2eSeed.ts` | modify | `ensureLeagueFor` seeds the region league too |
@@ -183,9 +183,10 @@ export function regionOf(timeZone: string | null | undefined): Region | null {
 1. **`leagues`:** `kind: v.optional(v.union(v.literal('picked'), v.literal('region')))`. Absent means `'picked'`. Comment it like `groupSource`. Add `.index('by_kind', ['kind'])` with a comment naming its readers (`regionLeagueOf`).
 2. **`players`:**
    ```ts
-   // REGION OPT-OUT (spec v2 §4.4): when the player left their region league;
+   // REGION OPT-OUT (spec v2 §4.4): the PuzzleDay the player left their region
+   // league (leaveRegion's validated local `today`, never a UTC timestamp);
    // absent = in it. Set by leagues.leaveRegion, cleared by rejoinRegion.
-   regionLeagueOptOut: v.optional(v.number()),
+   regionLeagueOptOutDay: v.optional(v.string()),
    // The first PuzzleDay a REJOINED player's boards count for their region
    // (tomorrow at the rejoin). Absent = never rejoined. Never cleared: once in
    // the past it no longer binds (regionCountsFrom takes the later day).
@@ -306,7 +307,7 @@ export async function regionPlacementOf(
     if (group) zoneGroupId = group._id
     else console.error(`leagues: region ${region.slug} has no seeded group in league ${league._id}`)
   }
-  const groupId = regionGroupFor({ optedOut: player.regionLeagueOptOut !== undefined, stickyGroupId: row?.groupId ?? null, zoneGroupId })
+  const groupId = regionGroupFor({ optedOut: player.regionLeagueOptOutDay !== undefined, stickyGroupId: row?.groupId ?? null, zoneGroupId })
   if (groupId === null) return null
   const fromDay = regionCountsFrom(toPuzzleDay(new Date(league.createdAt)), player.regionLeagueFrom ?? null)
   return { groupId, fromDay, sticky: row !== null }
@@ -374,7 +375,7 @@ export async function leaveRegionFor(ctx: WriterCtx, playerId: Id<'players'>, ar
   const today = requirePlausibleToday(args.today)
   await requireRegionLeague(ctx)
   const player = await ctx.db.get(playerId)
-  if (player && player.regionLeagueOptOut === undefined) await ctx.db.patch(playerId, { regionLeagueOptOut: Date.now() })
+  if (player && player.regionLeagueOptOutDay === undefined) await ctx.db.patch(playerId, { regionLeagueOptOutDay: today })
   await recomputeAfterMembershipChange(ctx, playerId, today)
 }
 
@@ -383,8 +384,8 @@ export async function rejoinRegionFor(ctx: WriterCtx, playerId: Id<'players'>, a
   const today = requirePlausibleToday(args.today)
   await requireRegionLeague(ctx)
   const player = await ctx.db.get(playerId)
-  if (!player || player.regionLeagueOptOut === undefined) return
-  await ctx.db.patch(playerId, { regionLeagueOptOut: undefined, regionLeagueFrom: addDays(today, 1) })
+  if (!player || player.regionLeagueOptOutDay === undefined) return
+  await ctx.db.patch(playerId, { regionLeagueOptOutDay: undefined, regionLeagueFrom: addDays(today, 1) })
   await recomputeAfterMembershipChange(ctx, playerId, today)
 }
 ```

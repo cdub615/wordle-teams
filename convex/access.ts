@@ -161,7 +161,8 @@ export type AccessCode =
   // Every public league function when the LEAGUES_ENABLED switch is off.
   | 'LEAGUES_DISABLED'
   // convex/leagues.ts leaveLeague, joinWord, switchWord and seedLeague: no such
-  // league; joinGroup and switchGroup: the group's league is missing.
+  // league; joinGroup and switchGroup: the group's league is missing;
+  // leaveRegion and rejoinRegion: no region league has been seeded.
   | 'UNKNOWN_LEAGUE'
   // convex/leagues.ts joinGroup and switchGroup: no such group.
   | 'UNKNOWN_GROUP'
