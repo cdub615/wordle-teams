@@ -47,12 +47,17 @@ export function regionGroupFor<G extends string>(f: { optedOut: boolean; stickyG
 
 /**
  * WHICH OPT-OUT AND REJOIN BIND `month` (controller 2026-10-09). Both are
- * DATED: leaving removes THIS month's row, not history. An opt-out binds only
- * its own month and later ones, and a rejoin day only its own month and later
- * ones. Without this, a board backfilled into an earlier month (or that
- * month's recompute) would see today's opt-out, or a rejoin day later than
- * every one of its days, and recompute the month's region row to nothing,
- * making a leave retroactive.
+ * DATED BY THE DAY THEY HAPPENED: leaving removes THIS month's row, not
+ * history. An opt-out binds only its own month and later ones. Without this, a
+ * board backfilled into an earlier month (or that month's recompute) would see
+ * today's opt-out, or a rejoin day later than every one of its days, and
+ * recompute the month's region row to nothing, making a leave retroactive.
+ *
+ * A REJOIN IS DATED BY THE REJOIN, NOT BY rejoinFrom (B4 review): rejoinFrom
+ * is the day AFTER the rejoin, so it binds months >= monthOf(rejoinFrom - 1).
+ * Dated by rejoinFrom itself, a rejoin on Oct 31 (rejoinFrom Nov 1) would not
+ * bind October; October would then count from launch, and the rejoin's own
+ * recompute would restore every October board, opted-out days included.
  */
 export function regionRulesFor(
   month: PuzzleMonth,
@@ -60,7 +65,7 @@ export function regionRulesFor(
 ): { optedOut: boolean; rejoinFrom: PuzzleDay | null } {
   return {
     optedOut: f.optOutDay !== null && month >= monthOf(f.optOutDay),
-    rejoinFrom: f.rejoinFrom !== null && month >= monthOf(f.rejoinFrom) ? f.rejoinFrom : null,
+    rejoinFrom: f.rejoinFrom !== null && month >= monthOf(addDays(f.rejoinFrom, -1)) ? f.rejoinFrom : null,
   }
 }
 

@@ -307,12 +307,18 @@ export async function regionPlacementOf(
     if (group) zoneGroupId = group._id
     else console.error(`leagues: region ${region.slug} has no seeded group in league ${league._id}`)
   }
-  const groupId = regionGroupFor({ optedOut: player.regionLeagueOptOutDay !== undefined, stickyGroupId: row?.groupId ?? null, zoneGroupId })
+  const rules = regionRulesFor(month, {
+    optOutDay: player.regionLeagueOptOutDay ?? null,
+    rejoinFrom: player.regionLeagueFrom ?? null,
+  })
+  const groupId = regionGroupFor({ optedOut: rules.optedOut, stickyGroupId: row?.groupId ?? null, zoneGroupId })
   if (groupId === null) return null
-  const fromDay = regionCountsFrom(toPuzzleDay(new Date(league.createdAt)), player.regionLeagueFrom ?? null)
+  const fromDay = regionCountsFrom(toPuzzleDay(new Date(league.createdAt)), rules.rejoinFrom)
   return { groupId, fromDay, sticky: row !== null }
 }
 ```
+
+The dated rules (`regionRulesFor`, each binding only the month it happened in and later) came from the B3 and B4 reviews; the first draft read the opt-out and rejoin undated, which made a leave retroactive.
 
 **`recomputeLeagueMonthFor`.** Replace the `leagueIds` set with a map from league to intervals. The loop body is unchanged except where it gets its intervals:
 

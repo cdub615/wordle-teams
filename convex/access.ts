@@ -342,6 +342,12 @@ export async function requireTeamOwnerFor(
  *   not feed winner recomputation, so the "seven" above is unchanged as the
  *   answer to that narrower question; they are listed because the broader
  *   question is "every clock-bounded surface".
+ * - leagues.ts's joinGroup, switchGroup, joinWord, switchWord, leaveLeague,
+ *   leaveRegion and rejoinRegion, which date a membership change (or a region
+ *   opt-out or rejoin) by the caller's own day and recompute only the caller's
+ *   own league rows. None feeds winner recomputation. A client-supplied `today`
+ *   can shift a leave or rejoin by at most a day (server +-1), the same
+ *   leniency as a join or leave, and only ever for the caller's own rows.
  * - leagues.ts's `standings`, `myLeagues` and `myContribution` (all via
  *   readToday), which fall back to the server's day rather than refusing: they
  *   are reactive READS that re-run on every league board write, so a tab left

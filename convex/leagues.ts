@@ -627,11 +627,15 @@ export async function leaveRegionFor(ctx: WriterCtx, playerId: Id<'players'>, ar
  * REJOIN the region league: boards count from TOMORROW (spec v2 §4.4), like a
  * join. A no-op, writing nothing, for a player who never left.
  *
+ * A rejoin in the month you left restores none of it: regionRulesFor dates
+ * the rejoin by the day it happened, so that month counts from tomorrow only.
+ *
  * KNOWN LIMIT (accepted, B4): rejoining CLEARS the opt-out, so the history of
  * having left is gone. A player who opts out on Nov 3 and rejoins on Dec 10,
  * and LATER backfills a November board, is re-placed in November from launch.
- * That needs a backfill into a month you left, after rejoining; keeping a list
- * of out-intervals to close it is not worth the cost.
+ * That needs a backfill into an EARLIER month you left, after a rejoin in a
+ * later month; keeping a list of out-intervals to close it is not worth the
+ * cost.
  */
 export async function rejoinRegionFor(ctx: WriterCtx, playerId: Id<'players'>, args: { today: string }) {
   const today = requirePlausibleToday(args.today)
