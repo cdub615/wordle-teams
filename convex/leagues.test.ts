@@ -10,7 +10,7 @@ import { aPlayer, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
 import { toPuzzleDay } from './lib/puzzleDay.ts'
 import { REGIONS } from './lib/regions.ts'
 import { upsertBoardFor } from './scores.ts'
-import { closeLeagueMonthFor, dismissLeagueOfferFor, groupStandingFor, groupsOf, joinGroupFor, joinWordFor, leaguesFor, leaveLeagueFor, leaveRegionFor, myContributionFor, myLeaguesFor, myRegionFor, readToday, recomputeLeagueMonthFor, REGION_LEAGUE, regionLeagueOf, regionPlacementOf, rejoinRegionFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor, switchWordFor } from './leagues.ts'
+import { closeLeagueMonthFor, pruneLeagueRowsFor, dismissLeagueOfferFor, groupStandingFor, groupsOf, joinGroupFor, joinWordFor, leaguesFor, leaveLeagueFor, leaveRegionFor, myContributionFor, myLeaguesFor, myRegionFor, readToday, recomputeLeagueMonthFor, REGION_LEAGUE, regionLeagueOf, regionPlacementOf, rejoinRegionFor, scheduleLeagueClosesFor, seedLeagueFor, standingsFor, STARTING_WORDS, switchGroupFor, switchWordFor } from './leagues.ts'
 import type { DataModel, Id } from './_generated/dataModel'
 import type { GenericDatabaseWriter } from 'convex/server'
 
@@ -2885,5 +2885,100 @@ describe('the myRegion wrapper', () => {
   test('dark: { enabled: false }', async () => {
     const { as } = await signedIn('darkmyregion@example.com')
     expect(await as.query(api.leagues.myRegion, { today: toPuzzleDay(new Date()) })).toEqual({ enabled: false })
+  })
+})
+
+describe('region league month close and prune', () => {
+  beforeEach(() => vi.useFakeTimers({ now: NOW, toFake: ['Date'] }))
+  afterEach(() => vi.useRealTimers())
+
+  const SEEDED = Date.UTC(2026, 9, 5, 12)
+
+  async function seedRegionsOnOct5(ctx: Ctx) {
+    const leagueId = await seedLeagueFor(ctx, REGION_LEAGUE, SEEDED)
+    const groups = await groupsOf(ctx, leagueId)
+    const group = Object.fromEntries(groups.map((g) => [g.slug, g._id])) as Record<string, Id<'leagueGroups'>>
+    return { leagueId, group }
+  }
+
+  /** A solved board in `n` guesses, entered through the real write path. */
+  async function enter(ctx: Ctx, playerId: Id<'players'>, day: string, n: number) {
+    const guesses = [...Array(n - 1).fill('slate'), 'crane', ...Array(6 - n).fill('')]
+    await upsertBoardFor(ctx, playerId, { puzzleDay: day, answer: 'crane', guesses, today })
+  }
+
+  test('the first month after a mid-month seed closes: zero-filled, ranked first, winner by the usual rules', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedRegionsOnOct5(ctx)
+      const chicago = await ctx.db.insert('players', aPlayer({ email: 'c@example.com', timeZone: 'America/Chicago' }))
+      const berlin = await ctx.db.insert('players', aPlayer({ email: 'b@example.com', timeZone: 'Europe/Berlin' }))
+      // Both are placed through the write path (Oct 6 counts: the day after the seed).
+      await enter(ctx, chicago, '2026-10-06', 3)
+      await enter(ctx, berlin, '2026-10-06', 4)
+      // Nine more Chicago boards bring US Central to MIN_LEAGUE_BOARDS (10);
+      // Europe stays at 1 board, below the floor.
+      for (let d = 7; d <= 15; d++) await board(ctx, chicago, `2026-10-${String(d).padStart(2, '0')}`, 3)
+      await recomputeLeagueMonthFor(ctx, chicago, '2026-10')
+
+      expect(await closeLeagueMonthFor(ctx, leagueId, '2026-10')).toBe(true)
+      const [result] = await ctx.db.query('leagueMonthResults').collect()
+      expect(result.standings).toHaveLength(12)
+      // Ranked rows first (one: US Central, 3.0), then the unranked Europe row, then zero rows.
+      expect(result.standings[0]).toEqual({ groupId: group['us-central'], boards: 10, attempts: 30, average: 3, contributors: 1 })
+      expect(result.standings[1]).toMatchObject({ groupId: group['europe'], boards: 1, attempts: 4, average: null })
+      expect(result.standings.slice(2).every((s) => s.boards === 0 && s.average === null)).toBe(true)
+      expect(result.winnerGroupId).toBe(group['us-central'])
+    })
+  })
+
+  test('with no group at the board floor there is no winner, yet all 12 groups are listed', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedRegionsOnOct5(ctx)
+      const chicago = await ctx.db.insert('players', aPlayer({ email: 'c@example.com', timeZone: 'America/Chicago' }))
+      await enter(ctx, chicago, '2026-10-06', 3)
+      expect(await closeLeagueMonthFor(ctx, leagueId, '2026-10')).toBe(true)
+      const [result] = await ctx.db.query('leagueMonthResults').collect()
+      expect(result.standings).toHaveLength(12)
+      expect(result.winnerGroupId).toBeNull()
+      expect(result.standings.find((s) => s.groupId === group['us-central'])).toMatchObject({ boards: 1, average: null })
+    })
+  })
+
+  test('scheduleLeagueClosesFor queues the region league on day 2 of the next month, not before', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      await seedRegionsOnOct5(ctx)
+      expect(await scheduleLeagueClosesFor(ctx, '2026-11-01')).toBe(0)
+      expect(await scheduleLeagueClosesFor(ctx, '2026-11-02')).toBe(1)
+    })
+  })
+
+  test('pruneLeagueRowsFor removes a region-only player’s rows, subtracts their totals, moves no memberCount', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const { leagueId, group } = await seedRegionsOnOct5(ctx)
+      const gone = await ctx.db.insert('players', aPlayer({ email: 'gone@example.com', timeZone: 'America/Chicago' }))
+      const stays = await ctx.db.insert('players', aPlayer({ email: 'stays@example.com', timeZone: 'America/Chicago' }))
+      await enter(ctx, gone, '2026-10-06', 3)
+      await enter(ctx, gone, '2026-10-07', 4)
+      await enter(ctx, stays, '2026-10-06', 5)
+      expect(await ctx.db.query('leagueMemberships').collect()).toEqual([])
+      expect(await ctx.db.query('leagueMemberMonth').collect()).toHaveLength(2)
+
+      // Dry run writes nothing but counts the member-month row.
+      expect(await pruneLeagueRowsFor(ctx, gone, today, false)).toBe(1)
+      expect(await ctx.db.query('leagueMemberMonth').collect()).toHaveLength(2)
+
+      expect(await pruneLeagueRowsFor(ctx, gone, today, true)).toBe(1)
+      const left = await ctx.db.query('leagueMemberMonth').collect()
+      expect(left).toEqual([expect.objectContaining({ playerId: stays, leagueId })])
+      expect(await ctx.db.query('leagueGroupMonth').collect()).toEqual([
+        expect.objectContaining({ groupId: group['us-central'], boards: 1, attempts: 5, contributors: 1 }),
+      ])
+      await expectGroupRowsAreSums(ctx)
+      for (const g of await groupsOf(ctx, leagueId)) expect(g.memberCount).toBe(0)
+    })
   })
 })
