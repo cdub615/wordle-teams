@@ -35,7 +35,7 @@ the design leaves a single, named seam for each (section 7).
 | A dashboard card under the Wordle entry; full-screen play page; Wordle / Clue ladder switch on scores | Whole-dashboard game switch: hides the other game. Separate menu page: easy to forget. |
 | Pilot ships play, scoreboard, share line and after-game explanation | Streaks, personal stats and insights: after the go/no-go. |
 | A row of five shapes (120 orders) | Shape plus colour: more to learn, colour-blind readability. 3x3 grid: harder to tune and to fit on a phone. Both stay possible as later variants. |
-| The scoreboard reuses the team's Wordle scoring settings | Separate settings: a second screen with no evidence the weights should differ. Plain average: ranks differently from the Wordle board beside it. |
+| The scoreboard reuses the team's Wordle points for 1–6 and missed days, but X is a fixed −1 for the clue ladder | The team's own X (default −3) unchanged: the simulation dry run showed careful play then wins about 90% of months, because gambling is a losing bet. A separate settings screen: no evidence other weights should differ. Plain average: ranks differently from the Wordle board beside it. |
 | New tables for the game; shared scoring through a game registry | A game field on `dailyScores`: touches every Wordle rebuilder and risks pooling. A stand-alone feature: duplicates scoring, leaves no abstraction. |
 
 The main risk is **score convergence**: skilled players all lock in at the proving
@@ -55,14 +55,14 @@ before any app code is written.
 
 **Generation.** A seed from the date plus a server-only secret (`CLUE_LADDER_SEED`)
 picks the answer and drives clue choice, so a date always yields the same puzzle and
-nobody can derive it without the secret. The generator builds a ladder of 3 to 6
+nobody can derive it without the secret. The generator builds a ladder of 4 to 6
 clues, all true for the answer, such that:
 
 1. every clue removes at least one order still possible;
 2. after the last clue exactly one order remains;
 3. before the last clue more than one order remains.
 
-The ladder length varies by day. The tuning levers, set from the simulation, are the
+The ladder length varies by day. Three-clue ladders were tried and dropped: under these rules they are almost never possible. The tuning levers, set from the simulation, are the
 distribution of ladder lengths and the temptation profile (how many orders remain one or
 two clues before the end; "two left" is the pull to lock in early).
 
@@ -143,7 +143,7 @@ are already game-neutral.
 **Team scoreboard.** `getTeamMonth` (`convex/scores.ts`) gains an optional `game`
 argument defaulting to `'wordle'`, so every current caller is unchanged. For
 `'clueLadder'` it refuses unless the global switch is on and the team has opted in.
-Otherwise it walks the roster as it does today, applies the team's scoring system and
+Otherwise it walks the roster as it does today, applies the team's scoring system (with X fixed at −1, section 2) and
 missed-day rule, and works out the month winner when read. The month dropdown and the
 free/Pro month window use the existing rules. The earliest month comes from the game's
 results, so a new game starts with only the current month.
@@ -212,9 +212,12 @@ and month wins by type.
 
 **Bar to clear** (owner may revise):
 
-- careful players win at most about half of months;
-- bold players fail 15–35% of days;
-- fewer than a third of days tie for first.
+- careful players win between 10% and 50% of months (skill counts, but does not decide);
+- no single player type wins more than half of months;
+- bold players fail 15–35% of days.
+
+A daily "tie for first" check was dropped after the dry run: seven players on a 1–6 scale
+share the best score on about three quarters of days at every setting, as Wordle groups do.
 
 If the bar is missed, tune the ladder-length distribution and temptation profile and
 rerun. If tuning cannot clear the bar, return to the mechanic before building.
