@@ -47,6 +47,13 @@ const perStrategy = <T>(make: () => T): PerStrategy<T> => ({
   mixed: make(),
 })
 
+/** Credit for one month: the highest totals split one win equally between them. */
+export function monthCredit(totals: readonly number[], team: readonly Strategy[]): [Strategy, number][] {
+  const top = Math.max(...totals)
+  const winners = team.filter((_, i) => totals[i] === top)
+  return winners.map((s) => [s, 1 / winners.length])
+}
+
 export type SimReport = {
   days: number
   players: PerStrategy<number>
@@ -99,9 +106,7 @@ export function simulate(opts: {
       const best = Math.min(...scores)
       if (scores.filter((s) => s === best).length >= 2) tieDays++
     }
-    const top = Math.max(...totals)
-    const winners = team.filter((_, i) => totals[i] === top)
-    for (const s of winners) monthWins[s] += 1 / winners.length
+    for (const [s, credit] of monthCredit(totals, team)) monthWins[s] += credit
   }
 
   const days = months * daysPerMonth

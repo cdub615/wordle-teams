@@ -5,6 +5,7 @@ import {
   DEFAULT_TEAM,
   FAIL,
   formatReport,
+  monthCredit,
   playDay,
   simulate,
   type SimReport,
@@ -113,5 +114,22 @@ describe('checkBar', () => {
     expect(text).toContain('largest month-win share')
     expect(text).toContain('bold fail rate')
     expect(text).toContain('VERDICT: PASS')
+  })
+})
+
+describe('monthCredit', () => {
+  test('a sole top total takes the whole month', () => {
+    expect(monthCredit([10, 14, 9], ['careful', 'bold', 'mixed'])).toEqual([['bold', 1]])
+  })
+
+  test('tied top totals split the month, whatever the team order', () => {
+    expect(monthCredit([14, 9, 14], ['careful', 'mixed', 'bold'])).toEqual([
+      ['careful', 0.5],
+      ['bold', 0.5],
+    ])
+    expect(monthCredit([14, 14, 9], ['bold', 'careful', 'mixed'])).toEqual([
+      ['bold', 0.5],
+      ['careful', 0.5],
+    ])
   })
 })
