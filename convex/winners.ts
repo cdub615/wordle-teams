@@ -4,7 +4,7 @@ import { accessError, isProFor, requirePlayer, requireTeamMemberFor } from './ac
 import { rollupTeamMonth, storeTeamMonthStats, type MonthScore } from './teamStats.ts'
 import { isMonth, serverFloorFor } from './lib/monthWindow.ts'
 import { monthOf, monthRange, toPuzzleDay } from './lib/puzzleDay.ts'
-import { monthTotal, winnerOf } from './lib/scoring.ts'
+import { monthTotal, winnerOf, wordleDays } from './lib/scoring.ts'
 import { systemFor } from './lib/scoringSystem.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { PuzzleDay, PuzzleMonth } from './lib/puzzleDay.ts'
@@ -217,7 +217,7 @@ export async function recomputeTeamMonth(
       playerId: memberId,
       total: monthTotal({
         month,
-        scores,
+        days: wordleDays(scores),
         // The version that governed THIS month, not the team's current values.
         // Without this a scoring edit would rewrite every past month's winner,
         // which is the bug wordle-teams-1j3 exists to prevent.

@@ -29,6 +29,26 @@ export type ScoredDay = {
 }
 
 /**
+ * One day's result for any game: attempts 1–6, or 7 for a failed day — the
+ * numbers pointsFor already understands (wordle-teams-9j7o.2.2).
+ */
+export type AttemptDay = {
+  puzzleDay: PuzzleDay
+  attempts: number
+}
+
+/**
+ * Wordle boards as attempts. ROW ORDER IS KEPT, so monthTotal's first-row-wins
+ * rule for duplicate days applies exactly as it did when it read boards.
+ */
+export function wordleDays(scores: Array<ScoredDay>): Array<AttemptDay> {
+  return scores.map((score) => ({
+    puzzleDay: score.puzzleDay,
+    attempts: attemptsFor(score.guesses, score.answer ?? ''),
+  }))
+}
+
+/**
  * Points for an attempt count.
  *
  * TOTAL BY CONSTRUCTION — every branch returns. v1's getScore looked the count
@@ -65,27 +85,31 @@ export function pointsFor(attempts: number, system: ScoringSystem): number {
  * testable. Days from `today` onward are not yet due and score nothing; earlier
  * days with no board score the team's N/A value, which is how v1 penalises a
  * miss.
+ *
+ * GAME-NEUTRAL SINCE wordle-teams-9j7o.2.2: it takes attempts, not boards.
+ * Wordle callers convert with wordleDays; the clue ladder's results arrive as
+ * attempts already (lib/games.ts).
  */
 export function monthTotal(opts: {
   month: PuzzleMonth
-  scores: Array<ScoredDay>
+  days: Array<AttemptDay>
   system: ScoringSystem
   playWeekends: boolean
   today: PuzzleDay
 }): number {
-  const { month, scores, system, playWeekends, today } = opts
+  const { month, days, system, playWeekends, today } = opts
 
   // First row wins for a day. Production holds 5 duplicate (player, day) pairs
   // that the copy deliberately preserved, and v1's find() takes the first too.
-  const byDay = new Map<PuzzleDay, ScoredDay>()
-  for (const score of scores) {
-    if (!byDay.has(score.puzzleDay)) byDay.set(score.puzzleDay, score)
+  const byDay = new Map<PuzzleDay, AttemptDay>()
+  for (const day of days) {
+    if (!byDay.has(day.puzzleDay)) byDay.set(day.puzzleDay, day)
   }
 
   return daysOfMonth(month).reduce((total, day) => {
     if (!playWeekends && isWeekendDay(day)) return total
-    const score = byDay.get(day)
-    if (score) return total + pointsFor(attemptsFor(score.guesses, score.answer ?? ''), system)
+    const result = byDay.get(day)
+    if (result) return total + pointsFor(result.attempts, system)
     // Lexicographic compare — 'YYYY-MM-DD' sorts chronologically.
     if (day < today) return total + system.nA
     return total

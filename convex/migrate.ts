@@ -26,7 +26,7 @@ import {
   type RedateHoldReason,
   type RedateMove,
 } from './lib/redate.ts'
-import { monthTotal, winnerOf } from './lib/scoring.ts'
+import { monthTotal, winnerOf, wordleDays } from './lib/scoring.ts'
 import { aggregateTeamMonth, meanAttemptsOf, sameStats } from './lib/teamStats.ts'
 import { rollupTeamMonth } from './teamStats.ts'
 import { loadTeamMonthSystem, type ReaderCtx } from './winners.ts'
@@ -1309,7 +1309,7 @@ async function monthImpact(
   const system = await loadTeamMonthSystem(ctx, team, month)
   const today = `${addMonths(month, 1)}-01`
   const score = (scores: Doc<'dailyScores'>[]) =>
-    monthTotal({ month, scores, system, playWeekends: team.playWeekends, today })
+    monthTotal({ month, days: wordleDays(scores), system, playWeekends: team.playWeekends, today })
 
   const members: Doc<'players'>[] = []
   const after: Doc<'dailyScores'>[] = []
@@ -1770,7 +1770,7 @@ async function misdatedTeamMonths(ctx: ReaderCtx, moves: readonly RedateMove<Sco
           const scores = after.filter((row) => row.playerId === memberId).sort(byIndexOrder)
           totals.push({
             playerId: memberId,
-            total: monthTotal({ month, scores, system, playWeekends: team.playWeekends, today }),
+            total: monthTotal({ month, days: wordleDays(scores), system, playWeekends: team.playWeekends, today }),
           })
         }
         winnerAfterMoves = winnerOf(totals) as Id<'players'> | null

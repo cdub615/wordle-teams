@@ -7,7 +7,7 @@ import { ScoreCell } from '#/components/score-cell.tsx'
 import { formatDayHeaderParts } from '#/lib/format-day.ts'
 import { cn } from '#/lib/utils.ts'
 import { attemptsFor } from '../../convex/lib/board.ts'
-import { monthTotal } from '../../convex/lib/scoring.ts'
+import { monthTotal, wordleDays } from '../../convex/lib/scoring.ts'
 import { daysOfMonth, isWeekendDay, monthContainsToday, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { displayNamesFor } from '#/lib/display-names.ts'
@@ -232,7 +232,7 @@ export function ScoresTable({
         byDay,
         total: monthTotal({
           month,
-          scores: player.scores,
+          days: wordleDays(player.scores),
           system: team.system,
           playWeekends: team.playWeekends,
           today,

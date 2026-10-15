@@ -1,5 +1,15 @@
 import { describe, expect, test } from 'vitest'
-import { monthTotal, pointsFor, winnerOf, type ScoringSystem } from './scoring'
+import { attemptsFor } from './board.ts'
+import { createRng } from './clueLadder/rng.ts'
+import { daysOfMonth, isWeekendDay } from './puzzleDay.ts'
+import {
+  monthTotal,
+  pointsFor,
+  winnerOf,
+  wordleDays,
+  type ScoredDay,
+  type ScoringSystem,
+} from './scoring'
 
 // v1's default system: src/lib/types.ts defaultSystem.
 const system: ScoringSystem = {
@@ -43,10 +53,10 @@ describe('monthTotal', () => {
   test('sums the days that were played', () => {
     const total = monthTotal({
       month: '2026-08',
-      scores: [
+      days: wordleDays([
         played('2026-08-03', ['SPEED'], 'SPEED'), // 1 attempt -> 5
         played('2026-08-04', ['CRANE', 'SPEED'], 'SPEED'), // 2 -> 3
-      ],
+      ]),
       system,
       playWeekends: true,
       today: '2026-08-05',
@@ -59,7 +69,7 @@ describe('monthTotal', () => {
   test('a missed day before today scores the N/A value', () => {
     const total = monthTotal({
       month: '2026-08',
-      scores: [],
+      days: [],
       system: { ...system, nA: -2 },
       playWeekends: true,
       today: '2026-08-04',
@@ -71,7 +81,7 @@ describe('monthTotal', () => {
   test('days from today onward contribute nothing', () => {
     const total = monthTotal({
       month: '2026-08',
-      scores: [],
+      days: [],
       system: { ...system, nA: -2 },
       playWeekends: true,
       today: '2026-08-01',
@@ -82,7 +92,7 @@ describe('monthTotal', () => {
   test('weekends are skipped entirely when the team does not play them', () => {
     const total = monthTotal({
       month: '2026-08',
-      scores: [],
+      days: [],
       system: { ...system, nA: -2 },
       playWeekends: false,
       today: '2026-08-04',
@@ -94,7 +104,7 @@ describe('monthTotal', () => {
   test('N/A must never score: a weekend contributes nothing even when the team\'s nA is non-zero', () => {
     const total = monthTotal({
       month: '2026-08',
-      scores: [],
+      days: [],
       system: { ...system, nA: -999 },
       playWeekends: false,
       today: '2026-08-02',
@@ -108,7 +118,7 @@ describe('monthTotal', () => {
   test('a failed board scores the failure value', () => {
     const total = monthTotal({
       month: '2026-08',
-      scores: [played('2026-08-01', ['CRANE', 'SLATE', 'PRIDE', 'BLOND', 'GHOST', 'MUSIC'], 'SPEED')],
+      days: wordleDays([played('2026-08-01', ['CRANE', 'SLATE', 'PRIDE', 'BLOND', 'GHOST', 'MUSIC'], 'SPEED')]),
       system,
       playWeekends: true,
       today: '2026-08-02',
@@ -119,10 +129,10 @@ describe('monthTotal', () => {
   test('when a day holds duplicate rows the first one wins, as v1 renders it', () => {
     const total = monthTotal({
       month: '2026-08',
-      scores: [
+      days: wordleDays([
         played('2026-08-01', ['SPEED'], 'SPEED'), // 5
         played('2026-08-01', ['CRANE', 'SLATE', 'SPEED'], 'SPEED'), // 2
-      ],
+      ]),
       system,
       playWeekends: true,
       today: '2026-08-02',
@@ -156,5 +166,83 @@ describe('winnerOf', () => {
     // teams.test.ts relies on: the sole remaining member wins at 0 rather than
     // the row being deleted.
     expect(winnerOf([{ playerId: 'a', total: 0 }, { playerId: 'b', total: 0 }])).toBe('a')
+  })
+})
+
+// monthTotal as it stood before it took attempts (wordle-teams-9j7o.2.2). Frozen
+// here so the refactor is measured against the old behaviour, not against itself.
+function legacyMonthTotal(opts: {
+  month: string
+  scores: Array<ScoredDay>
+  system: ScoringSystem
+  playWeekends: boolean
+  today: string
+}): number {
+  const { month, scores, system, playWeekends, today } = opts
+  const byDay = new Map<string, ScoredDay>()
+  for (const score of scores) {
+    if (!byDay.has(score.puzzleDay)) byDay.set(score.puzzleDay, score)
+  }
+  return daysOfMonth(month).reduce((total, day) => {
+    if (!playWeekends && isWeekendDay(day)) return total
+    const score = byDay.get(day)
+    if (score) return total + pointsFor(attemptsFor(score.guesses, score.answer ?? ''), system)
+    if (day < today) return total + system.nA
+    return total
+  }, 0)
+}
+
+describe('monthTotal over attempts', () => {
+  const WORDS = ['SPEED', 'CRANE', 'SLATE', 'TRICE', 'MOUND', 'PLUMB', 'GHOST']
+
+  // 500 random months of Wordle boards: wins on every guess count, six-guess
+  // losses, duplicate rows for one day, missing answers, weekends on and off.
+  test('Wordle totals are identical to the frozen pre-refactor function', () => {
+    const rng = createRng(20261014)
+    for (let i = 0; i < 500; i++) {
+      const month = `2026-${String(rng.int(12) + 1).padStart(2, '0')}`
+      const days = daysOfMonth(month)
+      const scores: Array<ScoredDay> = []
+      for (let n = rng.int(40); n > 0; n--) {
+        const answer = rng.pick(WORDS)
+        const length = rng.int(6) + 1
+        const guesses = Array.from({ length }, () => rng.pick(WORDS))
+        scores.push({ puzzleDay: rng.pick(days), guesses, answer: rng.int(10) === 0 ? undefined : answer })
+      }
+      const opts = {
+        month,
+        system,
+        playWeekends: rng.int(2) === 0,
+        today: rng.pick(days),
+      }
+      expect(monthTotal({ ...opts, days: wordleDays(scores) })).toBe(legacyMonthTotal({ ...opts, scores }))
+    }
+  })
+
+  test('takes any game’s attempts, with 7 scoring the failure value', () => {
+    const total = monthTotal({
+      month: '2026-08',
+      days: [
+        { puzzleDay: '2026-08-03', attempts: 4 },
+        { puzzleDay: '2026-08-04', attempts: 7 },
+      ],
+      system,
+      playWeekends: false,
+      today: '2026-08-05',
+    })
+    // 3rd: 4 attempts -> 1. 4th: failed -> -3. 1st and 2nd are a skipped weekend.
+    expect(total).toBe(-2)
+  })
+
+  test('wordleDays keeps row order, so the first row for a day still wins', () => {
+    expect(
+      wordleDays([
+        { puzzleDay: '2026-08-03', guesses: ['SPEED'], answer: 'SPEED' },
+        { puzzleDay: '2026-08-03', guesses: ['CRANE', 'SPEED'], answer: 'SPEED' },
+      ]),
+    ).toEqual([
+      { puzzleDay: '2026-08-03', attempts: 1 },
+      { puzzleDay: '2026-08-03', attempts: 2 },
+    ])
   })
 })
