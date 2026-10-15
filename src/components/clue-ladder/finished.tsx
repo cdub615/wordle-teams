@@ -22,9 +22,11 @@ export function ClueLadderFinished({
   className,
 }: {
   status: 'solved' | 'failed'
-  lockedAtClue: number
+  /** Absent when the play ran out of time without locking in. */
+  lockedAtClue?: number
   answer: Order
-  lockedOrder: Order
+  /** Absent when the play ran out of time without locking in. */
+  lockedOrder?: Order
   /** Orders still possible after each clue, in clue order; the last is 1. */
   remaining: ReadonlyArray<number>
   /** The orders that fit every clue revealed at lock-in. Includes the answer. */
@@ -36,15 +38,25 @@ export function ClueLadderFinished({
   className?: string
 }) {
   const ladder = [ALL_ORDERS.length, ...remaining]
-  const others = possibleAtLockIn.filter((order) => orderKey(order) !== orderKey(lockedOrder))
+  const locked = lockedOrder !== undefined && lockedAtClue !== undefined
+  // lockIn accepts any full order, so an X can name an order the clues had already ruled out.
+  const fit = locked && possibleAtLockIn.some((order) => orderKey(order) === orderKey(lockedOrder))
+  const others = locked ? possibleAtLockIn.filter((order) => orderKey(order) !== orderKey(lockedOrder)) : []
 
   return (
     <section className={cn('flex flex-col gap-6', className)}>
-      <h2 className="text-2xl font-bold">{status === 'solved' ? `Solved on clue ${lockedAtClue}` : 'X'}</h2>
+      {status === 'solved' ? (
+        <h2 className="text-2xl font-bold">Solved on clue {lockedAtClue}</h2>
+      ) : (
+        <h2 aria-label="X: not solved" className="text-2xl font-bold">
+          X
+        </h2>
+      )}
+      {!locked && status === 'failed' && <p>Time ran out.</p>}
 
       <div className="flex flex-col gap-2">
         <ShapeRow order={answer} label="Answer" />
-        {status === 'failed' && <ShapeRow order={lockedOrder} label="Your order" className="opacity-70" />}
+        {status === 'failed' && lockedOrder && <ShapeRow order={lockedOrder} label="Your order" className="opacity-70" />}
       </div>
 
       <ol aria-label="Orders still possible after each clue" className="flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
@@ -52,17 +64,34 @@ export function ClueLadderFinished({
           <li
             key={i}
             data-count={count}
-            data-locked={i === lockedAtClue || undefined}
-            className={cn('flex items-center gap-2', i === lockedAtClue && 'font-bold underline')}
+            data-locked={(locked && i === lockedAtClue) || undefined}
+            className={cn('flex items-center gap-2', locked && i === lockedAtClue && 'font-bold underline')}
           >
             {i > 0 && <span aria-hidden="true">→</span>}
+            <span className="sr-only">{i === 0 ? 'Start: ' : `After clue ${i}: `}</span>
             {count}
-            {i === lockedAtClue && <span className="sr-only"> (you locked in here)</span>}
+            {locked && i === lockedAtClue && <span> (you locked in)</span>}
           </li>
         ))}
       </ol>
 
-      {possibleAtLockIn.length > 1 && (
+      {locked && !fit && (
+        <div className="flex flex-col gap-2">
+          <p>Your order didn&rsquo;t fit the clues you had.</p>
+          {possibleAtLockIn.length === 1 ? (
+            <ShapeRow order={possibleAtLockIn[0]} label="The order that fit was" />
+          ) : (
+            <>
+              <p>The orders that fit were:</p>
+              {possibleAtLockIn.map((order) => (
+                <ShapeRow key={orderKey(order)} order={order} label="A possible order" />
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      {fit && possibleAtLockIn.length > 1 && (
         <div className="flex flex-col gap-2">
           <p>You had a 1 in {possibleAtLockIn.length} chance.</p>
           {others.length === 1 ? (

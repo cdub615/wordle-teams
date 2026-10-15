@@ -38,6 +38,10 @@ describe('ClueLadderFinished', () => {
     expect([...steps].map((li) => li.dataset.count)).toEqual(['120', '24', '6', '2', '1'])
     expect(steps[3].dataset.locked).toBe('true')
     expect(steps[3].textContent).toContain('you locked in')
+    expect(screen.getAllByText(/you locked in/)).toHaveLength(1)
+    expect(steps[3].textContent).toContain('After clue 3: 2')
+    expect(steps[0].textContent).toContain('Start: 120')
+    expect(document.querySelectorAll('[data-locked]')).toHaveLength(1)
   })
 
   test('an early lock-in shows the odds and the other order', () => {
@@ -60,7 +64,7 @@ describe('ClueLadderFinished', () => {
         shareText: 'Clue ladder #4: X',
       }),
     )
-    expect(screen.getByRole('heading', { name: 'X' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'X: not solved' })).toBeTruthy()
     expect(screen.getByRole('img', { name: 'Your order: circle, star, square, triangle, diamond' })).toBeTruthy()
     // The orders "other" than the one the player chose: here, the answer.
     expect(screen.getByRole('img', { name: 'The other was: star, circle, square, triangle, diamond' })).toBeTruthy()
@@ -79,5 +83,65 @@ describe('ClueLadderFinished', () => {
     expect(screen.getByText('Clue ladder #4: solved on clue 3')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Share' }))
     expect(onShare).toHaveBeenCalledTimes(1)
+  })
+
+  test('a solve has no Your order row', () => {
+    render(createElement(ClueLadderFinished, solved))
+    expect(screen.queryByRole('img', { name: /^Your order/ })).toBeNull()
+  })
+
+  test('actions render when passed', () => {
+    render(createElement(ClueLadderFinished, { ...solved, actions: createElement('button', null, 'Back to scores') }))
+    expect(screen.getByRole('button', { name: 'Back to scores' })).toBeTruthy()
+  })
+
+  test('an X whose order did not fit lists what fit and gives no odds', () => {
+    const third: Order = ['square', 'circle', 'star', 'triangle', 'diamond']
+    render(
+      createElement(ClueLadderFinished, {
+        ...solved,
+        status: 'failed' as const,
+        lockedOrder: third,
+        possibleAtLockIn: [answer, other],
+      }),
+    )
+    expect(screen.queryByText(/You had a 1 in/)).toBeNull()
+    expect(screen.queryByText(/The others? (was|were)/)).toBeNull()
+    expect(screen.getByText('Your order didn\u2019t fit the clues you had.')).toBeTruthy()
+    expect(screen.getByText('The orders that fit were:')).toBeTruthy()
+    expect(screen.getAllByRole('img', { name: /^A possible order:/ })).toHaveLength(2)
+  })
+
+  test('an X whose order did not fit with one fitting order uses the singular', () => {
+    const third: Order = ['square', 'circle', 'star', 'triangle', 'diamond']
+    render(
+      createElement(ClueLadderFinished, {
+        ...solved,
+        status: 'failed' as const,
+        lockedOrder: third,
+        possibleAtLockIn: [answer],
+      }),
+    )
+    expect(screen.getByRole('img', { name: 'The order that fit was: star, circle, square, triangle, diamond' })).toBeTruthy()
+    expect(screen.queryByText('The orders that fit were:')).toBeNull()
+  })
+
+  test('a play that ran out of time shows X, no lock-in and no odds', () => {
+    render(
+      createElement(ClueLadderFinished, {
+        status: 'failed' as const,
+        answer,
+        remaining: [24, 6, 2, 1],
+        possibleAtLockIn: [],
+        shareText: 'Clue ladder #4: X',
+        onShare: vi.fn(),
+      }),
+    )
+    expect(screen.getByRole('heading', { name: 'X: not solved' })).toBeTruthy()
+    expect(screen.getByText('Time ran out.')).toBeTruthy()
+    expect(screen.queryByRole('img', { name: /^Your order/ })).toBeNull()
+    expect(document.querySelectorAll('[data-locked]')).toHaveLength(0)
+    expect(screen.queryByText(/you locked in/)).toBeNull()
+    expect(screen.queryByText(/You had a 1 in|didn.t fit/)).toBeNull()
   })
 })
