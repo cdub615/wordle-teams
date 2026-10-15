@@ -266,10 +266,15 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
     // this list anyway because the assertion is deliberately the WHOLE SET
     // rather than a filter — a filtered check would let a boundary be deleted
     // without a word. What that one is for is pinned by the test below.
+    //
+    // GameScoresTable IS ScoresTable's ALTERNATE (wordle-teams-9j7o.3.2): the
+    // clue ladder table, rendered in ScoresTable's place when an opted-in team
+    // flips the dashboard switch. Its own boundary and ScoresTableSkeleton.
     const wrapped = boundaries().map((boundary) => boundary.child)
 
     expect(wrapped.sort()).toEqual([
       'BoardEntrySurface',
+      'GameScoresTable',
       'ScoresTable',
       'TeamBoards',
       'TodayPanel',

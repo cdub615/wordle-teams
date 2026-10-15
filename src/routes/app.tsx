@@ -28,6 +28,8 @@ import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
 import { InvitePlayerDialog } from '#/components/teams/invite-player-dialog.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
+import { GameSwitch } from '#/components/game-switch.tsx'
+import { GameScoresTable } from '#/components/game-scores-table.tsx'
 import { TeamBoards } from '#/components/teams/team-boards.tsx'
 import { TodayPanel } from '#/components/today-panel.tsx'
 import { ScoringLegend } from '#/components/scoring-legend.tsx'
@@ -51,6 +53,7 @@ import {
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { monthWindowFor, proTeaserMonth } from '../../convex/lib/monthWindow.ts'
 import { OPENER_LEAGUE_SLUG } from '../../convex/lib/league.ts'
+import type { GameId } from '../../convex/lib/games.ts'
 import type { Id } from '../../convex/_generated/dataModel'
 
 /**
@@ -204,6 +207,12 @@ export const Route = createFileRoute('/app')({
 
 function Dashboard() {
   const { team: teamParam, month: monthParam, join: joinParam } = Route.useSearch()
+  // WHICH GAME THE SCORES TABLE SHOWS (wordle-teams-9j7o.3.2). State, not a
+  // search param: four navigations below spell out `search` exactly and
+  // src/routes.test.ts pins that text, so `?game=` would mean rewriting all of
+  // them for a pilot. It survives team and month changes, since this component
+  // stays mounted, and resets to Wordle on reload.
+  const [scoresGame, setScoresGame] = useState<GameId>('wordle')
   const navigate = useNavigate({ from: Route.fullPath })
   const hydrated = useHydrated()
   const { data: teams } = useSuspenseQuery(convexQuery(api.teams.getMyTeams, {}))
@@ -1588,55 +1597,74 @@ function Dashboard() {
           className="md:col-span-3"
         />
       </Suspense>
-      <Suspense
-        fallback={
-          // `rows` COMES FROM ALREADY-RESOLVED DATA, which is what makes the
-          // fallback the right HEIGHT rather than a guess: team membership is
-          // api.teams.getMyTeams, which does not suspend on a team or month
-          // change, so the member count is known before the table's own query
-          // has answered. v1's skeleton draws three rows for every team.
-          //
-          // `footer` MIRRORS THE REAL ELEMENT'S OWN, same reason: `isOwner`
-          // is also already-resolved team membership data, not something the
-          // suspended query answers.
-          <ScoresTableSkeleton
-            month={monthParam}
-            rows={selectedTeam?.members.length}
-            className="md:col-span-3"
-            footer={selectedTeam && <ScoringLegendSkeleton isOwner={selectedTeam.isOwner} />}
-          />
-        }
-      >
-        <ScoresTable
-          teamId={teamParam as Id<'teams'>}
-          month={monthParam}
-          myPlayerId={myPlayerId ?? undefined}
-          className="md:col-span-3"
-          // Folded into the card as a footer (wordle-teams-ha7u) rather than
-          // its own grid child — see the Suspense comment above this block.
-          // Gated on `selectedTeam` for the same reason "Team settings" above
-          // is: a stale `?team=` renders it undefined for the few renders
-          // before useSearchSync corrects it.
-          footer={
-            selectedTeam && (
-              <ScoringLegend
-                teamId={teamParam as Id<'teams'>}
-                month={monthParam}
-                isOwner={selectedTeam.isOwner}
-                // NAVIGATES STRAIGHT TO THE SCORING SECTION (wordle-teams-5jcn.29),
-                // not just to /team's own default landing. `hash: 'scoring'`
-                // is what routes/team.tsx's `id="scoring"` wrapper answers —
-                // TanStack's scroll restoration scrolls that element into view
-                // once the navigation settles, with no state to carry beyond
-                // the URL itself. This used to set `teamSettingsTab` to land
-                // TeamSettingsDialog on its Scoring tab; the anchor is this
-                // control's whole replacement for that.
-                onEdit={() => void navigate({ to: '/team', search: { team: teamParam }, hash: 'scoring' })}
-              />
-            )
+      {selectedTeam?.clueLadderEnabled && (
+        <GameSwitch value={scoresGame} onChange={setScoresGame} className="md:col-span-3" />
+      )}
+      {selectedTeam?.clueLadderEnabled && scoresGame === 'clueLadder' ? (
+        <Suspense
+          fallback={
+            <ScoresTableSkeleton month={monthParam} rows={selectedTeam.members.length} className="md:col-span-3" />
           }
-        />
-      </Suspense>
+        >
+          <GameScoresTable
+            teamId={teamParam as Id<'teams'>}
+            month={monthParam}
+            game="clueLadder"
+            myPlayerId={myPlayerId ?? undefined}
+            className="md:col-span-3"
+          />
+        </Suspense>
+      ) : (
+        <Suspense
+          fallback={
+            // `rows` COMES FROM ALREADY-RESOLVED DATA, which is what makes the
+            // fallback the right HEIGHT rather than a guess: team membership is
+            // api.teams.getMyTeams, which does not suspend on a team or month
+            // change, so the member count is known before the table's own query
+            // has answered. v1's skeleton draws three rows for every team.
+            //
+            // `footer` MIRRORS THE REAL ELEMENT'S OWN, same reason: `isOwner`
+            // is also already-resolved team membership data, not something the
+            // suspended query answers.
+            <ScoresTableSkeleton
+              month={monthParam}
+              rows={selectedTeam?.members.length}
+              className="md:col-span-3"
+              footer={selectedTeam && <ScoringLegendSkeleton isOwner={selectedTeam.isOwner} />}
+            />
+          }
+        >
+          <ScoresTable
+            teamId={teamParam as Id<'teams'>}
+            month={monthParam}
+            myPlayerId={myPlayerId ?? undefined}
+            className="md:col-span-3"
+            // Folded into the card as a footer (wordle-teams-ha7u) rather than
+            // its own grid child — see the Suspense comment above this block.
+            // Gated on `selectedTeam` for the same reason "Team settings" above
+            // is: a stale `?team=` renders it undefined for the few renders
+            // before useSearchSync corrects it.
+            footer={
+              selectedTeam && (
+                <ScoringLegend
+                  teamId={teamParam as Id<'teams'>}
+                  month={monthParam}
+                  isOwner={selectedTeam.isOwner}
+                  // NAVIGATES STRAIGHT TO THE SCORING SECTION (wordle-teams-5jcn.29),
+                  // not just to /team's own default landing. `hash: 'scoring'`
+                  // is what routes/team.tsx's `id="scoring"` wrapper answers —
+                  // TanStack's scroll restoration scrolls that element into view
+                  // once the navigation settles, with no state to carry beyond
+                  // the URL itself. This used to set `teamSettingsTab` to land
+                  // TeamSettingsDialog on its Scoring tab; the anchor is this
+                  // control's whole replacement for that.
+                  onEdit={() => void navigate({ to: '/team', search: { team: teamParam }, hash: 'scoring' })}
+                />
+              )
+            }
+          />
+        </Suspense>
+      )}
       {/* Full width since the admin cards left the grid. The `md:row-span-3`
           that used to be here existed only so CurrentTeamCard and
           ScoringSystemCard could sit beside it. */}

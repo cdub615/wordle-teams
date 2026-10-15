@@ -2532,3 +2532,20 @@ describe('callSitesOf, the helper those assertions are built on', () => {
     expect(sites('function a() { other() }')).toEqual([])
   })
 })
+
+describe('the dashboard shows the clue ladder only to an opted-in team (wordle-teams-9j7o.3.2)', () => {
+  const code = codeOf(read('./routes/app.tsx'))
+
+  test('the switch renders only when the team has the clue ladder on', () => {
+    expect(code).toContain('{selectedTeam?.clueLadderEnabled && (')
+    expect(code).toContain('<GameSwitch value={scoresGame} onChange={setScoresGame}')
+  })
+
+  test('the clue ladder table needs both the team flag and the switch', () => {
+    expect(code).toContain("selectedTeam?.clueLadderEnabled && scoresGame === 'clueLadder' ?")
+  })
+
+  test('Wordle stays the default', () => {
+    expect(code).toContain("useState<GameId>('wordle')")
+  })
+})
