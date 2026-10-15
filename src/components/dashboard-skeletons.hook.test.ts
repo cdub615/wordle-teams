@@ -241,7 +241,7 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
     return found
   }
 
-  test('all three dashboard-grid getTeamMonth consumers are wrapped, each by its own skeleton', () => {
+  test('every suspending dashboard-grid panel is wrapped in its own boundary', () => {
     // THE THREE THAT SUSPEND TOGETHER, ON THE GRID ITSELF. scores-table.tsx:36,
     // teams/team-boards.tsx:50 and today-panel.tsx all call useSuspenseQuery on
     // api.scores.getTeamMonth keyed by (teamId, month), so a switch re-keys all
@@ -500,6 +500,14 @@ describe('routes/app.tsx wraps every suspending panel in its own boundary', () =
 
     const byChild = new Map(boundaries().map((boundary) => [boundary.child, boundary.fallback]))
     expect(byChild.get('ScoresTable')).toContain('ScoringLegendSkeleton')
+  })
+
+  test('the clue ladder table falls back to the scores skeleton with its one-line legend as footer', () => {
+    // GameScoresTable always renders its legend line as a footer, so a
+    // fallback without one would be a footer region short (wordle-teams-9j7o.3.2).
+    const byChild = new Map(boundaries().map((boundary) => [boundary.child, boundary.fallback]))
+    expect(byChild.get('GameScoresTable')).toContain('<ScoresTableSkeleton')
+    expect(byChild.get('GameScoresTable')).toContain('footer={<ClueLadderLegendSkeleton />}')
   })
 
   test('the scores-table fallback is told which month it is sizing for', () => {

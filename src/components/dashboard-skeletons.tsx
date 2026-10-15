@@ -409,6 +409,16 @@ export function TodayPanelSkeleton({ className }: { className?: string }) {
 }
 
 /**
+ * The clue ladder table's legend, at rest: game-scores-table.tsx's one
+ * `text-xs` line (16px line height, hence `h-4`), passed as
+ * ScoresTableSkeleton's `footer` so the fallback has the footer region the
+ * real card always has (wordle-teams-9j7o.3.2).
+ */
+export function ClueLadderLegendSkeleton({ className }: { className?: string }) {
+  return <Skeleton aria-hidden="true" className={cn('h-4 w-full max-w-md', className)} />
+}
+
+/**
  * The scoring legend, at rest — now rendered as ScoresTableSkeleton's own
  * `footer` prop (Task wordle-teams-ha7u), not as a standalone grid fallback.
  *

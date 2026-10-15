@@ -21,7 +21,6 @@ export function GameSwitch({
         <Button
           key={game}
           type="button"
-          size="sm"
           variant={game === value ? 'default' : 'outline'}
           aria-pressed={game === value}
           onClick={() => onChange(game)}

@@ -49,6 +49,7 @@ import {
   TeamBoardsSkeleton,
   TodayPanelSkeleton,
   ScoringLegendSkeleton,
+  ClueLadderLegendSkeleton,
 } from '#/components/dashboard-skeletons.tsx'
 import { monthOf, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { monthWindowFor, proTeaserMonth } from '../../convex/lib/monthWindow.ts'
@@ -1603,7 +1604,12 @@ function Dashboard() {
       {selectedTeam?.clueLadderEnabled && scoresGame === 'clueLadder' ? (
         <Suspense
           fallback={
-            <ScoresTableSkeleton month={monthParam} rows={selectedTeam.members.length} className="md:col-span-3" />
+            <ScoresTableSkeleton
+              month={monthParam}
+              rows={selectedTeam.members.length}
+              className="md:col-span-3"
+              footer={<ClueLadderLegendSkeleton />}
+            />
           }
         >
           <GameScoresTable
