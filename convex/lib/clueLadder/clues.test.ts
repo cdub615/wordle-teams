@@ -27,6 +27,8 @@ describe('holds', () => {
     [{ kind: 'between', shape: 'circle', a: 'triangle', b: 'star' }, true],
     [{ kind: 'between', shape: 'circle', a: 'star', b: 'triangle' }, true],
     [{ kind: 'between', shape: 'triangle', a: 'square', b: 'star' }, false],
+    [{ kind: 'between', shape: 'star', a: 'triangle', b: 'square' }, false],
+    [{ kind: 'between', shape: 'triangle', a: 'triangle', b: 'star' }, false],
     [{ kind: 'apart', a: 'triangle', b: 'circle', distance: 2 }, true],
     [{ kind: 'apart', a: 'triangle', b: 'circle', distance: 3 }, false],
     [{ kind: 'apart', a: 'triangle', b: 'star', distance: 4 }, true],
