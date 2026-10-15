@@ -6,7 +6,8 @@
  *
  * Imports the TypeScript engine directly; Node 25 strips types on import.
  * Pure computation: touches no network and no Convex deployment.
- * Exit code 0 when the bar passes, 1 when it fails.
+ * The bar is judged on one player of each type; a 7-player team is printed for
+ * information. Exit code 0 when the bar passes, 1 when it fails.
  */
 import { parseArgs } from 'node:util'
 import { clueText } from '../convex/lib/clueLadder/clues.ts'

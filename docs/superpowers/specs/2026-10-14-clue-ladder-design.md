@@ -222,8 +222,9 @@ team with repeats would measure headcount, not the styles. The runner also print
 - no single player type wins more than half of months;
 - bold players fail 15–35% of days.
 
-A daily "tie for first" check was dropped after the dry run: seven players on a 1–6 scale
-share the best score on about three quarters of days at every setting, as Wordle groups do.
+A daily "tie for first" check was dropped after the dry run: on a 1–6 scale a team shares
+the best score on most days at every setting (about 62% for the judged four, 75% for seven),
+as Wordle groups do.
 
 If the bar is missed, tune the ladder-length distribution and temptation profile and
 rerun. If tuning cannot clear the bar, return to the mechanic before building.

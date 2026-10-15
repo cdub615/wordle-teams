@@ -149,8 +149,8 @@ export function checkBar(report: SimReport): BarResult {
   const careful = report.monthWinShare.careful
   const largest = Math.max(...STRATEGIES.map((s) => report.monthWinShare[s]))
   const bold = report.failRate.bold
-  // Daily ties are reported, not judged: seven players on a 1–6 scale share
-  // the best score most days at every setting (dry run, 2026-10-14).
+  // Daily ties are reported, not judged: on a 1–6 scale a team shares the
+  // best score on most days at every setting (dry run, 2026-10-14).
   const checks: BarCheck[] = [
     {
       name: 'careful month-win share',
