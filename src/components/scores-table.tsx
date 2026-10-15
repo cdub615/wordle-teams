@@ -73,8 +73,10 @@ export type GridPlayer = {
  * `sticky` CSS that react-table plays no part in. The rows arrive pre-ordered by
  * month total, exactly as v1's getData sorted them.
  *
- * Live-updating comes free from Convex reactivity through convexQuery — one of
- * the two sanctioned departures from strict parity in the parent design.
+ * Live-updating comes free from Convex reactivity — one of the two sanctioned
+ * departures from strict parity in the parent design. The grid reads no data
+ * itself: its wrapper (ScoresTable below, or GameScoresTable) runs the
+ * convexQuery and re-renders it with each update.
  */
 export function ScoresGrid({
   teamId,

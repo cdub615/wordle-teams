@@ -72,6 +72,29 @@ describe('ScoresGrid', () => {
     expect(al.querySelector('[data-day="2026-08-04"]')?.textContent).toBe('X')
     expect(al.querySelector('[data-day="2026-08-03"]')?.textContent).toBe('1')
   })
+
+  test('a duplicated day shows its last row but counts its first', () => {
+    // Today's behaviour, kept on purpose: the cell map is `new Map(...)`, so the
+    // last row wins there, while monthTotal keeps the first row for a day.
+    const dup = [
+      {
+        id: id('d'),
+        firstName: 'Di',
+        lastName: 'Dup',
+        days: [
+          { puzzleDay: '2026-08-05', attempts: 1 },
+          { puzzleDay: '2026-08-05', attempts: 2 },
+        ],
+      },
+    ]
+    const { container } = render(
+      createElement(ScoresGrid, { teamId: 't' as Id<'teams'>, month: MONTH, players: dup, system, playWeekends: true }),
+    )
+    const row = container.querySelectorAll('tbody tr')[0]
+    expect(row.querySelector('[data-day="2026-08-05"]')?.textContent).toBe('2')
+    // 5 for the first row's one guess, not 3 for the second row's two.
+    expect(row.lastElementChild?.textContent).toBe('5')
+  })
 })
 
 describe('ScoresTable', () => {
