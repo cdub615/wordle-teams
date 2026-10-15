@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { EMPTY_SLOTS } from '#/lib/clue-ladder-board.ts'
+import { EMPTY_SLOTS, trayShapes } from '#/lib/clue-ladder-board.ts'
 import { ClueLadderBoard } from './board.tsx'
 
 afterEach(cleanup)
@@ -43,12 +43,35 @@ describe('ClueLadderBoard', () => {
     render(createElement(ClueLadderBoard, { slots: ['star', null, null, null, null], onChange: vi.fn() }))
     const tray = screen.getByRole('group', { name: 'Shapes to place' })
     expect(tray.querySelectorAll('button')).toHaveLength(4)
+    expect(within(tray).queryByRole('button', { name: 'star' })).toBeNull()
   })
 
   test('disabled stops every move', () => {
     const onChange = vi.fn()
     render(createElement(ClueLadderBoard, { slots: ['star', null, null, null, null], onChange, disabled: true }))
+    for (const button of screen.getAllByRole('button')) expect(button.hasAttribute('disabled')).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Slot 1, star' }))
     expect(onChange).not.toHaveBeenCalled()
+  })
+
+  test('a shape picked up then tapped onto a filled slot replaces it and frees the old one', () => {
+    const onChange = vi.fn()
+    render(createElement(ClueLadderBoard, { slots: ['star', null, null, null, null], onChange }))
+    fireEvent.click(screen.getByRole('button', { name: 'circle' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Slot 1, star' }))
+    expect(onChange).toHaveBeenCalledWith(['circle', null, null, null, null])
+    const next = onChange.mock.calls[0][0]
+    expect(trayShapes(next)).toContain('star')
+  })
+
+  test('a pick that the parent has since placed is dropped', () => {
+    const onChange = vi.fn()
+    const { rerender } = render(createElement(ClueLadderBoard, { slots: EMPTY_SLOTS, onChange }))
+    fireEvent.click(screen.getByRole('button', { name: 'star' }))
+    rerender(createElement(ClueLadderBoard, { slots: ['star', null, null, null, null], onChange }))
+    fireEvent.click(screen.getByRole('button', { name: 'Slot 2, empty' }))
+    expect(onChange).not.toHaveBeenCalled()
+    const tray = screen.getByRole('group', { name: 'Shapes to place' })
+    for (const b of tray.querySelectorAll('button')) expect(b.getAttribute('aria-pressed')).toBe('false')
   })
 })

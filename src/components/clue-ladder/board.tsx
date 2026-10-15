@@ -26,8 +26,10 @@ export function ClueLadderBoard({
 }) {
   const [selected, setSelected] = useState<Shape | null>(null)
 
+  // A parent may change `slots` under us; drop a pick that is no longer in the tray.
+  if (selected && !trayShapes(slots).includes(selected)) setSelected(null)
+
   const tapSlot = (index: number) => {
-    if (disabled) return
     if (selected) {
       onChange(placeShape(slots, selected, index))
       setSelected(null)
