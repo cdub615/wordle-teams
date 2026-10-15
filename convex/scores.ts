@@ -16,7 +16,9 @@ import { monthOf, monthRange, toPuzzleDay, type PuzzleMonth } from './lib/puzzle
 import { effectiveFromOf, systemFor } from './lib/scoringSystem.ts'
 import { recomputeLeagueMonthFor } from './leagues.ts'
 import { recomputePlayerMonth } from './winners.ts'
-import type { Id, DataModel } from './_generated/dataModel'
+import { clueLadderSystem } from './lib/clueLadder/points.ts'
+import { GAMES, gameValidator, requireGameOnTeam, type GameId } from './lib/games.ts'
+import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
 
 /**
@@ -44,14 +46,18 @@ type ReaderCtx = { db: GenericDatabaseReader<DataModel> }
  * behaviour can be proven without a Better Auth session in the harness.
  */
 
-export async function getTeamMonthFor(
+/**
+ * Refuses a month this caller may not see, for one game (wordle-teams-kusd;
+ * game-aware since wordle-teams-9j7o.2.2). Shared by getTeamMonthFor and
+ * getTeamGameMonthFor so the two scoreboards cannot disagree about the window.
+ */
+async function requireMonthInWindowFor(
   ctx: ReaderCtx,
   playerId: Id<'players'>,
-  teamId: Id<'teams'>,
+  team: Doc<'teams'>,
   month: string,
-) {
-  const team = await requireTeamMemberFor(ctx, playerId, teamId)
-
+  game: GameId,
+): Promise<void> {
   // THE MONTH GATE (wordle-teams-kusd). Membership was the ONLY check here
   // before, which made the three-month dropdown an affordance rather than a
   // paywall — v1's own position, and one Layer 3 stopped taking in
@@ -144,14 +150,19 @@ export async function getTeamMonthFor(
     // UTC-versus-viewer reason, and it has to respect the MAX_MONTHS cap that
     // bounds an unvalidated `puzzleDay`. Routing both tiers through one function
     // is what stops the two floors drifting apart.
-    const earliestMonth = await earliestMonthFor(ctx, team.playerIds)
+    const earliestMonth = await earliestMonthFor(ctx, team.playerIds, game)
     if (month < serverFloorFor({ currentMonth: serverMonth, earliestMonth, pro: true })) {
       throw accessError('MONTH_OUT_OF_WINDOW')
     }
   }
+}
 
-  const { start, end } = monthRange(month)
-
+/**
+ * The scoring system that governed `month` for this team, as the eight point
+ * fields, plus the version's effective month (null for the team's originals).
+ * Shared by both scoreboards.
+ */
+async function teamMonthSystemFor(ctx: ReaderCtx, team: Doc<'teams'>, month: PuzzleMonth) {
   // The system that governed the month being VIEWED. The team doc's own eight
   // fields are the original, used until the first edit; every edit since writes
   // a scoringSystems row. Reading the team's live values here would compute a
@@ -162,9 +173,42 @@ export async function getTeamMonthFor(
   // effectiveFromOf below. The duplication is deliberate, not an oversight.
   const versions = await ctx.db
     .query('scoringSystems')
-    .withIndex('by_team_and_effectiveFrom', (q) => q.eq('teamId', teamId))
+    .withIndex('by_team_and_effectiveFrom', (q) => q.eq('teamId', team._id))
     .collect()
   const system = systemFor(team, versions, month)
+  return {
+    // `systemFor` returns either a stored version row or the team doc itself as
+    // the fallback, so pick the eight fields explicitly — that is what keeps
+    // the invite list (and a version row's _id) off the wire.
+    system: {
+      oneGuess: system.oneGuess,
+      twoGuesses: system.twoGuesses,
+      threeGuesses: system.threeGuesses,
+      fourGuesses: system.fourGuesses,
+      fiveGuesses: system.fiveGuesses,
+      sixGuesses: system.sixGuesses,
+      failed: system.failed,
+      nA: system.nA,
+    },
+    // null when the month resolved to the team's original values — that is
+    // what tells the Scoring System card there is no "historical" badge.
+    systemEffectiveFrom: effectiveFromOf(versions, month),
+  }
+}
+
+export async function getTeamMonthFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+  month: string,
+) {
+  const team = await requireTeamMemberFor(ctx, playerId, teamId)
+
+  // The gate, before any per-member read — see requireMonthInWindowFor.
+  await requireMonthInWindowFor(ctx, playerId, team, month, 'wordle')
+
+  const { start, end } = monthRange(month)
+  const { system, systemEffectiveFrom } = await teamMonthSystemFor(ctx, team, month)
 
   // Convex functions run inside a single snapshot-isolated transaction, so
   // concurrent reads across members don't compete or change correctness —
@@ -220,23 +264,9 @@ export async function getTeamMonthFor(
       name: team.name,
       playWeekends: team.playWeekends,
       showLetters: team.showLetters,
-      // Resolved above, not read off the team doc. `systemFor` returns either a
-      // stored version row or the team doc itself as the fallback, so pick the
-      // eight fields explicitly — that is what keeps the invite list (and a
-      // version row's _id) off the wire.
-      system: {
-        oneGuess: system.oneGuess,
-        twoGuesses: system.twoGuesses,
-        threeGuesses: system.threeGuesses,
-        fourGuesses: system.fourGuesses,
-        fiveGuesses: system.fiveGuesses,
-        sixGuesses: system.sixGuesses,
-        failed: system.failed,
-        nA: system.nA,
-      },
-      // null when the month resolved to the team's original values — that is
-      // what tells the Scoring System card there is no "historical" badge.
-      systemEffectiveFrom: effectiveFromOf(versions, month),
+      // Resolved above, not read off the team doc.
+      system,
+      systemEffectiveFrom,
     },
     players,
   }
@@ -251,7 +281,75 @@ export const getTeamMonth = query({
 })
 
 /**
- * The earliest month anyone on this roster has a board in, or null for none.
+ * One team's month for any game, as attempts per day (wordle-teams-9j7o.2.2).
+ *
+ * A SEPARATE QUERY FROM getTeamMonth, NOT A `game` ARGUMENT ON IT. getTeamMonth
+ * returns raw Wordle boards, which six components read; a union return type
+ * would make every one of them narrow it. This returns `{ puzzleDay, attempts }`
+ * for every game, which is all the scores table needs to total a month.
+ *
+ * THE ORDER OF REFUSALS IS DELIBERATE: membership, then the game, then the
+ * month. A non-member learns nothing about which games a team plays, and no
+ * month is gated for a game the team cannot see.
+ */
+export async function getTeamGameMonthFor(
+  ctx: ReaderCtx,
+  playerId: Id<'players'>,
+  teamId: Id<'teams'>,
+  month: string,
+  game: GameId,
+) {
+  const team = await requireTeamMemberFor(ctx, playerId, teamId)
+  requireGameOnTeam(team, game)
+  await requireMonthInWindowFor(ctx, playerId, team, month, game)
+
+  const { start, end } = monthRange(month)
+  const { system, systemEffectiveFrom } = await teamMonthSystemFor(ctx, team, month)
+
+  // Promise.all and the missing-player guard for the reasons getTeamMonthFor gives.
+  const resolved = await Promise.all(
+    team.playerIds.map(async (memberId) => {
+      const member = await ctx.db.get(memberId)
+      if (!member) return null
+      return {
+        id: member._id,
+        firstName: member.firstName,
+        lastName: member.lastName,
+        results: await GAMES[game].resultsFor(ctx, memberId, start, end),
+      }
+    }),
+  )
+
+  return {
+    game,
+    team: {
+      id: team._id,
+      name: team.name,
+      playWeekends: team.playWeekends,
+      // The clue ladder keeps the team's points for 1–6 and missed days but
+      // fixes X at -1 (spec section 2): with the default -3, the simulation had
+      // careful play win about 90% of months.
+      system: game === 'clueLadder' ? clueLadderSystem(system) : system,
+      systemEffectiveFrom,
+    },
+    players: resolved.filter((member): member is NonNullable<typeof member> => member !== null),
+  }
+}
+
+export const getTeamGameMonth = query({
+  args: { teamId: v.id('teams'), month: v.string(), game: gameValidator },
+  handler: async (ctx, { teamId, month, game }) => {
+    const player = await requirePlayer(ctx)
+    return await getTeamGameMonthFor(ctx, player._id, teamId, month, game)
+  },
+})
+
+/**
+ * The earliest month anyone on this roster has played `game` in, or null for
+ * none. Each member's first row comes from the registry's `GAMES[game].firstDay`
+ * (lib/games.ts), which for Wordle reads the same index with the same `.first()`
+ * described below, and for the clue ladder does the same over `clueLadderPlays`
+ * `by_player_and_date` (wordle-teams-9j7o.2.2).
  *
  * ONE `ctx.db.get` PLUS, FOR A MEMBER WHO STILL EXISTS, ONE INDEXED `.first()`,
  * ascending — `by_player_and_puzzleDay` is already the index getTeamMonthFor
@@ -306,6 +404,7 @@ export const getTeamMonth = query({
 async function earliestMonthFor(
   ctx: ReaderCtx,
   playerIds: readonly Id<'players'>[],
+  game: GameId,
 ): Promise<PuzzleMonth | null> {
   // Promise.all rather than a sequential loop for the reason getTeamMonthFor
   // gives above: one snapshot-isolated transaction, so this is round trips rather
@@ -322,15 +421,12 @@ async function earliestMonthFor(
       // `ctx.db.get` instead of one `ctx.db.get` plus an index read.
       const member = await ctx.db.get(memberId)
       if (!member) return null
-      return ctx.db
-        .query('dailyScores')
-        .withIndex('by_player_and_puzzleDay', (q) => q.eq('playerId', memberId))
-        .first()
+      return GAMES[game].firstDay(ctx, memberId)
     }),
   )
 
   let earliest: string | null = null
-  for (const row of firsts) {
+  for (const day of firsts) {
     // PuzzleDay is 'YYYY-MM-DD' BY CONVENTION ON THE ROWS THAT ALREADY EXIST, so
     // lexical comparison is chronological for every well-formed row, but a single
     // malformed one (say, an empty string) sorts below every real day and would
@@ -342,7 +438,7 @@ async function earliestMonthFor(
     // no NEW row can be one — but this read is over the whole table's history, and
     // migrate.ts and e2eSeed.ts both insert without passing through that check. A
     // guard here is still guarding something.
-    if (row !== null && (earliest === null || row.puzzleDay < earliest)) earliest = row.puzzleDay
+    if (day !== null && (earliest === null || day < earliest)) earliest = day
   }
   return earliest === null ? null : monthOf(earliest)
 }
@@ -378,16 +474,19 @@ export async function monthWindowInputsFor(
   ctx: ReaderCtx,
   playerId: Id<'players'>,
   teamId: Id<'teams'>,
+  game: GameId = 'wordle',
 ): Promise<{ earliestMonth: PuzzleMonth | null }> {
   const team = await requireTeamMemberFor(ctx, playerId, teamId)
-  return { earliestMonth: await earliestMonthFor(ctx, team.playerIds) }
+  requireGameOnTeam(team, game)
+  return { earliestMonth: await earliestMonthFor(ctx, team.playerIds, game) }
 }
 
 export const monthWindow = query({
-  args: { teamId: v.id('teams') },
-  handler: async (ctx, { teamId }) => {
+  // `game` is optional so every existing caller keeps Wordle's window.
+  args: { teamId: v.id('teams'), game: v.optional(gameValidator) },
+  handler: async (ctx, { teamId, game }) => {
     const player = await requirePlayer(ctx)
-    return await monthWindowInputsFor(ctx, player._id, teamId)
+    return await monthWindowInputsFor(ctx, player._id, teamId, game ?? 'wordle')
   },
 })
 
