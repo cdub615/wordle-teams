@@ -102,6 +102,9 @@ export const Route = createFileRoute('/team')({
       context.queryClient.ensureQueryData(convexQuery(api.teams.getMyTeams, {})),
       context.queryClient.ensureQueryData(convexQuery(api.teams.amIPro, {})),
       context.queryClient.ensureQueryData(convexQuery(api.scores.getMyPlayerId, {})),
+      // The clue ladder toggle's deployment switch, so the owner's card renders
+      // with the page instead of popping in after hydration.
+      context.queryClient.ensureQueryData(convexQuery(api.games.clueLadderSwitch, {})),
     ])
     // Nothing to administer with no team at all — /app's own no-team branch
     // (gated the same way there) is where that is handled, not a second copy

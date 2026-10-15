@@ -8,7 +8,7 @@ import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 
-let switchOn = true
+let switchOn: boolean | undefined = true
 let pending = false
 const mutate = vi.fn()
 const toastError = vi.fn()
@@ -24,7 +24,7 @@ vi.mock('@convex-dev/react-query', () => ({
 vi.mock('@tanstack/react-query', () => ({
   useQuery: ({ queryKey }: { queryKey: [string, unknown] }) => {
     if (queryKey[0] !== getFunctionName(api.games.clueLadderSwitch)) throw new Error(`unexpected ${queryKey[0]}`)
-    return { data: { enabled: switchOn } }
+    return { data: switchOn === undefined ? undefined : { enabled: switchOn } }
   },
   useMutation: () => ({ mutate, isPending: pending }),
 }))
@@ -67,6 +67,21 @@ describe('ClueLadderSettingCard', () => {
     switchOn = false
     const { container } = render(createElement(ClueLadderSettingCard, { teamId, isOwner: true, enabled: false }))
     expect(container.innerHTML).toBe('')
+  })
+
+  test('nothing shows while the deployment switch is still loading', () => {
+    switchOn = undefined
+    const { container } = render(createElement(ClueLadderSettingCard, { teamId, isOwner: true, enabled: false }))
+    expect(container.innerHTML).toBe('')
+  })
+
+  test('the card is a Games region with a heading, and the switch is described by the help text', () => {
+    render(createElement(ClueLadderSettingCard, { teamId, isOwner: true, enabled: false }))
+    expect(screen.getByRole('region', { name: 'Games' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 2, name: 'Games' })).toBeTruthy()
+    const sw = screen.getByRole('switch', { name: 'Clue ladder' })
+    expect(sw.getAttribute('aria-describedby')).toBeTruthy()
+    expect(screen.getByRole('switch', { description: /Scores are kept\./ })).toBe(sw)
   })
 
   test('the switch is disabled while a change is in flight', () => {

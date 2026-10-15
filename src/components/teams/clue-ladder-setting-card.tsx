@@ -1,5 +1,6 @@
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { useId } from 'react'
 import { toast } from 'sonner'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -30,14 +31,17 @@ export function ClueLadderSettingCard({
   enabled: boolean
 }) {
   const { data: deployment } = useQuery(convexQuery(api.games.clueLadderSwitch, {}))
+  const helpId = useId()
   const setClueLadder = useMutation({ mutationFn: useConvexMutation(api.games.setTeamClueLadder) })
 
   if (!isOwner || !deployment?.enabled) return null
 
   return (
-    <Card>
+    <Card role="region" aria-label="Games">
       <CardHeader>
-        <CardTitle>Games</CardTitle>
+        <CardTitle asChild>
+          <h2>Games</h2>
+        </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
@@ -46,6 +50,7 @@ export function ClueLadderSettingCard({
             id="clue-ladder-enabled"
             checked={enabled}
             disabled={setClueLadder.isPending}
+            aria-describedby={helpId}
             onCheckedChange={() =>
               setClueLadder.mutate(
                 { teamId, enabled: !enabled },
@@ -54,8 +59,9 @@ export function ClueLadderSettingCard({
             }
           />
         </div>
-        <p className="text-sm text-muted-foreground">
-          A daily logic puzzle with its own scoreboard. Your team sees it on the dashboard once it's on.
+        <p id={helpId} className="text-sm text-muted-foreground">
+          A daily logic puzzle with its own scoreboard. Your team sees it on the dashboard once it's on. Turning it
+          off hides it again. Scores are kept.
         </p>
       </CardContent>
     </Card>
