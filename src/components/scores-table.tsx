@@ -6,8 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '#
 import { ScoreCell } from '#/components/score-cell.tsx'
 import { formatDayHeaderParts } from '#/lib/format-day.ts'
 import { cn } from '#/lib/utils.ts'
-import { attemptsFor } from '../../convex/lib/board.ts'
-import { monthTotal, wordleDays } from '../../convex/lib/scoring.ts'
+import { monthTotal, wordleDays, type AttemptDay, type ScoringSystem } from '../../convex/lib/scoring.ts'
 import { daysOfMonth, isWeekendDay, monthContainsToday, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { displayNamesFor } from '#/lib/display-names.ts'
@@ -58,6 +57,14 @@ export function pinnedCellClassName(pinned: string, isMe: boolean): string {
   return cn(pinned, isMe && 'bg-pinned-self')
 }
 
+/** One row of the grid: a player and their results as attempts per day (7 = X). */
+export type GridPlayer = {
+  id: Id<'players'>
+  firstName: string
+  lastName: string
+  days: ReadonlyArray<AttemptDay>
+}
+
 /**
  * The month grid. DESIGN_SYSTEM.md §8 "Leaderboard table".
  *
@@ -69,15 +76,22 @@ export function pinnedCellClassName(pinned: string, isMe: boolean): string {
  * Live-updating comes free from Convex reactivity through convexQuery — one of
  * the two sanctioned departures from strict parity in the parent design.
  */
-export function ScoresTable({
+export function ScoresGrid({
   teamId,
   month,
+  players,
+  system,
+  playWeekends,
   myPlayerId,
   className,
   footer,
 }: {
+  /** Keys the landing scroll (see the effect below); the grid reads no data itself. */
   teamId: Id<'teams'>
   month: string
+  players: ReadonlyArray<GridPlayer>
+  system: ScoringSystem
+  playWeekends: boolean
   myPlayerId?: Id<'players'>
   className?: string
   /**
@@ -90,8 +104,6 @@ export function ScoresTable({
   footer?: ReactNode
 }) {
   const hydrated = useHydrated()
-  const { data } = useSuspenseQuery(convexQuery(api.scores.getTeamMonth, { teamId, month }))
-  const { team, players } = data
 
   // Local midnight, and only after hydration — the server has no idea what
   // "today" is for this viewer, and guessing it is a hydration mismatch. Before
@@ -224,7 +236,7 @@ export function ScoresTable({
 
   const rows = players
     .map((player) => {
-      const byDay = new Map(player.scores.map((score) => [score.puzzleDay, score]))
+      const byDay = new Map(player.days.map((day) => [day.puzzleDay, day]))
       return {
         id: player.id,
         firstName: player.firstName,
@@ -232,9 +244,9 @@ export function ScoresTable({
         byDay,
         total: monthTotal({
           month,
-          days: wordleDays(player.scores),
-          system: team.system,
-          playWeekends: team.playWeekends,
+          days: [...player.days],
+          system,
+          playWeekends,
           today,
         }),
       }
@@ -405,7 +417,7 @@ export function ScoresTable({
                   </div>
                 </TableCell>
                 {days.map((day) => {
-                  const score = row.byDay.get(day)
+                  const result = row.byDay.get(day)
                   return (
                     // data-day exists purely for e2e/board-entry.spec.ts: the
                     // day headers render as e.g. "Sun 2nd", so a plain
@@ -422,11 +434,11 @@ export function ScoresTable({
                     // make with `isBeforeToday`; no new hydration guard needed.
                     <TableCell key={day} data-day={day} className={cn(day === today && 'bg-accent/40')}>
                       <ScoreCell
-                        attempts={score ? attemptsFor(score.guesses, score.answer) : undefined}
-                        hasScore={score !== undefined}
+                        attempts={result?.attempts}
+                        hasScore={result !== undefined}
                         isBeforeToday={day < today}
                         isWeekend={isWeekendDay(day)}
-                        playWeekends={team.playWeekends}
+                        playWeekends={playWeekends}
                       />
                     </TableCell>
                   )
@@ -451,6 +463,44 @@ export function ScoresTable({
         {footer && <div className="border-t border-line-subtle px-2 py-4 md:px-4">{footer}</div>}
       </div>
     </div>
+  )
+}
+
+/**
+ * Wordle's month grid: reads the team's boards and hands the grid attempts.
+ * The clue ladder's equivalent is GameScoresTable (game-scores-table.tsx).
+ */
+export function ScoresTable({
+  teamId,
+  month,
+  myPlayerId,
+  className,
+  footer,
+}: {
+  teamId: Id<'teams'>
+  month: string
+  myPlayerId?: Id<'players'>
+  className?: string
+  footer?: ReactNode
+}) {
+  const { data } = useSuspenseQuery(convexQuery(api.scores.getTeamMonth, { teamId, month }))
+  const { team, players } = data
+  return (
+    <ScoresGrid
+      teamId={teamId}
+      month={month}
+      players={players.map((player) => ({
+        id: player.id,
+        firstName: player.firstName,
+        lastName: player.lastName,
+        days: wordleDays(player.scores),
+      }))}
+      system={team.system}
+      playWeekends={team.playWeekends}
+      myPlayerId={myPlayerId}
+      className={className}
+      footer={footer}
+    />
   )
 }
 
