@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { Order } from '../../../convex/lib/clueLadder/orders.ts'
-import { ClueLadderFinished } from './finished.tsx'
+import { ClueLadderFinished, type ClueLadderResult } from './finished.tsx'
 
 afterEach(cleanup)
 
@@ -11,10 +11,8 @@ const answer: Order = ['star', 'circle', 'square', 'triangle', 'diamond']
 const other: Order = ['circle', 'star', 'square', 'triangle', 'diamond']
 
 const solved = {
-  status: 'solved' as const,
-  lockedAtClue: 3,
+  result: { status: 'solved', lockedAtClue: 3, lockedOrder: answer } as ClueLadderResult,
   answer,
-  lockedOrder: answer,
   remaining: [24, 6, 2, 1],
   possibleAtLockIn: [answer, other],
   shareText: 'Clue ladder #4: solved on clue 3',
@@ -51,7 +49,11 @@ describe('ClueLadderFinished', () => {
   })
 
   test('a lock-in on the proving clue shows no odds', () => {
-    render(createElement(ClueLadderFinished, { ...solved, lockedAtClue: 4, possibleAtLockIn: [answer] }))
+    render(createElement(ClueLadderFinished, {
+        ...solved,
+        result: { status: 'solved', lockedAtClue: 4, lockedOrder: answer },
+        possibleAtLockIn: [answer],
+      }))
     expect(screen.queryByText(/You had a 1 in/)).toBeNull()
   })
 
@@ -59,8 +61,7 @@ describe('ClueLadderFinished', () => {
     render(
       createElement(ClueLadderFinished, {
         ...solved,
-        status: 'failed' as const,
-        lockedOrder: other,
+        result: { status: 'failed', lockedAtClue: 3, lockedOrder: other },
         shareText: 'Clue ladder #4: X',
       }),
     )
@@ -72,7 +73,11 @@ describe('ClueLadderFinished', () => {
 
   test('three or more possibilities use the plural', () => {
     const third: Order = ['square', 'circle', 'star', 'triangle', 'diamond']
-    render(createElement(ClueLadderFinished, { ...solved, lockedAtClue: 2, possibleAtLockIn: [answer, other, third] }))
+    render(createElement(ClueLadderFinished, {
+        ...solved,
+        result: { status: 'solved', lockedAtClue: 2, lockedOrder: answer },
+        possibleAtLockIn: [answer, other, third],
+      }))
     expect(screen.getByText('You had a 1 in 3 chance.')).toBeTruthy()
     expect(screen.getByText('The others were:')).toBeTruthy()
   })
@@ -100,8 +105,7 @@ describe('ClueLadderFinished', () => {
     render(
       createElement(ClueLadderFinished, {
         ...solved,
-        status: 'failed' as const,
-        lockedOrder: third,
+        result: { status: 'failed', lockedAtClue: 3, lockedOrder: third },
         possibleAtLockIn: [answer, other],
       }),
     )
@@ -117,8 +121,7 @@ describe('ClueLadderFinished', () => {
     render(
       createElement(ClueLadderFinished, {
         ...solved,
-        status: 'failed' as const,
-        lockedOrder: third,
+        result: { status: 'failed', lockedAtClue: 3, lockedOrder: third },
         possibleAtLockIn: [answer],
       }),
     )
@@ -129,7 +132,7 @@ describe('ClueLadderFinished', () => {
   test('a play that ran out of time shows X, no lock-in and no odds', () => {
     render(
       createElement(ClueLadderFinished, {
-        status: 'failed' as const,
+        result: { status: 'timedOut' },
         answer,
         remaining: [24, 6, 2, 1],
         possibleAtLockIn: [],
@@ -143,5 +146,14 @@ describe('ClueLadderFinished', () => {
     expect(document.querySelectorAll('[data-locked]')).toHaveLength(0)
     expect(screen.queryByText(/you locked in/)).toBeNull()
     expect(screen.queryByText(/You had a 1 in|didn.t fit/)).toBeNull()
+  })
+
+  test('the result type cannot describe a solve without its lock-in', () => {
+    // @ts-expect-error a solve must name the clue and the order
+    const bad: ClueLadderResult = { status: 'solved' }
+    // @ts-expect-error a loss must name the clue and the order
+    const badX: ClueLadderResult = { status: 'failed', lockedAtClue: 2 }
+    const ok: ClueLadderResult = { status: 'timedOut' }
+    expect([bad, badX, ok]).toHaveLength(3)
   })
 })
