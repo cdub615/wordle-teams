@@ -7,6 +7,11 @@ import { cn } from '#/lib/utils.ts'
  * The revealed clues, and the day's two decisions. Next clue is irreversible
  * and costs a point; Lock in is the one try. Presentational: plan 3's route
  * owns the mutations and passes `pending` while one is in flight.
+ *
+ * Confirming calls `onLockIn` but does NOT close the popover: `pending` keeps
+ * it open with the spinner and blocks a second click. On success the parent
+ * replaces these controls with the finished screen, which unmounts the
+ * popover; on failure it stays open, so the player can retry.
  */
 export function ClueLadderControls({
   clues,
@@ -30,10 +35,11 @@ export function ClueLadderControls({
 
   return (
     <div className={cn('flex flex-col gap-4', className)}>
-      <ol aria-label="Clues" className="flex flex-col gap-2">
+      <ol aria-label="Clues" aria-live="polite" className="flex flex-col gap-2">
         {clues.map((clue, i) => (
+          // The clue list is append-only, so the index is a stable key.
           <li key={i} className="rounded-md border p-3">
-            <span className="block text-xs text-muted-foreground">Clue {i + 1}</span>
+            <span aria-hidden="true" className="block text-xs text-muted-foreground">Clue {i + 1}</span>
             {clue}
           </li>
         ))}
@@ -54,7 +60,6 @@ export function ClueLadderControls({
           confirmLabel="Yes, lock in"
           pending={pending}
           onConfirm={() => {
-            setConfirming(false)
             onLockIn()
           }}
         />
