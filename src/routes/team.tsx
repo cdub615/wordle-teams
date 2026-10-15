@@ -8,6 +8,7 @@ import { api } from '../../convex/_generated/api'
 import { pageTitle } from '#/lib/seo'
 import { STORAGE_KEY, resolveTeamSettingsSearch } from '#/lib/dashboard-search.ts'
 import { CurrentTeamCard } from '#/components/teams/current-team-card.tsx'
+import { ClueLadderSettingCard } from '#/components/teams/clue-ladder-setting-card.tsx'
 import { MyTeamsCard } from '#/components/teams/my-teams-card.tsx'
 import { UpdateTeamDialog } from '#/components/teams/update-team-dialog.tsx'
 import { ScoringSystemCard } from '#/components/scoring-system-card.tsx'
@@ -301,6 +302,15 @@ function TeamSettingsPage() {
             />
           </Suspense>
         </div>
+        {/* Owner only, and only while the clue ladder pilot is switched on for
+            this deployment; the card renders nothing otherwise
+            (wordle-teams-9j7o.3.2). Beside the scoring system, since both
+            decide how this team's scoreboard reads. */}
+        <ClueLadderSettingCard
+          teamId={selectedTeam.id}
+          isOwner={selectedTeam.isOwner}
+          enabled={selectedTeam.clueLadderEnabled}
+        />
         {/*
           MY TEAMS SITS LAST (wordle-teams-wty4.1.2). This page is "manage the
           team I am looking at": the current team's own card and the scoring

@@ -2533,6 +2533,17 @@ describe('callSitesOf, the helper those assertions are built on', () => {
   })
 })
 
+describe('the team page mounts the clue ladder toggle (wordle-teams-9j7o.3.2)', () => {
+  const TEAM = './routes/team.tsx'
+
+  test('it gets the selected team, its owner flag and its clue ladder flag', () => {
+    const props = jsxProps(TEAM, 'ClueLadderSettingCard')
+    expect(props.get('teamId')).toBe('selectedTeam.id')
+    expect(props.get('isOwner')).toBe('selectedTeam.isOwner')
+    expect(props.get('enabled')).toBe('selectedTeam.clueLadderEnabled')
+  })
+})
+
 describe('the dashboard shows the clue ladder only to an opted-in team (wordle-teams-9j7o.3.2)', () => {
   const code = codeOf(read('./routes/app.tsx'))
 
