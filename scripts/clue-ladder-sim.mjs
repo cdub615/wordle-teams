@@ -13,9 +13,10 @@ import { clueText } from '../convex/lib/clueLadder/clues.ts'
 import { generatePuzzle } from '../convex/lib/clueLadder/generate.ts'
 import { SHAPE_SYMBOLS } from '../convex/lib/clueLadder/orders.ts'
 import {
+  BAR_TEAM,
   checkBar,
-  DEFAULT_TEAM,
   formatReport,
+  SEVEN_PLAYER_TEAM,
   simulate,
 } from '../convex/lib/clueLadder/simulate.ts'
 
@@ -39,9 +40,17 @@ for (let i = 0; i < samples; i++) {
   console.log('')
 }
 
-const report = simulate({ months, daysPerMonth: 28, team: DEFAULT_TEAM, seed })
+const header = (team) => `Team: ${team.join(', ')}  ·  ${months} months of 28 days  ·  seed ${seed}`
+
+// The bar is judged on one player of each type (spec section 8).
+const report = simulate({ months, daysPerMonth: 28, team: BAR_TEAM, seed })
 const bar = checkBar(report)
-console.log(`Team: ${DEFAULT_TEAM.join(', ')}  ·  ${months} months of 28 days  ·  seed ${seed}`)
+console.log(header(BAR_TEAM))
 console.log('')
 console.log(formatReport(report, bar))
+console.log('')
+
+console.log(`For information, not judged. ${header(SEVEN_PLAYER_TEAM)}`)
+console.log('')
+console.log(formatReport(simulate({ months, daysPerMonth: 28, team: SEVEN_PLAYER_TEAM, seed })))
 process.exitCode = bar.pass ? 0 : 1

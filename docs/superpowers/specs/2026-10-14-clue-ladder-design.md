@@ -207,8 +207,14 @@ generator and solver to play many simulated days with four player types:
 - **reckless:** locks in when 3 or fewer remain;
 - **mixed:** chooses among the three each day.
 
-It plays teams of 7 over 28-day months and reports the score spread, ties, fail rates
-and month wins by type.
+It plays 28-day months and reports the score spread, ties, fail rates and month wins
+by type and per player.
+
+The bar is judged on a team with **one player of each type** (owner decision,
+2026-10-14). Careful play has no luck in it, so two careful players always tie and split
+their months, while two bold players are two separate shots at first place. A judged
+team with repeats would measure headcount, not the styles. The runner also prints a
+7-player team (2 careful, 2 bold, 1 reckless, 2 mixed) for information only.
 
 **Bar to clear** (owner may revise):
 

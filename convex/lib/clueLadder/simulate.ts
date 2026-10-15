@@ -14,7 +14,14 @@ export const STRATEGIES: readonly Strategy[] = ['careful', 'bold', 'reckless', '
 export const THRESHOLDS = { careful: 1, bold: 2, reckless: 3 } as const
 export const FAIL = 7
 
-export const DEFAULT_TEAM: readonly Strategy[] = [
+/** The team the bar judges: one player per type, so headcount cannot skew the shares. */
+export const BAR_TEAM: readonly Strategy[] = STRATEGIES
+
+/**
+ * A plausible 7-player team, reported for information only. Careful players have no
+ * luck in them, so the two here always tie each other and split their months.
+ */
+export const SEVEN_PLAYER_TEAM: readonly Strategy[] = [
   'careful',
   'careful',
   'bold',
@@ -159,23 +166,26 @@ export function checkBar(report: SimReport): BarResult {
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`
 
-export function formatReport(report: SimReport, bar: BarResult): string {
+/** Pass `bar` only for the judged team; without it the verdict lines are left out. */
+export function formatReport(report: SimReport, bar?: BarResult): string {
   const lines: string[] = []
   lines.push(`Simulated days: ${report.days}  (fallback ladders: ${pct(report.fallbackRate)})`)
   const lengths = [3, 4, 5, 6].map((n) => `${n}: ${report.ladderLengthCounts[n] ?? 0}`).join('  ')
   lines.push(`Ladder lengths  ${lengths}`)
   lines.push('')
-  lines.push('strategy   players  mean   fail    month wins   scores 1..6, X')
+  lines.push('strategy   players  mean   fail    month wins   per player   scores 1..6, X')
   for (const s of STRATEGIES) {
     if (report.players[s] === 0) continue
     const counts = report.scoreCounts[s].slice(1).join(' ')
     lines.push(
       `${s.padEnd(10)} ${String(report.players[s]).padEnd(8)} ${report.meanScore[s].toFixed(2).padEnd(6)} ` +
-        `${pct(report.failRate[s]).padEnd(7)} ${pct(report.monthWinShare[s]).padEnd(12)} ${counts}`,
+        `${pct(report.failRate[s]).padEnd(7)} ${pct(report.monthWinShare[s]).padEnd(12)} ` +
+        `${pct(report.monthWinShare[s] / report.players[s]).padEnd(12)} ${counts}`,
     )
   }
   lines.push('')
   lines.push(`Tie for first: ${pct(report.tieForFirstRate)} of days`)
+  if (!bar) return lines.join('\n')
   lines.push('')
   for (const c of bar.checks) {
     lines.push(`${c.pass ? 'PASS' : 'FAIL'}  ${c.name}: ${c.value.toFixed(3)} (target ${c.target})`)

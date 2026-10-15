@@ -1,13 +1,15 @@
 import { describe, expect, test } from 'vitest'
 import { createRng } from './rng.ts'
 import {
+  BAR_TEAM,
   checkBar,
-  DEFAULT_TEAM,
   FAIL,
   formatReport,
   monthCredit,
   playDay,
+  SEVEN_PLAYER_TEAM,
   simulate,
+  STRATEGIES,
   type SimReport,
 } from './simulate.ts'
 
@@ -30,14 +32,14 @@ describe('playDay', () => {
 })
 
 describe('simulate', () => {
-  const report = simulate({ months: 20, daysPerMonth: 28, team: DEFAULT_TEAM, seed: 1 })
+  const report = simulate({ months: 20, daysPerMonth: 28, team: SEVEN_PLAYER_TEAM, seed: 1 })
 
   test('counts every player-day exactly once', () => {
     const total = Object.values(report.scoreCounts).reduce(
       (sum, counts) => sum + counts.reduce((a, b) => a + b, 0),
       0,
     )
-    expect(total).toBe(20 * 28 * DEFAULT_TEAM.length)
+    expect(total).toBe(20 * 28 * SEVEN_PLAYER_TEAM.length)
     expect(report.days).toBe(20 * 28)
   })
 
@@ -58,8 +60,8 @@ describe('simulate', () => {
   })
 
   test('the same seed gives the same report', () => {
-    expect(simulate({ months: 5, daysPerMonth: 28, team: DEFAULT_TEAM, seed: 9 })).toEqual(
-      simulate({ months: 5, daysPerMonth: 28, team: DEFAULT_TEAM, seed: 9 }),
+    expect(simulate({ months: 5, daysPerMonth: 28, team: SEVEN_PLAYER_TEAM, seed: 9 })).toEqual(
+      simulate({ months: 5, daysPerMonth: 28, team: SEVEN_PLAYER_TEAM, seed: 9 }),
     )
   })
 })
@@ -115,6 +117,14 @@ describe('checkBar', () => {
     expect(text).toContain('bold fail rate')
     expect(text).toContain('VERDICT: PASS')
   })
+
+  test('formatReport leaves out the verdict for an unjudged team', () => {
+    expect(formatReport(base)).not.toContain('VERDICT')
+  })
+})
+
+test('the judged team has exactly one player of each type', () => {
+  expect([...BAR_TEAM].sort()).toEqual([...STRATEGIES].sort())
 })
 
 describe('monthCredit', () => {
