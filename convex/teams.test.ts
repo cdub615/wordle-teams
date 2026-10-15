@@ -1,5 +1,5 @@
 import { convexTest } from 'convex-test'
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { getMyTeamsFor } from './teams.ts'
@@ -26,6 +26,8 @@ const modules = import.meta.glob('./**/*.ts')
 const today = toPuzzleDay(new Date())
 
 describe('getMyTeamsFor', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
   test('returns only the teams the caller belongs to', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
@@ -81,6 +83,34 @@ describe('getMyTeamsFor', () => {
         ['Off', false],
         ['On', true],
       ])
+    })
+  })
+
+  test('carries clueLadderEnabled: the deployment switch AND the owner’s opt-in, absent reading false', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ legacyId: 301, name: 'Absent', playerIds: [ada], owner: ada, createdAt: 1 }))
+      await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 302, name: 'Off', playerIds: [ada], owner: ada, createdAt: 2, clueLadderEnabled: false }),
+      )
+      await ctx.db.insert(
+        'teams',
+        aTeam({ legacyId: 303, name: 'On', playerIds: [ada], owner: ada, createdAt: 3, clueLadderEnabled: true }),
+      )
+
+      vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
+      const on = await getMyTeamsFor(ctx, ada)
+      expect(Object.fromEntries(on.map((team) => [team.name, team.clueLadderEnabled]))).toEqual({
+        Absent: false,
+        Off: false,
+        On: true,
+      })
+
+      vi.stubEnv('CLUE_LADDER_ENABLED', '')
+      const off = await getMyTeamsFor(ctx, ada)
+      expect(off.every((team) => team.clueLadderEnabled === false)).toBe(true)
     })
   })
 

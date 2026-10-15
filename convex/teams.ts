@@ -15,6 +15,7 @@ import { closeChallengesForDeletedTeam } from './challenges.ts'
 import { sendEmail } from './email.ts'
 import { teamInviteEmail } from './inviteEmails.ts'
 import { resolveAvatar } from './lib/avatar.ts'
+import { clueLadderSwitchOn } from './lib/clueLadder/flag.ts'
 import { normaliseInviteEmail } from './lib/invite.ts'
 import { DEFAULT_SYSTEM } from './lib/scoringSystem.ts'
 import { FREE_TEAM_LIMIT } from './lib/teamLimits.ts'
@@ -143,6 +144,11 @@ export async function getMyTeamsFor(ctx: ReaderCtx, playerId: Id<'players'>) {
         // never the raw field: the switch must read "on" for those teams, which
         // is what proposeToTeamFor already assumes when it lets them be asked.
         acceptsChallenges: team.acceptsChallenges !== false,
+        // THE CLUE LADDER AS THIS TEAM SEES IT (wordle-teams-9j7o.2.2): the
+        // deployment switch AND the owner's opt-in. ABSENT MEANS OFF — the
+        // reverse of acceptsChallenges — because the pilot is opt-in, so
+        // `=== true`, never `!== false`.
+        clueLadderEnabled: clueLadderSwitchOn(process.env.CLUE_LADDER_ENABLED) && team.clueLadderEnabled === true,
         // WHETHER AN INVITE IS OUTSTANDING, as a boolean.
         //
         // The onboarding card needs to know whether this player has got anyone
