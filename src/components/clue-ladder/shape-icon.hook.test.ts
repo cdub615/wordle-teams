@@ -23,11 +23,24 @@ describe('ShapeIcon', () => {
     expect(container.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
   })
 
-  test('shapes are outlines, not fills', () => {
-    const { container } = render(createElement(ShapeIcon, { shape: 'circle' }))
+  test('every shape has its own outline', () => {
+    const outlines = SHAPES.map((shape) => {
+      const { container } = render(createElement(ShapeIcon, { shape }))
+      const html = container.querySelector('svg')?.innerHTML
+      cleanup()
+      return html
+    })
+    expect(new Set(outlines).size).toBe(SHAPES.length)
+  })
+
+  test.each(SHAPES)('%s is an outline, not a fill', (shape) => {
+    const { container } = render(createElement(ShapeIcon, { shape }))
     const svg = container.querySelector('svg')
     expect(svg?.getAttribute('fill')).toBe('none')
     expect(svg?.getAttribute('stroke')).toBe('currentColor')
+    for (const el of Array.from(svg?.querySelectorAll('[fill]') ?? [])) {
+      expect(el.getAttribute('fill')).toBe('none')
+    }
   })
 })
 
