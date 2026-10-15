@@ -10,6 +10,16 @@ describe('createRng', () => {
     expect(seqA).toEqual(seqB)
   })
 
+  // Values from the reference mulberry32. Changing them changes every
+  // daily puzzle, so this test failing is never fixed by updating it.
+  test.each([
+    [42, [0.6011037519201636, 0.44829055899754167, 0.8524657934904099]],
+    [3_000_000_000, [0.7568875285796821, 0.3733226382173598, 0.9749945921357721]],
+  ])('seed %d matches the reference mulberry32', (seed, expected) => {
+    const rng = createRng(seed)
+    expect([rng.next(), rng.next(), rng.next()]).toEqual(expected)
+  })
+
   test('different seeds give different sequences', () => {
     expect(createRng(1).next()).not.toBe(createRng(2).next())
   })
