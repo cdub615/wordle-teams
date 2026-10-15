@@ -216,6 +216,8 @@ test.each([
   ['NOT_IN_LEAGUE', "You're not in this league."],
   ['UNKNOWN_WORD', "That isn't a Wordle answer word."],
   ['AUTOMATIC_LEAGUE', "Your region comes from your time zone, so it's set automatically."],
+  ['CLUE_LADDER_DISABLED', "The clue ladder isn't available yet."],
+  ['CLUE_LADDER_NOT_ON_TEAM', "This team hasn't turned on the clue ladder. Ask the team owner."],
 ])('%s has its own copy', (code, copy) => {
   expect(mutationErrorMessage(new ConvexError({ code }), 'fallback')).toBe(copy)
 })

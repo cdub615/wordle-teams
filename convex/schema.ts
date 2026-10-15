@@ -359,11 +359,71 @@ export default defineSchema({
      * anyone holding a link.
      */
     acceptsChallenges: v.optional(v.boolean()),
+
+    /**
+     * WHETHER THIS TEAM PLAYS THE CLUE LADDER (wordle-teams-9j7o.2.2).
+     *
+     * ABSENT MEANS NO — the opposite of acceptsChallenges, deliberately. The
+     * clue ladder is a pilot that a team opts INTO, and no existing team should
+     * find a new game on its dashboard. Only the owner changes it
+     * (games.ts setTeamClueLadder), and it counts only while the
+     * CLUE_LADDER_ENABLED deployment switch is on (lib/games.ts
+     * requireGameOnTeam).
+     */
+    clueLadderEnabled: v.optional(v.boolean()),
   }).index('by_legacyId', ['legacyId']),
   // No index for "teams containing player X": Convex cannot index array
   // membership. Production has 171 teams in total, so the later phases can
   // collect and filter without it being worth a join table. Revisit only if
   // that count changes by an order of magnitude.
+
+  /**
+   * ONE ROW PER PLAYER PER CLUE LADDER DATE (spec section 4).
+   *
+   * Created here so the game registry and the team scoreboard have something to
+   * read (wordle-teams-9j7o.2.2). Every WRITER — start, nextClue, saveScratch,
+   * lockIn — arrives with the puzzle table in plan 3 (wordle-teams-9j7o.2.3).
+   *
+   * `date` is the player's local day, as `dailyScores.puzzleDay` is, and the
+   * index is unique by convention, not by the database: Convex has no unique
+   * constraints, so the single writer (plan 3's start) looks the row up first.
+   *
+   * A RESULT BELONGS TO THE PLAYER, NOT A TEAM, exactly as a Wordle board does,
+   * so there is no teamId: it shows on every opted-in team the player is on.
+   *
+   * `scratch` is the player's in-progress arrangement, five slots, null where
+   * empty. It is never checked against the answer.
+   */
+  clueLadderPlays: defineTable({
+    playerId: v.id('players'),
+    date: v.string(),
+    cluesRevealed: v.number(),
+    status: v.union(v.literal('playing'), v.literal('solved'), v.literal('failed')),
+    scratch: v.array(
+      v.union(
+        v.literal('triangle'),
+        v.literal('square'),
+        v.literal('circle'),
+        v.literal('diamond'),
+        v.literal('star'),
+        v.null(),
+      ),
+    ),
+    lockedOrder: v.optional(
+      v.array(
+        v.union(
+          v.literal('triangle'),
+          v.literal('square'),
+          v.literal('circle'),
+          v.literal('diamond'),
+          v.literal('star'),
+        ),
+      ),
+    ),
+    lockedAtClue: v.optional(v.number()),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+  }).index('by_player_and_date', ['playerId', 'date']),
 
   // Versioned scoring systems (wordle-teams-1j3). A team's `teams` doc still
   // carries eight point values; those are now THE ORIGINAL SYSTEM, and the

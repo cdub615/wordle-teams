@@ -177,6 +177,12 @@ export type AccessCode =
   // placement is set automatically (by time zone), never by a join, switch or
   // leave. Leaving a region is leaveRegion.
   | 'AUTOMATIC_LEAGUE'
+  // The clue ladder (wordle-teams-9j7o.2.2). CLUE_LADDER_DISABLED is the
+  // CLUE_LADDER_ENABLED deployment switch being off (lib/clueLadder/flag.ts);
+  // CLUE_LADDER_NOT_ON_TEAM is a team whose owner has not opted it in
+  // (teams.clueLadderEnabled). Turning a team's clue ladder OFF never refuses.
+  | 'CLUE_LADDER_DISABLED'
+  | 'CLUE_LADDER_NOT_ON_TEAM'
 
 /**
  * Throws a ConvexError carrying `{ code }`.

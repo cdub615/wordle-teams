@@ -72,7 +72,9 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'ALREADY_IN_LEAGUE' ||
     code === 'NOT_IN_LEAGUE' ||
     code === 'UNKNOWN_WORD' ||
-    code === 'AUTOMATIC_LEAGUE'
+    code === 'AUTOMATIC_LEAGUE' ||
+    code === 'CLUE_LADDER_DISABLED' ||
+    code === 'CLUE_LADDER_NOT_ON_TEAM'
   ) {
     return code
   }
@@ -324,6 +326,13 @@ export function typedCodeMessage(code: AccessCode): string {
       // A picked-league join, switch or leave aimed at the region league. Names
       // WHY, since the player did nothing wrong: placement follows their time zone.
       return "Your region comes from your time zone, so it's set automatically."
+    case 'CLUE_LADDER_DISABLED':
+      // The CLUE_LADDER_ENABLED deployment switch is off; "yet" as for the other
+      // switches, which hold a feature dark until it ships.
+      return "The clue ladder isn't available yet."
+    case 'CLUE_LADDER_NOT_ON_TEAM':
+      // The team's owner has not opted in. Names who can change that.
+      return "This team hasn't turned on the clue ladder. Ask the team owner."
     default: {
       const _exhaustive: never = code
       return _exhaustive
