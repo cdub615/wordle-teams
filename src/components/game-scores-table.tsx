@@ -70,6 +70,7 @@ function GameMonthGrid({
       }))}
       system={data.team.system}
       playWeekends={data.team.playWeekends}
+      countsFrom={data.countsFrom ?? undefined}
       myPlayerId={myPlayerId}
       className={className}
       footer={<ClueLadderLegend system={data.team.system} />}

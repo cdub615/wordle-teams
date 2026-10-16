@@ -7,7 +7,7 @@ import { ScoreCell } from '#/components/score-cell.tsx'
 import { formatDayHeaderParts } from '#/lib/format-day.ts'
 import { cn } from '#/lib/utils.ts'
 import { monthTotal, wordleDays, type AttemptDay, type ScoringSystem } from '../../convex/lib/scoring.ts'
-import { daysOfMonth, isWeekendDay, monthContainsToday, toPuzzleDay } from '../../convex/lib/puzzleDay.ts'
+import { daysOfMonth, isWeekendDay, monthContainsToday, toPuzzleDay, type PuzzleDay } from '../../convex/lib/puzzleDay.ts'
 import { useHydrated } from '#/lib/use-hydrated.ts'
 import { displayNamesFor } from '#/lib/display-names.ts'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -84,6 +84,7 @@ export function ScoresGrid({
   players,
   system,
   playWeekends,
+  countsFrom,
   myPlayerId,
   className,
   footer,
@@ -94,6 +95,13 @@ export function ScoresGrid({
   players: ReadonlyArray<GridPlayer>
   system: ScoringSystem
   playWeekends: boolean
+  /**
+   * The day this game started counting for the team (wordle-teams-k1v5). An
+   * EMPTY day before it is blank and scores nothing, rather than a missed day.
+   * A result always shows and counts, whatever its date. Only the clue ladder
+   * passes it, from getTeamGameMonth's `countsFrom`.
+   */
+  countsFrom?: PuzzleDay
   myPlayerId?: Id<'players'>
   className?: string
   /**
@@ -250,6 +258,7 @@ export function ScoresGrid({
           system,
           playWeekends,
           today,
+          fromDay: countsFrom,
         }),
       }
     })
@@ -435,13 +444,15 @@ export function ScoresGrid({
                     // That is the same trade the ScoreCell props below already
                     // make with `isBeforeToday`; no new hydration guard needed.
                     <TableCell key={day} data-day={day} className={cn(day === today && 'bg-accent/40')}>
-                      <ScoreCell
-                        attempts={result?.attempts}
-                        hasScore={result !== undefined}
-                        isBeforeToday={day < today}
-                        isWeekend={isWeekendDay(day)}
-                        playWeekends={playWeekends}
-                      />
+                      {result === undefined && countsFrom !== undefined && day < countsFrom ? null : (
+                        <ScoreCell
+                          attempts={result?.attempts}
+                          hasScore={result !== undefined}
+                          isBeforeToday={day < today}
+                          isWeekend={isWeekendDay(day)}
+                          playWeekends={playWeekends}
+                        />
+                      )}
                     </TableCell>
                   )
                 })}

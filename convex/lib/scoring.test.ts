@@ -246,3 +246,41 @@ describe('monthTotal over attempts', () => {
     ])
   })
 })
+
+describe('monthTotal from a day (wordle-teams-k1v5)', () => {
+  const missed = { ...system, nA: -2 }
+
+  test('an empty day before fromDay scores nothing; a result before it still counts', () => {
+    const total = monthTotal({
+      month: '2026-08',
+      days: [
+        { puzzleDay: '2026-08-03', attempts: 1 }, // before fromDay, and it counts
+        { puzzleDay: '2026-08-05', attempts: 7 },
+      ],
+      system: missed,
+      playWeekends: true,
+      today: '2026-08-07',
+      fromDay: '2026-08-05',
+    })
+    // 3rd: a 1. 5th: X. 6th: empty, on/after fromDay, so missed.
+    // 1st, 2nd and 4th: empty and before fromDay, so nothing.
+    expect(total).toBe(missed.oneGuess + missed.failed + missed.nA)
+  })
+
+  test('an empty past day on or after fromDay is still a missed day', () => {
+    const opts = { month: '2026-08', days: [], system: missed, playWeekends: true, today: '2026-08-07' }
+    // 5th and 6th are past and empty: two missed days.
+    expect(monthTotal({ ...opts, fromDay: '2026-08-05' })).toBe(2 * missed.nA)
+  })
+
+  test('a fromDay after today leaves the month at zero', () => {
+    expect(
+      monthTotal({ month: '2026-08', days: [], system: missed, playWeekends: true, today: '2026-08-07', fromDay: '2026-08-20' }),
+    ).toBe(0)
+  })
+
+  test('a fromDay before the month changes nothing', () => {
+    const opts = { month: '2026-08', days: [], system: missed, playWeekends: true, today: '2026-08-07' }
+    expect(monthTotal({ ...opts, fromDay: '2026-07-01' })).toBe(monthTotal(opts))
+  })
+})

@@ -89,6 +89,11 @@ export function pointsFor(attempts: number, system: ScoringSystem): number {
  * GAME-NEUTRAL SINCE wordle-teams-9j7o.2.2: it takes attempts, not boards.
  * Wordle callers convert with wordleDays; the clue ladder's results arrive as
  * attempts already (lib/games.ts).
+ *
+ * `fromDay`, WHEN GIVEN: MISSED DAYS BEFORE IT SCORE NOTHING (wordle-teams-k1v5).
+ * An empty day before it scores 0, not the missed-day value. A result scores as
+ * usual whatever its date, so a play is never lost by switching a game off and
+ * on. The clue ladder passes the day the team turned it on. Wordle never passes it.
  */
 export function monthTotal(opts: {
   month: PuzzleMonth
@@ -96,8 +101,9 @@ export function monthTotal(opts: {
   system: ScoringSystem
   playWeekends: boolean
   today: PuzzleDay
+  fromDay?: PuzzleDay
 }): number {
-  const { month, days, system, playWeekends, today } = opts
+  const { month, days, system, playWeekends, today, fromDay } = opts
 
   // First row wins for a day. Production holds 5 duplicate (player, day) pairs
   // that the copy deliberately preserved, and v1's find() takes the first too.
@@ -110,6 +116,7 @@ export function monthTotal(opts: {
     if (!playWeekends && isWeekendDay(day)) return total
     const result = byDay.get(day)
     if (result) return total + pointsFor(result.attempts, system)
+    if (fromDay !== undefined && day < fromDay) return total
     // Lexicographic compare — 'YYYY-MM-DD' sorts chronologically.
     if (day < today) return total + system.nA
     return total
