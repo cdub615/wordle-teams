@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Button } from '#/components/ui/button.tsx'
 import { filledOrder, type Slots } from '#/lib/clue-ladder-board.ts'
 import { clueLadderShareText } from '#/lib/clue-ladder-share.ts'
 import type { Order } from '../../../convex/lib/clueLadder/orders.ts'
@@ -17,6 +18,8 @@ export function ClueLadderPlayView({
   slots,
   exhausted,
   pending,
+  startFailed,
+  onRetry,
   onSlotsChange,
   onNextClue,
   onLockIn,
@@ -28,6 +31,10 @@ export function ClueLadderPlayView({
   /** True once nextClue has answered noMoreClues. The ladder's length is otherwise hidden. */
   exhausted: boolean
   pending: boolean
+  /** start failed for this play's day; the page's status line says so. */
+  startFailed: boolean
+  /** Calls start again. */
+  onRetry: () => void
   onSlotsChange: (slots: Slots) => void
   onNextClue: () => void
   onLockIn: (order: Order) => void
@@ -36,10 +43,13 @@ export function ClueLadderPlayView({
   actions?: ReactNode
 }) {
   if (play.status === 'not-started') {
+    // The line saying what is happening is the page's live status region, so
+    // it is announced; this branch only offers the way out of a failed start.
+    if (!startFailed) return null
     return (
-      <p role="status" className="text-muted-foreground">
-        Setting out today's shapes…
-      </p>
+      <Button type="button" variant="outline" onClick={onRetry}>
+        Try again
+      </Button>
     )
   }
 

@@ -25,6 +25,14 @@ describe('ClueLadderFinished', () => {
     expect(screen.getByRole('heading', { name: 'Solved on clue 3' })).toBeTruthy()
   })
 
+  test('the result heading takes focus on mount, so the confirm unmounting does not drop it to the page', () => {
+    render(createElement(ClueLadderFinished, solved))
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Solved on clue 3' }))
+    cleanup()
+    render(createElement(ClueLadderFinished, { ...solved, result: { status: 'failed', lockedAtClue: 3, lockedOrder: other } }))
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'X: not solved' }))
+  })
+
   test('the answer is announced as one row', () => {
     render(createElement(ClueLadderFinished, solved))
     expect(screen.getByRole('img', { name: 'Answer: star, circle, square, triangle, diamond' })).toBeTruthy()

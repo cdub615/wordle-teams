@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { ALL_ORDERS, orderKey, type Order } from '../../../convex/lib/clueLadder/orders.ts'
 import { Button } from '#/components/ui/button.tsx'
 import { cn } from '#/lib/utils.ts'
@@ -60,6 +60,15 @@ export function ClueLadderFinished({
   actions?: ReactNode
   className?: string
 }) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  // FOCUS GOES TO THE RESULT. Lock in's confirm unmounts with the controls when
+  // the result arrives, which would drop focus to <body>. The play view is the
+  // only caller, and it shows this in place of the game, so taking focus on
+  // mount steals it from nothing.
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
+
   const ladder = [ALL_ORDERS.length, ...remaining]
   const lockedAtClue = result.status === 'timedOut' ? undefined : result.lockedAtClue
   const lockedOrder = result.status === 'timedOut' ? undefined : result.lockedOrder
@@ -70,9 +79,12 @@ export function ClueLadderFinished({
   return (
     <section className={cn('flex flex-col gap-6', className)}>
       {result.status === 'solved' ? (
-        <h2 className="text-2xl font-bold">Solved on clue {lockedAtClue}</h2>
+        // tabIndex -1: focusable by the effect above, not a tab stop.
+        <h2 ref={headingRef} tabIndex={-1} className="text-2xl font-bold">
+          Solved on clue {lockedAtClue}
+        </h2>
       ) : (
-        <h2 aria-label="X: not solved" className="text-2xl font-bold">
+        <h2 ref={headingRef} tabIndex={-1} aria-label="X: not solved" className="text-2xl font-bold">
           X
         </h2>
       )}

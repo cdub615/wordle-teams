@@ -57,6 +57,8 @@ function view(over: Partial<Parameters<typeof ClueLadderPlayView>[0]> = {}) {
     slots: EMPTY_SLOTS,
     exhausted: false,
     pending: false,
+    startFailed: false,
+    onRetry: vi.fn(),
     onSlotsChange: vi.fn(),
     onNextClue: vi.fn(),
     onLockIn: vi.fn(),
@@ -72,11 +74,17 @@ const nextClue = () => screen.getByRole('button', { name: 'Next clue' }) as HTML
 const slot = (n: number) => screen.getByRole('button', { name: new RegExp(`^Slot ${n},`) }) as HTMLButtonElement
 
 describe('ClueLadderPlayView', () => {
-  test('not started: a status line while the game is set up, and no board', () => {
+  test('not started: no board, and nothing to press while the game is set up', () => {
+    // The line saying so is the page's live status (play-page.hook.test.ts).
     view({ play: { status: 'not-started', date: '2026-10-20' } })
-    expect(screen.getByRole('status').textContent).toContain("today's shapes")
     expect(screen.queryByRole('group', { name: 'Your order' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Share' })).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  test('not started, and the start failed: Try again asks for another', () => {
+    const props = view({ play: { status: 'not-started', date: '2026-10-20' }, startFailed: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(props.onRetry).toHaveBeenCalledOnce()
   })
 
   test('playing: the revealed clues, and Lock in off until every slot is filled', () => {

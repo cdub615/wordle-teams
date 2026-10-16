@@ -35,8 +35,12 @@ const { calls, mutations, toastError, toastSuccess, queryArgs } = vi.hoisted(() 
   queryArgs: [] as unknown[],
 }))
 
-/** What `api.clueLadder.today` answers this render; undefined is in flight. */
-let answer: { enabled: false } | { enabled: true; play: ClueLadderTodayView } | undefined
+type Answer = { enabled: false } | { enabled: true; play: ClueLadderTodayView } | undefined
+/**
+ * What `api.clueLadder.today` answers this render; undefined is in flight. A
+ * function answers per day asked for, as the live query does across midnight.
+ */
+let answer: Answer | ((args: { today: string }) => Answer)
 
 vi.mock('@convex-dev/react-query', () => ({
   convexQuery: (ref: FunctionReference<'query'>, args: unknown) => ({ queryKey: [getFunctionName(ref), args] }),
@@ -60,7 +64,9 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
         throw new Error(`the play page asked for an unexpected query: ${queryKey[0]}`)
       }
       queryArgs.push(queryKey[1])
-      return { data: queryKey[1] === 'skip' ? undefined : answer }
+      const args = queryKey[1]
+      if (args === 'skip') return { data: undefined }
+      return { data: typeof answer === 'function' ? answer(args as { today: string }) : answer }
     },
   }
 })
@@ -182,6 +188,31 @@ describe('ClueLadderPlayPage: opening the page starts the game', () => {
     page()
     await Promise.resolve()
     expect(callsTo(START)).toEqual([])
+  })
+
+  test('the status line is one live region from loading on, so the setting out is announced', async () => {
+    const p = page()
+    const status = screen.getByRole('status')
+    expect(status.textContent).toBe('Loading')
+    answer = { enabled: true, play: { status: 'not-started', date: SERVER_DAY } }
+    p.rerender()
+    expect(screen.getByRole('status')).toBe(status)
+    expect(status.textContent).toBe("Setting out today's shapes…")
+    await waitFor(() => expect(callsTo(START)).toHaveLength(1))
+  })
+
+  test('a failed start says so, and Try again starts it again with the same day', async () => {
+    mutations.set(START, () => Promise.reject(new Error('network')))
+    answer = { enabled: true, play: { status: 'not-started', date: SERVER_DAY } }
+    page()
+    const retry = await screen.findByRole('button', { name: 'Try again' })
+    expect(screen.getByRole('status').textContent).toBe("Couldn't set out today's shapes.")
+    mutations.set(START, ok)
+    fireEvent.click(retry)
+    await waitFor(() => expect(callsTo(START)).toEqual([{ today: SERVER_DAY }, { today: SERVER_DAY }]))
+    // Gone while the second try is in flight, so a double tap sends one.
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe("Setting out today's shapes…")
   })
 
   test('a failed start is a toast through mutationErrorMessage', async () => {
@@ -334,8 +365,9 @@ describe('ClueLadderPlayPage: off, and the way back', () => {
   test('off, or on none of the player’s teams: says so, starts nothing, and goes back to the same team', async () => {
     answer = { enabled: false }
     page('team-a')
-    expect(screen.getByText("The clue ladder isn't on for any of your teams.")).toBeTruthy()
-    const back = screen.getByRole('link', { name: 'Back to team scores' })
+    // `{ enabled: false }` does not say which: the switch, the seed or the teams.
+    expect(screen.getByRole('status').textContent).toBe("The clue ladder isn't available right now.")
+    const back = screen.getByRole('link', { name: 'Back to dashboard' })
     expect(back.getAttribute('href')).toBe('/app')
     expect(back.dataset.search).toBe(JSON.stringify({ team: 'team-a' }))
     await Promise.resolve()
@@ -345,7 +377,46 @@ describe('ClueLadderPlayPage: off, and the way back', () => {
   test('finished: the back link under the result keeps the team', () => {
     answer = { enabled: true, play: solved }
     page('team-b')
-    const back = screen.getByRole('link', { name: 'Back to team scores' })
+    const back = screen.getByRole('link', { name: 'Back to dashboard' })
     expect(back.dataset.search).toBe(JSON.stringify({ team: 'team-b' }))
+  })
+})
+
+describe('ClueLadderPlayPage: past midnight', () => {
+  const NEW_DAY = '2026-10-21'
+
+  test('the new day starts with a clean board, Next clue on, and yesterday’s last move saved to yesterday', async () => {
+    mutations.set(NEXT, () => Promise.resolve({ noMoreClues: true }))
+    let tomorrow: ClueLadderTodayView = { status: 'not-started', date: NEW_DAY }
+    answer = ({ today }) => ({
+      enabled: true,
+      play: today === CLIENT_DAY ? playing({ date: CLIENT_DAY }) : tomorrow,
+    })
+    const p = page()
+    // Yesterday: a full board, one move waiting to be saved, and no more clues.
+    fireEvent.click(screen.getByRole('button', { name: 'Slot 1, star' }))
+    fireEvent.click(screen.getByRole('button', { name: 'star' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Slot 1, empty' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next clue' }))
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Next clue' }) as HTMLButtonElement).disabled).toBe(true),
+    )
+    expect(lockInButton().disabled).toBe(false)
+    expect(callsTo(SAVE)).toEqual([])
+
+    vi.setSystemTime(new Date(2026, 9, 21, 0, 1))
+    p.rerender()
+    // On a rollover the page starts the new day, as opening it does.
+    await waitFor(() => expect(callsTo(START)).toEqual([{ today: NEW_DAY }]))
+    tomorrow = playing({ date: NEW_DAY, cluesRevealed: 1, clues: ['The star is first.'], scratch: [null, null, null, null, null] })
+    p.rerender()
+
+    for (const n of [1, 2, 3, 4, 5]) expect(screen.getByRole('button', { name: `Slot ${n}, empty` })).toBeTruthy()
+    expect(lockInButton().disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Next clue' }) as HTMLButtonElement).disabled).toBe(false)
+    // Yesterday's waiting move went to yesterday when its board went; nothing to today.
+    expect(callsTo(SAVE)).toEqual([{ today: CLIENT_DAY, scratch: order }])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(callsTo(SAVE).filter((args) => (args as { today: string }).today === NEW_DAY)).toEqual([])
   })
 })
