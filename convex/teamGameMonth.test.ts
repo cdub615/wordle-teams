@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { addDays, addMonths, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
+import { GAMES } from './lib/games.ts'
 import { monthTotal, wordleDays } from './lib/scoring.ts'
 import { getTeamGameMonthFor, getTeamMonthFor, monthWindowInputsFor } from './scores'
 
@@ -176,6 +177,26 @@ describe('getTeamGameMonthFor — clue ladder', () => {
       await ctx.db.insert('clueLadderPlays', { ...aPlay({ date: passed }), playerId: ada })
       const month = await getTeamGameMonthFor(ctx, ada, teamId, monthOf(passed), 'clueLadder')
       expect(month.players[0].results).toEqual([{ puzzleDay: passed, attempts: 7 }])
+    })
+  })
+
+  test('a malformed play date neither opens old months nor breaks the current one', async () => {
+    // '' sorts below every real day, so firstDay returns it as the earliest. No
+    // writer can store it now (start bounds the date), but inserts that bypass
+    // the writers can, as scores.test.ts notes for Wordle boards. A Pro member,
+    // so the window's floor comes from earliestMonth rather than the free rule.
+    vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
+    await convexTest(schema, modules).run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada, clueLadderEnabled: true }))
+      await ctx.db.insert('playerMembership', { playerId: ada, membershipStatus: 'pro' })
+      await ctx.db.insert('clueLadderPlays', { ...aPlay({ date: '' }), playerId: ada })
+
+      expect(await GAMES.clueLadder.firstDay(ctx, ada)).toBe('')
+      await expect(getTeamGameMonthFor(ctx, ada, teamId, thisMonth, 'clueLadder')).resolves.toBeDefined()
+      await expect(getTeamGameMonthFor(ctx, ada, teamId, ancientMonth, 'clueLadder')).rejects.toMatchObject({
+        data: { code: 'MONTH_OUT_OF_WINDOW' },
+      })
     })
   })
 

@@ -45,6 +45,20 @@ describe('setTeamClueLadderFor', () => {
     })
   })
 
+  test('a member who is not the owner cannot switch it OFF either', async () => {
+    // OFF never refuses for the switch's sake (games.ts), which makes it easy
+    // to assume OFF skips the owner check too. It must not.
+    vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { member, teamId } = await seedTeam(ctx)
+      await ctx.db.patch(teamId, { clueLadderEnabled: true })
+      await expect(setTeamClueLadderFor(ctx, member, teamId, false, today)).rejects.toMatchObject({
+        data: { code: 'NOT_TEAM_OWNER' },
+      })
+      expect((await ctx.db.get(teamId))?.clueLadderEnabled).toBe(true)
+    })
+  })
+
   test('switching on is refused while the deployment switch is off', async () => {
     vi.stubEnv('CLUE_LADDER_ENABLED', '')
     await convexTest(schema, modules).run(async (ctx) => {
