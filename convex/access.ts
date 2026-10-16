@@ -369,6 +369,15 @@ export async function requireTeamOwnerFor(
  *   teams.clueLadderOnSince when switching the clue ladder on
  *   (wordle-teams-k1v5). Switching off never checks it. No winner
  *   recomputation reads it yet.
+ * - clueLadder.ts's start, nextClue, saveScratch and lockIn (startFor and
+ *   ownPlayFor), which take the player's own `today` as the day of the play
+ *   they create or change. None feeds winner recomputation (stored clue
+ *   ladder winners, spec section 7, are not built). writePlayFor, which all
+ *   four write through, also refuses a passed date against the server's own
+ *   day (isPassedDate), which those callers cannot reach.
+ * - clueLadder.ts's `today` query, which falls back to the server's day
+ *   rather than refusing, for readToday's reason: a reactive read re-run on
+ *   every write must not throw for a tab left open past midnight.
  *
  * ONE MORE CLOCK-BOUNDED SURFACE SITS DIRECTLY BELOW and is NOT one of the
  * seven: requirePlausiblePuzzleDay bounds the day a board is FOR, which is a

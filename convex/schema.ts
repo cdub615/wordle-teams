@@ -383,7 +383,8 @@ export default defineSchema({
      * Written only by games.ts setTeamClueLadderFor, from the owner's own
      * `today`. Turning the game off leaves it; turning it on again moves it.
      * ABSENT MEANS NO LIMIT, which only rows from before this field existed can
-     * be (dev data).
+     * be (dev data): such a team's empty past days score as missed, as before
+     * k1v5, until its next off-then-on.
      *
      * scores.ts getTeamGameMonthFor returns it as `countsFrom`, and ScoresGrid
      * passes it to monthTotal as `fromDay`. The clue ladder's stored winners

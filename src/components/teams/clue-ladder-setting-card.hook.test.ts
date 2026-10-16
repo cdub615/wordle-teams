@@ -47,16 +47,18 @@ const teamId = 't' as Id<'teams'>
 describe('ClueLadderSettingCard', () => {
   test('the owner can switch it on', () => {
     render(createElement(ClueLadderSettingCard, { teamId, isOwner: true, enabled: false }))
+    const today = toPuzzleDay(new Date())
     fireEvent.click(screen.getByRole('switch', { name: 'Clue ladder' }))
-    expect(mutate.mock.calls[0][0]).toEqual({ teamId, enabled: true, today: toPuzzleDay(new Date()) })
+    expect(mutate.mock.calls[0][0]).toEqual({ teamId, enabled: true, today })
     expect(mutationRefs).toContain(getFunctionName(api.games.setTeamClueLadder))
   })
 
   test('the owner can switch it off', () => {
     render(createElement(ClueLadderSettingCard, { teamId, isOwner: true, enabled: true }))
     expect(screen.getByRole('switch', { name: 'Clue ladder' }).getAttribute('aria-checked')).toBe('true')
+    const today = toPuzzleDay(new Date())
     fireEvent.click(screen.getByRole('switch', { name: 'Clue ladder' }))
-    expect(mutate.mock.calls[0][0]).toEqual({ teamId, enabled: false, today: toPuzzleDay(new Date()) })
+    expect(mutate.mock.calls[0][0]).toEqual({ teamId, enabled: false, today })
   })
 
   test('a member sees nothing', () => {
