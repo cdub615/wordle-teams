@@ -74,7 +74,9 @@ export function convexErrorCode(error: unknown): AccessCode | null {
     code === 'UNKNOWN_WORD' ||
     code === 'AUTOMATIC_LEAGUE' ||
     code === 'CLUE_LADDER_DISABLED' ||
-    code === 'CLUE_LADDER_NOT_ON_TEAM'
+    code === 'CLUE_LADDER_NOT_ON_TEAM' ||
+    code === 'ALREADY_FINISHED' ||
+    code === 'INVALID_ORDER'
   ) {
     return code
   }
@@ -333,6 +335,14 @@ export function typedCodeMessage(code: AccessCode): string {
     case 'CLUE_LADDER_NOT_ON_TEAM':
       // The team's owner has not opted in. Names who can change that.
       return "This team hasn't turned on the clue ladder. Ask the team owner."
+    case 'ALREADY_FINISHED':
+      // A second lock-in, or a clue asked for after the game ended, usually from
+      // a second tab. Says what is true; there is nothing to retry.
+      return "You've already finished today's clue ladder."
+    case 'INVALID_ORDER':
+      // Lock in is disabled until all five slots are filled, so this is a client
+      // out of step with the board. Says what a valid order is.
+      return 'Put each of the five shapes in its own slot, then lock in.'
     default: {
       const _exhaustive: never = code
       return _exhaustive

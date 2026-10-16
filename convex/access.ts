@@ -183,6 +183,12 @@ export type AccessCode =
   // (teams.clueLadderEnabled). Turning a team's clue ladder OFF never refuses.
   | 'CLUE_LADDER_DISABLED'
   | 'CLUE_LADDER_NOT_ON_TEAM'
+  // convex/clueLadder.ts (wordle-teams-9j7o.2.3). ALREADY_FINISHED is nextClue
+  // or lockIn on a play already solved or failed: one lock-in a day.
+  // INVALID_ORDER is lockIn's order not being the five shapes once each, or a
+  // saveScratch arrangement that is not five slots with each shape at most once.
+  | 'ALREADY_FINISHED'
+  | 'INVALID_ORDER'
 
 /**
  * Throws a ConvexError carrying `{ code }`.
