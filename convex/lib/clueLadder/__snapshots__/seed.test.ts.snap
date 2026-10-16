@@ -1,0 +1,80 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`puzzleForDate > 2026-10-15 is pinned 1`] = `
+{
+  "answer": [
+    "triangle",
+    "star",
+    "circle",
+    "square",
+    "diamond",
+  ],
+  "clues": [
+    "The star is somewhere between the triangle and the square.",
+    "The circle is next to the star.",
+    "The square is in the fourth slot.",
+    "The circle is in the third slot.",
+  ],
+  "fallback": false,
+  "remaining": [
+    40,
+    16,
+    2,
+    1,
+  ],
+}
+`;
+
+exports[`puzzleForDate > 2026-12-31 is pinned 1`] = `
+{
+  "answer": [
+    "circle",
+    "triangle",
+    "star",
+    "square",
+    "diamond",
+  ],
+  "clues": [
+    "The star is not in the fifth slot.",
+    "The star is not in the fourth slot.",
+    "The square is somewhere between the triangle and the diamond.",
+    "The triangle is somewhere between the square and the circle.",
+    "The triangle is somewhere left of the star.",
+  ],
+  "fallback": false,
+  "remaining": [
+    96,
+    72,
+    24,
+    6,
+    1,
+  ],
+}
+`;
+
+exports[`puzzleForDate > 2027-03-01 is pinned 1`] = `
+{
+  "answer": [
+    "circle",
+    "star",
+    "triangle",
+    "square",
+    "diamond",
+  ],
+  "clues": [
+    "The square is somewhere right of the triangle.",
+    "Exactly one shape sits between the triangle and the circle.",
+    "The square is somewhere left of the diamond.",
+    "The star is somewhere left of the triangle.",
+    "The square is not next to the circle.",
+  ],
+  "fallback": false,
+  "remaining": [
+    60,
+    18,
+    5,
+    2,
+    1,
+  ],
+}
+`;

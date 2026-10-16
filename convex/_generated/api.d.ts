@@ -40,6 +40,7 @@ import type * as lib_clueLadder_ladder from "../lib/clueLadder/ladder.js";
 import type * as lib_clueLadder_orders from "../lib/clueLadder/orders.js";
 import type * as lib_clueLadder_points from "../lib/clueLadder/points.js";
 import type * as lib_clueLadder_rng from "../lib/clueLadder/rng.js";
+import type * as lib_clueLadder_seed from "../lib/clueLadder/seed.js";
 import type * as lib_clueLadder_simulate from "../lib/clueLadder/simulate.js";
 import type * as lib_displayNames from "../lib/displayNames.js";
 import type * as lib_duplicateScores from "../lib/duplicateScores.js";
@@ -125,6 +126,7 @@ declare const fullApi: ApiFromModules<{
   "lib/clueLadder/orders": typeof lib_clueLadder_orders;
   "lib/clueLadder/points": typeof lib_clueLadder_points;
   "lib/clueLadder/rng": typeof lib_clueLadder_rng;
+  "lib/clueLadder/seed": typeof lib_clueLadder_seed;
   "lib/clueLadder/simulate": typeof lib_clueLadder_simulate;
   "lib/displayNames": typeof lib_displayNames;
   "lib/duplicateScores": typeof lib_duplicateScores;
