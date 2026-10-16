@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import type { Order } from '../../../convex/lib/clueLadder/orders.ts'
+import { ALL_ORDERS, type Order } from '../../../convex/lib/clueLadder/orders.ts'
 import { ClueLadderFinished, type ClueLadderResult } from './finished.tsx'
 
 afterEach(cleanup)
@@ -155,5 +155,47 @@ describe('ClueLadderFinished', () => {
     const badX: ClueLadderResult = { status: 'failed', lockedAtClue: 2 }
     const ok: ClueLadderResult = { status: 'timedOut' }
     expect([bad, badX, ok]).toHaveLength(3)
+  })
+})
+
+describe('ClueLadderFinished lists six orders at most', () => {
+  /** The first `n` orders possible, locked in on `locked`. */
+  const lockedIn = (n: number, locked: Order, status: 'solved' | 'failed' = 'solved') => ({
+    ...solved,
+    result: { status, lockedAtClue: 1, lockedOrder: locked } as ClueLadderResult,
+    possibleAtLockIn: ALL_ORDERS.slice(0, n),
+  })
+  const more = () => screen.queryByText(/^and \d+ more$/)
+
+  test('six others are all listed, with no "more" line', () => {
+    render(createElement(ClueLadderFinished, lockedIn(7, ALL_ORDERS[0])))
+    expect(screen.getByText('You had a 1 in 7 chance.')).toBeTruthy()
+    expect(screen.getAllByRole('img', { name: /^Another possible order:/ })).toHaveLength(6)
+    expect(more()).toBeNull()
+  })
+
+  test('seven others: six listed, then "and 1 more"', () => {
+    render(createElement(ClueLadderFinished, lockedIn(8, ALL_ORDERS[0])))
+    expect(screen.getByText('You had a 1 in 8 chance.')).toBeTruthy()
+    expect(screen.getAllByRole('img', { name: /^Another possible order:/ })).toHaveLength(6)
+    expect(screen.getByText('and 1 more')).toBeTruthy()
+  })
+
+  test('more than seven counts the rest', () => {
+    render(createElement(ClueLadderFinished, lockedIn(30, ALL_ORDERS[0])))
+    expect(screen.getAllByRole('img', { name: /^Another possible order:/ })).toHaveLength(6)
+    expect(screen.getByText('and 23 more')).toBeTruthy()
+  })
+
+  test('six orders that fit an order that did not are all listed', () => {
+    render(createElement(ClueLadderFinished, lockedIn(6, ALL_ORDERS[100], 'failed')))
+    expect(screen.getAllByRole('img', { name: /^A possible order:/ })).toHaveLength(6)
+    expect(more()).toBeNull()
+  })
+
+  test('seven that fit: six listed, then "and 1 more"', () => {
+    render(createElement(ClueLadderFinished, lockedIn(7, ALL_ORDERS[100], 'failed')))
+    expect(screen.getAllByRole('img', { name: /^A possible order:/ })).toHaveLength(6)
+    expect(screen.getByText('and 1 more')).toBeTruthy()
   })
 })

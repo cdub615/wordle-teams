@@ -15,6 +15,25 @@ export type ClueLadderResult =
   | { status: 'timedOut' }
 
 /**
+ * Orders listed by name at most (owner decision, 2026-10-15). A lock-in on
+ * clue 1 can leave dozens possible, and a screen of rows says less than a count.
+ */
+export const LISTED_ORDERS = 6
+
+function OrderRows({ orders, label }: { orders: ReadonlyArray<Order>; label: string }) {
+  const listed = orders.slice(0, LISTED_ORDERS)
+  const rest = orders.length - listed.length
+  return (
+    <>
+      {listed.map((order) => (
+        <ShapeRow key={orderKey(order)} order={order} label={label} />
+      ))}
+      {rest > 0 && <p className="text-sm text-muted-foreground">{`and ${rest} more`}</p>}
+    </>
+  )
+}
+
+/**
  * The day's explanation (spec section 6). The ladder shows how each clue cut
  * the possible orders, so a player who locked in early can see what the next
  * clue would have settled, and the odds they took.
@@ -88,9 +107,7 @@ export function ClueLadderFinished({
           ) : (
             <>
               <p>The orders that fit were:</p>
-              {possibleAtLockIn.map((order) => (
-                <ShapeRow key={orderKey(order)} order={order} label="A possible order" />
-              ))}
+              <OrderRows orders={possibleAtLockIn} label="A possible order" />
             </>
           )}
         </div>
@@ -104,9 +121,7 @@ export function ClueLadderFinished({
           ) : (
             <>
               <p>The others were:</p>
-              {others.map((order) => (
-                <ShapeRow key={orderKey(order)} order={order} label="Another possible order" />
-              ))}
+              <OrderRows orders={others} label="Another possible order" />
             </>
           )}
         </div>
