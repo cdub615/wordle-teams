@@ -19,6 +19,7 @@ import {
   type PlayWrite,
 } from './clueLadder'
 import { clueText } from './lib/clueLadder/clues.ts'
+import { survivors } from './lib/clueLadder/ladder.ts'
 import { SHAPES } from './lib/clueLadder/orders.ts'
 import { puzzleForDate } from './lib/clueLadder/seed.ts'
 import { FAILED_ATTEMPTS, GAMES, isPassedDate } from './lib/games.ts'
@@ -512,6 +513,39 @@ describe('lockInFor', () => {
       expect(view.possibleAtLockIn).toContainEqual(puzzle.answer)
     })
   })
+
+  test('locked in at a later clue, the orders possible are those that survived every clue shown', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, puzzle } = await started(ctx)
+      await nextClueFor(ctx, playerId, today, 1)
+      await lockInFor(ctx, playerId, today, [...puzzle.answer])
+      const view = await todayFor(ctx, playerId, today)
+      if (view.status !== 'solved') throw new Error(`expected solved, got ${view.status}`)
+      expect(view.lockedAtClue).toBe(2)
+      expect(view.possibleAtLockIn).toHaveLength(puzzle.remaining[1])
+      expect(view.possibleAtLockIn).toEqual(survivors(puzzle.clues.slice(0, 2)))
+    })
+  })
+
+  test('no play yet is a plain Error, not a player-facing code', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await aClueLadderPlayer(ctx)
+      const calls = [
+        () => nextClueFor(ctx, playerId, today, 1),
+        () => saveScratchFor(ctx, playerId, today, [...EMPTY]),
+        () => lockInFor(ctx, playerId, today, [...SHAPES]),
+      ]
+      for (const call of calls) {
+        const error = await call().then(
+          () => null,
+          (e: unknown) => e,
+        )
+        expect(error).toBeInstanceOf(Error)
+        expect(error).toMatchObject({ message: expect.stringMatching(/no play for/) })
+        expect(error).not.toHaveProperty('data.code')
+      }
+    })
+  })
 })
 
 describe('saveScratchFor', () => {
@@ -542,6 +576,60 @@ describe('saveScratchFor', () => {
       await lockInFor(ctx, playerId, today, [...puzzle.answer])
       await saveScratchFor(ctx, playerId, today, [...EMPTY])
       expect((await playOn(ctx, playerId, today))?.scratch).toEqual([...puzzle.answer])
+    })
+  })
+
+  test('a malformed save after lockIn is ignored too, and changes nothing', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, puzzle } = await started(ctx)
+      await lockInFor(ctx, playerId, today, [...puzzle.answer])
+      const before = await playOn(ctx, playerId, today)
+      await saveScratchFor(ctx, playerId, today, ['star', 'star', null, null, null])
+      await saveScratchFor(ctx, playerId, today, [null])
+      expect(await playOn(ctx, playerId, today)).toEqual(before)
+    })
+  })
+
+  test('an unchanged arrangement writes nothing', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId } = await started(ctx)
+      const scratch = ['star', null, null, null, 'circle'] as const
+      await saveScratchFor(ctx, playerId, today, [...scratch])
+      const patch = vi.spyOn(ctx.db, 'patch')
+      await saveScratchFor(ctx, playerId, today, [...scratch])
+      expect(patch).not.toHaveBeenCalled()
+      await saveScratchFor(ctx, playerId, today, ['circle', null, null, null, 'star'])
+      expect(patch).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+
+describe('the public functions', () => {
+  const ME = 'member@example.com'
+
+  test('start, nextClue, saveScratch and lockIn play a day through api.clueLadder', async () => {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    await t.run(async (ctx) => {
+      await aClueLadderPlayer(ctx)
+    })
+    const asMe = await authenticatedAs(t, ME)
+
+    await asMe.mutation(api.clueLadder.start, { today })
+    expect(await asMe.mutation(api.clueLadder.nextClue, { today, expectedRevealed: 1 })).toEqual({
+      noMoreClues: false,
+      cluesRevealed: 2,
+    })
+    const scratch = ['star', null, null, null, 'circle'] as const
+    await asMe.mutation(api.clueLadder.saveScratch, { today, scratch: [...scratch] })
+    expect(await asMe.query(api.clueLadder.today, { today })).toMatchObject({
+      play: { status: 'playing', cluesRevealed: 2, scratch: [...scratch] },
+    })
+
+    const result = await asMe.mutation(api.clueLadder.lockIn, { today, order: [...SHAPES] })
+    expect(result).toMatchObject({ lockedAtClue: 2 })
+    expect(await asMe.query(api.clueLadder.today, { today })).toMatchObject({
+      play: { status: result.status, lockedAtClue: 2, lockedOrder: [...SHAPES] },
     })
   })
 })

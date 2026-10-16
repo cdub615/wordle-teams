@@ -319,12 +319,16 @@ export async function saveScratchFor(
   scratch: Slot[],
 ): Promise<void> {
   const { date, play } = await ownPlayFor(ctx, playerId, today)
-  if (!isScratch(scratch)) throw accessError('INVALID_ORDER')
-  // A FINISHED PLAY IGNORES A LATE SAVE instead of refusing it. The client
-  // batches saves on a timer, so one can land just after lockIn, and an error
-  // for that would blame the player for nothing. The arrangement no longer
-  // matters. It returns before writePlayFor, which refuses to rewrite a finished play.
+  // A FINISHED PLAY IGNORES A LATE SAVE instead of refusing it, even a malformed
+  // one. The client batches saves on a timer, so one can land just after lockIn,
+  // and an error for that would blame the player for nothing. The arrangement no
+  // longer matters. It returns before the checks below and before writePlayFor,
+  // which refuses to rewrite a finished play.
   if (play.status !== 'playing') return
+  if (!isScratch(scratch)) throw accessError('INVALID_ORDER')
+  // AN UNCHANGED ARRANGEMENT WRITES NOTHING: a patch with the same value would
+  // still re-run every subscription on the play.
+  if (scratch.every((slot, i) => slot === play.scratch[i])) return
   await writePlayFor(ctx, playerId, date, play, { cluesRevealed: play.cluesRevealed, status: 'playing', scratch })
 }
 
