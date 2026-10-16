@@ -67,6 +67,35 @@ describe('useScratchSaver', () => {
     expect(save).toHaveBeenCalledExactlyOnceWith(B)
   })
 
+  test('the page going hidden saves what is pending, and the listener goes with the hook', async () => {
+    // Closing or backgrounding a mobile tab never unmounts React.
+    const setVisibility = (state: 'hidden' | 'visible') => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: state })
+      document.dispatchEvent(new Event('visibilitychange'))
+    }
+    try {
+      const save = vi.fn().mockResolvedValue(undefined)
+      const { result, unmount } = renderHook(() => useScratchSaver(save))
+      result.current.schedule(B)
+      setVisibility('visible')
+      expect(save).not.toHaveBeenCalled()
+      setVisibility('hidden')
+      expect(save).toHaveBeenCalledExactlyOnceWith(B)
+      await vi.advanceTimersByTimeAsync(SCRATCH_SAVE_MS)
+      expect(save).toHaveBeenCalledTimes(1)
+
+      result.current.schedule(C)
+      unmount()
+      expect(save).toHaveBeenCalledTimes(2)
+      result.current.schedule(A)
+      setVisibility('hidden')
+      expect(save).toHaveBeenCalledTimes(2)
+    } finally {
+      // @ts-expect-error restore jsdom's own prototype getter
+      delete document.visibilityState
+    }
+  })
+
   test('a failed save is dropped, not thrown', async () => {
     const save = vi.fn().mockRejectedValue(new Error('offline'))
     const { result } = renderHook(() => useScratchSaver(save))

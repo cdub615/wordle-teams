@@ -83,6 +83,13 @@ describe('shareText', () => {
     expect(writeText).not.toHaveBeenCalled()
   })
 
+  test('a cancelled share sheet is "dismissed", and the clipboard is left alone', async () => {
+    const abort = Object.assign(new Error('Share canceled'), { name: 'AbortError' })
+    const { writeText } = browser({ share: vi.fn().mockRejectedValue(abort), clipboard: true })
+    await expect(shareText(TEXT)).resolves.toBe('dismissed')
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
   test('no share sheet: the line itself goes on the clipboard', async () => {
     const { writeText } = browser({ clipboard: true })
     await expect(shareText(TEXT)).resolves.toBe('copied')

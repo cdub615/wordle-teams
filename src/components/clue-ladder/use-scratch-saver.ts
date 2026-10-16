@@ -47,5 +47,16 @@ export function useScratchSaver(save: (slots: Slots) => Promise<unknown>, delay 
 
   useEffect(() => () => void flush(), [flush])
 
+  // Closing, reloading or backgrounding a mobile tab never unmounts React, so
+  // the unmount flush above misses it; the page going hidden is the last
+  // moment a save can still be sent.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') void flush()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [flush])
+
   return { schedule, flush }
 }
