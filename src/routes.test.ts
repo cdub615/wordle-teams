@@ -2583,3 +2583,16 @@ describe('/play/clue-ladder, the clue ladder’s own page', () => {
     expect(back?.get('search')).toBe('{ team }')
   })
 })
+
+describe('the dashboard offers the clue ladder to opted-in teams only', () => {
+  const APP = './routes/app.tsx'
+
+  test('the card is mounted behind selectedTeam?.clueLadderEnabled', () => {
+    expect(codeOf(read(APP))).toMatch(/selectedTeam\?\.clueLadderEnabled\s*&&\s*\(?\s*<DashboardClueLadderCard/)
+  })
+
+  test('and it sits below the day’s Wordle panel (spec section 6)', () => {
+    const app = read(APP)
+    expect(app.indexOf('<DashboardClueLadderCard')).toBeGreaterThan(app.indexOf('<TodayPanel'))
+  })
+})

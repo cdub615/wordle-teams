@@ -28,6 +28,7 @@ import { TeamPicker } from '#/components/team-picker.tsx'
 import { CreateTeamDialog } from '#/components/teams/create-team-dialog.tsx'
 import { InvitePlayerDialog } from '#/components/teams/invite-player-dialog.tsx'
 import { ScoresTable } from '#/components/scores-table.tsx'
+import { DashboardClueLadderCard } from '#/components/clue-ladder/dashboard-card.tsx'
 import { GameSwitch } from '#/components/game-switch.tsx'
 import { GameScoresTable } from '#/components/game-scores-table.tsx'
 import { TeamBoards } from '#/components/teams/team-boards.tsx'
@@ -1598,6 +1599,12 @@ function Dashboard() {
           className="md:col-span-3"
         />
       </Suspense>
+      {/* Below the day's Wordle (spec section 6), for opted-in teams only.
+          Outside any Suspense boundary: it reads with useQuery and renders
+          nothing until its answer arrives. */}
+      {selectedTeam?.clueLadderEnabled && (
+        <DashboardClueLadderCard teamId={selectedTeam.id} className="md:col-span-3" />
+      )}
       {selectedTeam?.clueLadderEnabled && (
         <GameSwitch value={scoresGame} onChange={setScoresGame} className="md:col-span-3" />
       )}
