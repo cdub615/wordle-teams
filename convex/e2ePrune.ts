@@ -102,6 +102,7 @@ export type PruneBatchReport = {
   // the player as well, so the row it leaves behind is unreachable by anything,
   // not merely by its former owner.
   chatReadsDeleted: number
+  clueLadderPlaysDeleted: number
   teamsDeleted: number
   teamRostersPatched: number
   // SWEPT ON THE FINAL BATCH ONLY, and the counter is why. "Is this address an
@@ -141,6 +142,7 @@ const emptyReport = (cursor: string, isDone: boolean): PruneBatchReport => ({
   playerMembershipsDeleted: 0,
   pushSubscriptionsDeleted: 0,
   chatReadsDeleted: 0,
+  clueLadderPlaysDeleted: 0,
   teamsDeleted: 0,
   teamRostersPatched: 0,
   teamInvitesCleared: 0,
@@ -453,6 +455,16 @@ export const pruneBatch = internalMutation({
       ).filter((row) => !cursorsAlreadyCounted.has(row._id))
       report.chatReadsDeleted += cursors.length
       if (execute) for (const row of cursors) await ctx.db.delete(row._id)
+
+      // THE CLUE LADDER (wordle-teams-9j7o.2.3). by_player_and_date with only
+      // the player bound is every play they made. Puzzles belong to no player
+      // and stay.
+      const plays = await ctx.db
+        .query('clueLadderPlays')
+        .withIndex('by_player_and_date', (q) => q.eq('playerId', player._id))
+        .collect()
+      report.clueLadderPlaysDeleted += plays.length
+      if (execute) for (const row of plays) await ctx.db.delete(row._id)
 
       // PUBLIC LEAGUES (zic8.3). Before the player row, for the reason below.
       // Through pruneLeagueRowsFor so the group totals the player fed are

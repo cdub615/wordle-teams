@@ -231,6 +231,11 @@ jobs:
           pnpm exec convex env set CHALLENGES_ENABLED true
           # Leagues likewise; e2e/leagues.spec.ts needs the onboarding step and /leagues lit.
           pnpm exec convex env set LEAGUES_ENABLED true
+          # The clue ladder likewise; e2e/clue-ladder.spec.ts needs it lit, and a
+          # seed so a puzzle can be made. A fixed, public value: this backend is
+          # thrown away after the run. Production's seed is the owner's to set.
+          pnpm exec convex env set CLUE_LADDER_ENABLED true
+          pnpm exec convex env set CLUE_LADDER_SEED e2e-clue-ladder-seed-not-a-secret
 
           pnpm exec convex dev > /tmp/convex-dev.log 2>&1 &
 

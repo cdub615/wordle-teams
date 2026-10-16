@@ -58,6 +58,7 @@ async function census(t: ReturnType<typeof convexTest>) {
     playerMembership: await ctx.db.query('playerMembership').collect(),
     pushSubscriptions: await ctx.db.query('pushSubscriptions').collect(),
     chatReads: await ctx.db.query('chatReads').collect(),
+    clueLadderPlays: await ctx.db.query('clueLadderPlays').collect(),
   }))
 }
 
@@ -836,4 +837,25 @@ describe('public leagues (zic8.3)', () => {
     })
     expect(totals.leagueRowsDeleted).toBe(1)
   })
+})
+
+test('an e2e player’s clue ladder plays go with them; a real player’s stay', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async (ctx) => {
+    const e2e = await ctx.db.insert('players', aPlayer({ email: E2E_ADDRESS }))
+    const real = await ctx.db.insert('players', aPlayer({ email: REAL_ADDRESS }))
+    const play = {
+      cluesRevealed: 1,
+      status: 'playing' as const,
+      scratch: [null, null, null, null, null],
+      startedAt: 1_760_000_000_000,
+    }
+    await ctx.db.insert('clueLadderPlays', { ...play, playerId: e2e, date: '2026-10-14' })
+    await ctx.db.insert('clueLadderPlays', { ...play, playerId: e2e, date: '2026-10-15' })
+    await ctx.db.insert('clueLadderPlays', { ...play, playerId: real, date: '2026-10-15' })
+  })
+  expect((await prune(t, false)).clueLadderPlaysDeleted).toBe(2)
+  expect((await prune(t, true)).clueLadderPlaysDeleted).toBe(2)
+  const left = await census(t)
+  expect(left.clueLadderPlays).toHaveLength(1)
 })

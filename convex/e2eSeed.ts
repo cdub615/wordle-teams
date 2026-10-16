@@ -3,6 +3,8 @@ import { v } from 'convex/values'
 import { e2eTeamLegacyId, isE2eTraffic } from './lib/e2e.ts'
 import { rollupTeamMonth } from './teamStats.ts'
 import { REGION_LEAGUE, seedLeagueFor, STARTING_WORDS } from './leagues.ts'
+import { requirePlausibleToday } from './access'
+import { ensurePuzzleFor } from './clueLadder'
 
 /**
  * Gives an e2e test account a team, so the dashboard clears its "not on a
@@ -498,5 +500,37 @@ export const ensureLeagueFor = mutation({
     // TWO LEAGUES MAKE /leagues THE DIRECTORY for every spec, not a redirect
     // to the one league: that is the shape production has once regions ship.
     await seedLeagueFor(ctx, REGION_LEAGUE, Date.now())
+  },
+})
+
+/**
+ * Opts an e2e account's own team into the clue ladder and returns today's
+ * answer, so e2e/clue-ladder.spec.ts can lock in a known order. Lock-in is one
+ * try, and a test that guessed would fail 119 times in 120. The puzzle is made
+ * through ensurePuzzleFor, the same path start uses.
+ *
+ * RETURNING AN ANSWER IS WHY THE GUARD MATTERS. Guarded exactly like
+ * ensureTeamFor: E2E_TEST_MODE must be 'true', which production never sets
+ * (deploy-v2.yml checks), and the address must be e2e+*.
+ *
+ * Call ensureTeamFor first. The team is found the way ensureTeamFor finds it,
+ * by the legacyId derived from the address.
+ */
+export const seedClueLadderFor = mutation({
+  args: { email: v.string(), today: v.string() },
+  handler: async (ctx, { email, today }) => {
+    if (!isE2eTraffic(email, process.env.E2E_TEST_MODE)) {
+      throw new Error('e2eSeed.seedClueLadderFor is only available in E2E test mode for e2e+* addresses')
+    }
+    const team = await ctx.db
+      .query('teams')
+      .withIndex('by_legacyId', (q) => q.eq('legacyId', e2eTeamLegacyId(email.toLowerCase())))
+      .first()
+    if (!team) throw new Error('e2eSeed.seedClueLadderFor: call ensureTeamFor first')
+    const date = requirePlausibleToday(today)
+    // On since today, as the owner's switch would record it (wordle-teams-k1v5).
+    await ctx.db.patch(team._id, { clueLadderEnabled: true, clueLadderOnSince: date })
+    const puzzle = await ensurePuzzleFor(ctx, date)
+    return { answer: puzzle.answer }
   },
 })

@@ -110,6 +110,7 @@ const TOTAL_KEYS = [
   'playerMembershipsDeleted',
   'pushSubscriptionsDeleted',
   'chatReadsDeleted',
+  'clueLadderPlaysDeleted',
   'teamsDeleted',
   'teamRostersPatched',
   'teamInvitesCleared',
