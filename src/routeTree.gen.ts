@@ -26,6 +26,7 @@ import { Route as AppRouteImport } from './routes/app'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LeaguesIndexRouteImport } from './routes/leagues.index'
+import { Route as PlayClueLadderRouteImport } from './routes/play.clue-ladder'
 import { Route as LeaguesSlugRouteImport } from './routes/leagues.$slug'
 import { Route as JoinTokenRouteImport } from './routes/join.$token'
 import { Route as ChallengeTokenRouteImport } from './routes/challenge.$token'
@@ -117,6 +118,11 @@ const LeaguesIndexRoute = LeaguesIndexRouteImport.update({
   path: '/leagues/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PlayClueLadderRoute = PlayClueLadderRouteImport.update({
+  id: '/play/clue-ladder',
+  path: '/play/clue-ladder',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LeaguesSlugRoute = LeaguesSlugRouteImport.update({
   id: '/leagues/$slug',
   path: '/leagues/$slug',
@@ -164,6 +170,7 @@ export interface FileRoutesByFullPath {
   '/challenge/$token': typeof ChallengeTokenRoute
   '/join/$token': typeof JoinTokenRoute
   '/leagues/$slug': typeof LeaguesSlugRoute
+  '/play/clue-ladder': typeof PlayClueLadderRoute
   '/leagues/': typeof LeaguesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -188,6 +195,7 @@ export interface FileRoutesByTo {
   '/challenge/$token': typeof ChallengeTokenRoute
   '/join/$token': typeof JoinTokenRoute
   '/leagues/$slug': typeof LeaguesSlugRoute
+  '/play/clue-ladder': typeof PlayClueLadderRoute
   '/leagues': typeof LeaguesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -213,6 +221,7 @@ export interface FileRoutesById {
   '/challenge/$token': typeof ChallengeTokenRoute
   '/join/$token': typeof JoinTokenRoute
   '/leagues/$slug': typeof LeaguesSlugRoute
+  '/play/clue-ladder': typeof PlayClueLadderRoute
   '/leagues/': typeof LeaguesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -239,6 +248,7 @@ export interface FileRouteTypes {
     | '/challenge/$token'
     | '/join/$token'
     | '/leagues/$slug'
+    | '/play/clue-ladder'
     | '/leagues/'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
@@ -263,6 +273,7 @@ export interface FileRouteTypes {
     | '/challenge/$token'
     | '/join/$token'
     | '/leagues/$slug'
+    | '/play/clue-ladder'
     | '/leagues'
     | '/api/auth/$'
   id:
@@ -287,6 +298,7 @@ export interface FileRouteTypes {
     | '/challenge/$token'
     | '/join/$token'
     | '/leagues/$slug'
+    | '/play/clue-ladder'
     | '/leagues/'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
@@ -312,6 +324,7 @@ export interface RootRouteChildren {
   ChallengeTokenRoute: typeof ChallengeTokenRoute
   JoinTokenRoute: typeof JoinTokenRoute
   LeaguesSlugRoute: typeof LeaguesSlugRoute
+  PlayClueLadderRoute: typeof PlayClueLadderRoute
   LeaguesIndexRoute: typeof LeaguesIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -437,6 +450,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LeaguesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/play/clue-ladder': {
+      id: '/play/clue-ladder'
+      path: '/play/clue-ladder'
+      fullPath: '/play/clue-ladder'
+      preLoaderRoute: typeof PlayClueLadderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/leagues/$slug': {
       id: '/leagues/$slug'
       path: '/leagues/$slug'
@@ -496,6 +516,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChallengeTokenRoute: ChallengeTokenRoute,
   JoinTokenRoute: JoinTokenRoute,
   LeaguesSlugRoute: LeaguesSlugRoute,
+  PlayClueLadderRoute: PlayClueLadderRoute,
   LeaguesIndexRoute: LeaguesIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

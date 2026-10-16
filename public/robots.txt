@@ -61,6 +61,10 @@
 #                     query goes through requirePlayer, so a signed-out crawler
 #                     gets nothing worth indexing. A prefix rule, so it covers
 #                     every league under it.
+#   /play             the games' own pages (/play/clue-ladder). Signed-in only,
+#                     behind the same beforeLoad redirect-to-/login as /app,
+#                     and every query goes through requirePlayer. A prefix
+#                     rule, so a later /play/<game> is covered too.
 #   /api              /api/auth/$ is Better Auth's proxy to Convex and
 #                     /api/funnel takes analytics beacons. Neither speaks HTML.
 #
@@ -91,6 +95,7 @@ Disallow: /complete-profile
 Disallow: /join
 Disallow: /challenge
 Disallow: /leagues
+Disallow: /play
 Disallow: /api
 
 Sitemap: https://wordleteams.com/sitemap.xml

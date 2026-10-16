@@ -133,6 +133,10 @@ export const MAINTENANCE_PATH = '/maintenance'
  * the index and every /leagues/$slug standings page read and write through
  * api.leagues on the same Convex deployment, so during an outage they are
  * exactly as broken as the dashboard.
+ *
+ * `/play` JOINED THE DAY IT WAS ADDED (wordle-teams-9j7o.2.3.2.13), for the
+ * same reason: /play/clue-ladder reads and writes api.clueLadder on the same
+ * Convex deployment. A subtree, so a later game's /play/<game> is gated too.
  */
 const GATED_SUBTREES = [
   '/app',
@@ -144,6 +148,7 @@ const GATED_SUBTREES = [
   '/join',
   '/challenge',
   '/leagues',
+  '/play',
 ] as const
 
 /**

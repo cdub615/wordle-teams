@@ -2560,3 +2560,26 @@ describe('the dashboard shows the clue ladder only to an opted-in team (wordle-t
     expect(code).toContain("useState<GameId>('wordle')")
   })
 })
+
+describe('/play/clue-ladder, the clue ladder’s own page', () => {
+  const PLAY = './routes/play.clue-ladder.tsx'
+
+  test('exists, and is the /play/clue-ladder route', () => {
+    expect(existsSync(new URL(PLAY, import.meta.url)), 'src/routes/play.clue-ladder.tsx is gone').toBe(true)
+    expect(codeOf(read(PLAY))).toMatch(/createFileRoute\(\s*['"]\/play\/clue-ladder['"]\s*\)/)
+  })
+
+  test('is in the generated route tree', () => {
+    const tree = read('./routeTree.gen.ts')
+    expect(tree).toMatch(/path: '\/play\/clue-ladder'/)
+    expect(tree).toMatch(/id: '\/play\/clue-ladder'/)
+  })
+
+  test('goes back to the dashboard for the SAME team', () => {
+    // As /chat does: a bare `to="/app"` lands on whatever team the dashboard
+    // defaults to, which for a player on two teams can be the other one.
+    const back = jsxElements(PLAY, 'Link').find((props) => props.get('to') === '"/app"')
+    expect(back, 'no <Link to="/app"> in routes/play.clue-ladder.tsx').toBeDefined()
+    expect(back?.get('search')).toBe('{ team }')
+  })
+})

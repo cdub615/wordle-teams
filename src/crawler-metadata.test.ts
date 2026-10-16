@@ -167,7 +167,7 @@ describe('public/robots.txt', () => {
     expect(robots.groups[0].userAgents).toEqual(['*'])
   })
 
-  test('disallows exactly /app, /team, /me, /chat, /insights, /complete-profile, /join, /challenge and /api', () => {
+  test('disallows exactly /app, /team, /me, /chat, /insights, /complete-profile, /join, /challenge, /leagues, /play and /api', () => {
     // SORTED AND EXHAUSTIVE, not six toContain calls. The mutation a
     // `toContain('Disallow: /app')` cannot see is an ADDED rule — a
     // `Disallow: /privacy` slipped in beneath these would deindex the legal
@@ -198,6 +198,9 @@ describe('public/robots.txt', () => {
     // /leagues JOINED WITH PUBLIC LEAGUES (zic8.3), for the /chat reason: a
     // signed-in-only sibling top-level route whose queries sit behind
     // requirePlayer. Its prefix covers /leagues/$slug.
+    //
+    // /play JOINED WITH THE CLUE LADDER'S PAGE (wordle-teams-9j7o.2.3.2.13),
+    // for the /leagues reason. Its prefix covers /play/clue-ladder.
     expect([...robots.groups[0].disallow].sort()).toEqual([
       '/api',
       '/app',
@@ -208,6 +211,7 @@ describe('public/robots.txt', () => {
       '/join',
       '/leagues',
       '/me',
+      '/play',
       '/team',
     ])
   })
