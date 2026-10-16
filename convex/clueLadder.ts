@@ -7,9 +7,10 @@ import { clueText } from './lib/clueLadder/clues.ts'
 import { clueLadderSwitchOn } from './lib/clueLadder/flag.ts'
 import type { Puzzle } from './lib/clueLadder/generate.ts'
 import { ladderProblem, MAX_CLUES, survivors } from './lib/clueLadder/ladder.ts'
-import { SLOT_COUNT, type Shape } from './lib/clueLadder/orders.ts'
+import { isOrder, SLOT_COUNT, type Shape } from './lib/clueLadder/orders.ts'
 import { GENERATOR_VERSION, puzzleForDate, seedSecretUsable } from './lib/clueLadder/seed.ts'
 import { isPassedDate } from './lib/games.ts'
+import { shapeValidator, slotValidator } from './lib/ladderValidators.ts'
 import { isPlausibleToday, toPuzzleDay, type PuzzleDay } from './lib/puzzleDay.ts'
 
 /**
@@ -252,5 +253,129 @@ export const start = mutation({
   handler: async (ctx, args) => {
     const player = await requirePlayer(ctx)
     await startFor(ctx, player._id, args.today)
+  },
+})
+
+/**
+ * The caller's play for today, finished or not.
+ *
+ * NO PLAY YET IS A CLIENT BUG, not a player's mistake: the play page calls start
+ * before it shows Next clue or Lock in. So it is a plain Error, with no
+ * player-facing code.
+ */
+async function ownPlayFor(ctx: ReaderCtx, playerId: Id<'players'>, today: string) {
+  await requireClueLadderPlayer(ctx, playerId)
+  const date = requirePlausibleToday(today)
+  const play = await playOn(ctx, playerId, date)
+  if (!play) throw new Error(`clue ladder: no play for ${date}; start comes first`)
+  return { date, play }
+}
+
+async function puzzleOfPlay(ctx: ReaderCtx, date: PuzzleDay): Promise<Doc<'clueLadderPuzzles'>> {
+  const puzzle = await puzzleOn(ctx, date)
+  if (!puzzle) throw new Error(`clue ladder: a play for ${date} has no puzzle`)
+  return puzzle
+}
+
+/**
+ * Reveals one more clue. Irreversible. When none remain it changes nothing and
+ * says so (spec section 4): the ladder's length stays hidden until a player asks
+ * past its end.
+ *
+ * SAFE AGAINST A DOUBLE TAP. The client sends the clue count it is looking at
+ * (`expectedRevealed`). If the play has already moved past it, because an
+ * earlier tap landed, nothing changes and the current count comes back. Two
+ * quick taps reveal one clue, not two, and a revealed clue costs points.
+ *
+ * A FINISHED PLAY IS REFUSED HERE, with ALREADY_FINISHED, before writePlayFor,
+ * which treats rewriting a finished play as a bug and throws a plain Error.
+ */
+export async function nextClueFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  today: string,
+  expectedRevealed: number,
+): Promise<{ noMoreClues: true } | { noMoreClues: false; cluesRevealed: number }> {
+  const { date, play } = await ownPlayFor(ctx, playerId, today)
+  if (play.status !== 'playing') throw accessError('ALREADY_FINISHED')
+  if (play.cluesRevealed !== expectedRevealed) return { noMoreClues: false, cluesRevealed: play.cluesRevealed }
+  const puzzle = await puzzleOfPlay(ctx, date)
+  if (play.cluesRevealed >= puzzle.clues.length) return { noMoreClues: true }
+  const cluesRevealed = play.cluesRevealed + 1
+  await writePlayFor(ctx, playerId, date, play, { cluesRevealed, status: 'playing', scratch: play.scratch })
+  return { noMoreClues: false, cluesRevealed }
+}
+
+/** Five slots, each shape at most once. Never compared with the answer (spec section 4). */
+function isScratch(slots: readonly Slot[]): boolean {
+  const placed = slots.filter((slot) => slot !== null)
+  return slots.length === SLOT_COUNT && new Set(placed).size === placed.length
+}
+
+export async function saveScratchFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  today: string,
+  scratch: Slot[],
+): Promise<void> {
+  const { date, play } = await ownPlayFor(ctx, playerId, today)
+  if (!isScratch(scratch)) throw accessError('INVALID_ORDER')
+  // A FINISHED PLAY IGNORES A LATE SAVE instead of refusing it. The client
+  // batches saves on a timer, so one can land just after lockIn, and an error
+  // for that would blame the player for nothing. The arrangement no longer
+  // matters. It returns before writePlayFor, which refuses to rewrite a finished play.
+  if (play.status !== 'playing') return
+  await writePlayFor(ctx, playerId, date, play, { cluesRevealed: play.cluesRevealed, status: 'playing', scratch })
+}
+
+/**
+ * The one try (spec section 4). The answer solves on the clue revealed; any
+ * other order is an X. Either way the order becomes the scratch, so the board
+ * shows what was locked in.
+ */
+export async function lockInFor(
+  ctx: WriterCtx,
+  playerId: Id<'players'>,
+  today: string,
+  order: Shape[],
+): Promise<{ status: 'solved' | 'failed'; lockedAtClue: number }> {
+  const { date, play } = await ownPlayFor(ctx, playerId, today)
+  if (play.status !== 'playing') throw accessError('ALREADY_FINISHED')
+  if (!isOrder(order)) throw accessError('INVALID_ORDER')
+  const puzzle = await puzzleOfPlay(ctx, date)
+  const status = order.every((shape, i) => shape === puzzle.answer[i]) ? 'solved' : 'failed'
+  const lockedAtClue = play.cluesRevealed
+  await writePlayFor(ctx, playerId, date, play, {
+    cluesRevealed: play.cluesRevealed,
+    status,
+    scratch: [...order],
+    lockedOrder: [...order],
+    lockedAtClue,
+    finishedAt: Date.now(),
+  })
+  return { status, lockedAtClue }
+}
+
+export const nextClue = mutation({
+  args: { today: v.string(), expectedRevealed: v.number() },
+  handler: async (ctx, args) => {
+    const player = await requirePlayer(ctx)
+    return await nextClueFor(ctx, player._id, args.today, args.expectedRevealed)
+  },
+})
+
+export const saveScratch = mutation({
+  args: { today: v.string(), scratch: v.array(slotValidator) },
+  handler: async (ctx, args) => {
+    const player = await requirePlayer(ctx)
+    await saveScratchFor(ctx, player._id, args.today, args.scratch)
+  },
+})
+
+export const lockIn = mutation({
+  args: { today: v.string(), order: v.array(shapeValidator) },
+  handler: async (ctx, args) => {
+    const player = await requirePlayer(ctx)
+    return await lockInFor(ctx, player._id, args.today, args.order)
   },
 })

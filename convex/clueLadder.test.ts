@@ -6,11 +6,22 @@ import { api } from './_generated/api'
 import type { DataModel } from './_generated/dataModel'
 import { requirePlausibleToday } from './access'
 import { aPlayer, aTeam, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
-import { ensurePuzzleFor, playOn, puzzleOn, startFor, todayFor, writePlayFor, type PlayWrite } from './clueLadder'
+import {
+  ensurePuzzleFor,
+  lockInFor,
+  nextClueFor,
+  playOn,
+  puzzleOn,
+  saveScratchFor,
+  startFor,
+  todayFor,
+  writePlayFor,
+  type PlayWrite,
+} from './clueLadder'
 import { clueText } from './lib/clueLadder/clues.ts'
 import { SHAPES } from './lib/clueLadder/orders.ts'
 import { puzzleForDate } from './lib/clueLadder/seed.ts'
-import { isPassedDate } from './lib/games.ts'
+import { FAILED_ATTEMPTS, GAMES, isPassedDate } from './lib/games.ts'
 import { addDays, toPuzzleDay } from './lib/puzzleDay.ts'
 
 const modules = import.meta.glob('./**/*.ts')
@@ -405,5 +416,132 @@ describe('today (the query)', () => {
     await asMe.mutation(api.clueLadder.start, { today })
     const res = await asMe.query(api.clueLadder.today, { today })
     expect(res).toMatchObject({ enabled: true, play: { status: 'playing', date: today, cluesRevealed: 1 } })
+  })
+})
+
+async function started(ctx: Ctx) {
+  const playerId = await aClueLadderPlayer(ctx)
+  await startFor(ctx, playerId, today)
+  const puzzle = await puzzleOn(ctx, today)
+  if (!puzzle) throw new Error('no puzzle')
+  return { playerId, puzzle }
+}
+
+describe('nextClueFor', () => {
+  test('reveals one clue at a time, then says there are no more and changes nothing', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, puzzle } = await started(ctx)
+      for (let n = 2; n <= puzzle.clues.length; n++) {
+        expect(await nextClueFor(ctx, playerId, today, n - 1)).toEqual({ noMoreClues: false, cluesRevealed: n })
+      }
+      expect(await nextClueFor(ctx, playerId, today, puzzle.clues.length)).toEqual({ noMoreClues: true })
+      expect((await playOn(ctx, playerId, today))?.cluesRevealed).toBe(puzzle.clues.length)
+    })
+  })
+
+  test('a double tap reveals one clue, not two', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId } = await started(ctx)
+      // Both taps were sent while the page showed clue 1.
+      expect(await nextClueFor(ctx, playerId, today, 1)).toEqual({ noMoreClues: false, cluesRevealed: 2 })
+      expect(await nextClueFor(ctx, playerId, today, 1)).toEqual({ noMoreClues: false, cluesRevealed: 2 })
+      expect((await playOn(ctx, playerId, today))?.cluesRevealed).toBe(2)
+    })
+  })
+})
+
+describe('lockInFor', () => {
+  test('the answer solves on the clue revealed, and the scoreboard scores that clue', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, puzzle } = await started(ctx)
+      await nextClueFor(ctx, playerId, today, 1)
+      expect(await lockInFor(ctx, playerId, today, [...puzzle.answer])).toEqual({ status: 'solved', lockedAtClue: 2 })
+      expect(await GAMES.clueLadder.resultsFor(ctx, playerId, today, today)).toEqual([{ puzzleDay: today, attempts: 2 }])
+    })
+  })
+
+  test('any other order is an X', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, puzzle } = await started(ctx)
+      const wrong = [...puzzle.answer].reverse()
+      expect(await lockInFor(ctx, playerId, today, wrong)).toEqual({ status: 'failed', lockedAtClue: 1 })
+      expect(await GAMES.clueLadder.resultsFor(ctx, playerId, today, today)).toEqual([
+        { puzzleDay: today, attempts: FAILED_ATTEMPTS },
+      ])
+    })
+  })
+
+  test('one swap from the answer is still an X: every slot must match', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, puzzle } = await started(ctx)
+      const [a, b, c, d, e] = puzzle.answer
+      expect(await lockInFor(ctx, playerId, today, [a, b, c, e, d])).toEqual({ status: 'failed', lockedAtClue: 1 })
+    })
+  })
+
+  test('one lock-in only: a second, or another clue, is ALREADY_FINISHED', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, puzzle } = await started(ctx)
+      await lockInFor(ctx, playerId, today, [...puzzle.answer].reverse())
+      await expect(lockInFor(ctx, playerId, today, [...puzzle.answer])).rejects.toMatchObject({
+        data: { code: 'ALREADY_FINISHED' },
+      })
+      await expect(nextClueFor(ctx, playerId, today, 1)).rejects.toMatchObject({ data: { code: 'ALREADY_FINISHED' } })
+      expect((await playOn(ctx, playerId, today))?.status).toBe('failed')
+    })
+  })
+
+  test('refuses an order that is not the five shapes once each', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId } = await started(ctx)
+      await expect(
+        lockInFor(ctx, playerId, today, ['star', 'star', 'circle', 'square', 'triangle']),
+      ).rejects.toMatchObject({ data: { code: 'INVALID_ORDER' } })
+      expect((await playOn(ctx, playerId, today))?.status).toBe('playing')
+    })
+  })
+
+  test('afterwards, today shows the answer, the ladder and the orders possible at lock-in', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, puzzle } = await started(ctx)
+      await lockInFor(ctx, playerId, today, [...puzzle.answer])
+      const view = await todayFor(ctx, playerId, today)
+      if (view.status !== 'solved') throw new Error(`expected solved, got ${view.status}`)
+      expect(view).toMatchObject({ lockedAtClue: 1, answer: puzzle.answer, remaining: puzzle.remaining })
+      expect(view.possibleAtLockIn).toHaveLength(puzzle.remaining[0])
+      expect(view.possibleAtLockIn).toContainEqual(puzzle.answer)
+    })
+  })
+})
+
+describe('saveScratchFor', () => {
+  test('stores the arrangement, and never checks it against the answer', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId } = await started(ctx)
+      const scratch = ['star', null, null, null, 'circle'] as const
+      await saveScratchFor(ctx, playerId, today, [...scratch])
+      expect((await playOn(ctx, playerId, today))?.scratch).toEqual([...scratch])
+    })
+  })
+
+  test.each([
+    [['star', 'star', null, null, null]],
+    [[null, null, null, null]],
+  ] as const)('refuses %j', async (scratch) => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId } = await started(ctx)
+      await expect(saveScratchFor(ctx, playerId, today, [...scratch])).rejects.toMatchObject({
+        data: { code: 'INVALID_ORDER' },
+      })
+    })
+  })
+
+  test('a save that lands after lockIn is ignored, not refused', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, puzzle } = await started(ctx)
+      await lockInFor(ctx, playerId, today, [...puzzle.answer])
+      await saveScratchFor(ctx, playerId, today, [...EMPTY])
+      expect((await playOn(ctx, playerId, today))?.scratch).toEqual([...puzzle.answer])
+    })
   })
 })
