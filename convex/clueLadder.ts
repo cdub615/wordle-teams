@@ -134,9 +134,13 @@ const isClueCount = (n: number) => Number.isInteger(n) && n >= 1 && n <= MAX_CLU
  *   together). It guards the next writer.
  * - A clue count outside 1..MAX_CLUES, or a lockedAtClue different from
  *   cluesRevealed: the registry scores lockedAtClue as the result.
- * - A finished status without a lock-in, or a lock-in on a play still playing.
+ * - A finished status without a lock-in, or a lock-in on a play still playing;
+ *   a lockedOrder that is not the five shapes once each; finishedAt set exactly
+ *   when the status is finished.
+ * - Rewriting a play that is not this player's on this date, one already
+ *   finished, or one with fewer clues than it has shown.
  *
- * Those three are plain Errors. They mean a bug in this module, not a player's
+ * Those are plain Errors. They mean a bug in this module, not a player's
  * mistake, so there is no player-facing copy for them.
  */
 export async function writePlayFor(
@@ -158,8 +162,25 @@ export async function writePlayFor(
   if (write.lockedAtClue !== undefined && write.lockedAtClue !== write.cluesRevealed) {
     throw new Error(`clue ladder: lockedAtClue ${write.lockedAtClue} differs from cluesRevealed ${write.cluesRevealed}`)
   }
-  if (existing) await ctx.db.patch(existing._id, write)
-  else await ctx.db.insert('clueLadderPlays', { playerId, date, startedAt: Date.now(), ...write })
+  if (write.lockedOrder !== undefined && (write.lockedOrder.length !== SLOT_COUNT || new Set(write.lockedOrder).size !== SLOT_COUNT)) {
+    throw new Error(`clue ladder: lockedOrder ${write.lockedOrder.join(',')} is not the five shapes once each`)
+  }
+  if (finished !== (write.finishedAt !== undefined)) {
+    throw new Error(`clue ladder: status ${write.status} with finishedAt ${write.finishedAt}`)
+  }
+  if (existing) {
+    // A caller handed the wrong row, or one that already finished, or a write that
+    // would hide a clue the player has seen: all bugs in the caller, so plain Errors.
+    // Public callers refuse a finished play with ALREADY_FINISHED before getting here.
+    if (existing.playerId !== playerId || existing.date !== date) {
+      throw new Error(`clue ladder: play ${existing._id} is not ${playerId}'s play for ${date}`)
+    }
+    if (existing.status !== 'playing') throw new Error(`clue ladder: play ${existing._id} is already ${existing.status}`)
+    if (write.cluesRevealed < existing.cluesRevealed) {
+      throw new Error(`clue ladder: cluesRevealed ${write.cluesRevealed} would go back from ${existing.cluesRevealed}`)
+    }
+    await ctx.db.patch(existing._id, write)
+  } else await ctx.db.insert('clueLadderPlays', { playerId, date, startedAt: Date.now(), ...write })
 }
 
 /** Makes the puzzle if needed, then the play with clue 1 revealed. Idempotent (spec section 4). */

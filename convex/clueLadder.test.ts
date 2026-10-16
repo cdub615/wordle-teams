@@ -6,7 +6,7 @@ import { api } from './_generated/api'
 import type { DataModel } from './_generated/dataModel'
 import { requirePlausibleToday } from './access'
 import { aPlayer, aTeam, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
-import { ensurePuzzleFor, puzzleOn, startFor, todayFor, writePlayFor } from './clueLadder'
+import { ensurePuzzleFor, playOn, puzzleOn, startFor, todayFor, writePlayFor, type PlayWrite } from './clueLadder'
 import { clueText } from './lib/clueLadder/clues.ts'
 import { SHAPES } from './lib/clueLadder/orders.ts'
 import { puzzleForDate } from './lib/clueLadder/seed.ts'
@@ -95,6 +95,7 @@ describe('startFor', () => {
     ['CLUE_LADDER_ENABLED', ''],
     ['CLUE_LADDER_SEED', ''],
   ])('refuses with %s=%j, writing nothing', async (name, value) => {
+    // ensurePuzzleFor throws the same code for the seed, so the seed half of clueLadderPlayable is pinned by the `today` query test.
     vi.stubEnv(name, value)
     await convexTest(schema, modules).run(async (ctx) => {
       const playerId = await aClueLadderPlayer(ctx)
@@ -197,9 +198,19 @@ describe('writePlayFor', () => {
     // The two rules must agree, or a writer could accept a day the scoreboard has
     // already scored X. Pinned here, where both are used.
     const serverToday = toPuzzleDay(new Date())
-    for (const delta of [-1, 0, 1]) expect(isPassedDate(addDays(serverToday, delta), serverToday)).toBe(false)
+    const accepted: number[] = []
+    for (let delta = -5; delta <= 5; delta++) {
+      const day = addDays(serverToday, delta)
+      try {
+        requirePlausibleToday(day)
+      } catch {
+        continue
+      }
+      accepted.push(delta)
+      expect(isPassedDate(day, serverToday)).toBe(false)
+    }
+    expect(accepted).toEqual(expect.arrayContaining([-1, 0, 1]))
     expect(isPassedDate(addDays(serverToday, -2), serverToday)).toBe(true)
-    expect(() => requirePlausibleToday(addDays(serverToday, -2))).toThrow()
   })
 })
 
@@ -217,6 +228,7 @@ describe('who may play', () => {
 
 describe('writePlayFor, the shape of a write', () => {
   const playing = { cluesRevealed: 1, status: 'playing' as const, scratch: EMPTY }
+  const finished = { ...playing, status: 'solved' as const, lockedAtClue: 1, lockedOrder: [...SHAPES], finishedAt: 1 }
 
   test('refuses a scratch that is not five slots', async () => {
     await convexTest(schema, modules).run(async (ctx) => {
@@ -249,11 +261,95 @@ describe('writePlayFor, the shape of a write', () => {
   test('accepts a well-formed finished write and stores it', async () => {
     await convexTest(schema, modules).run(async (ctx) => {
       const playerId = await aClueLadderPlayer(ctx)
-      const write = { ...playing, status: 'solved' as const, cluesRevealed: 6, lockedAtClue: 6, lockedOrder: [...SHAPES] }
+      const write = { ...finished, cluesRevealed: 6, lockedAtClue: 6 }
       await writePlayFor(ctx, playerId, addDays(today, -1), null, write)
       const plays = await ctx.db.query('clueLadderPlays').collect()
       expect(plays).toHaveLength(1)
       expect(plays[0]).toMatchObject({ playerId, date: addDays(today, -1), ...write })
+    })
+  })
+
+  test.each([
+    ['four shapes', [...SHAPES].slice(0, 4)],
+    ['six shapes', [...SHAPES, SHAPES[0]]],
+    ['a repeated shape', [SHAPES[0], SHAPES[0], SHAPES[2], SHAPES[3], SHAPES[4]]],
+  ])('refuses a lockedOrder of %s', async (_name, lockedOrder) => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await aClueLadderPlayer(ctx)
+      await expect(writePlayFor(ctx, playerId, today, null, { ...finished, lockedOrder })).rejects.toThrow(/lockedOrder/)
+      await nothingWritten(ctx)
+    })
+  })
+
+  test('refuses a finished write without finishedAt, and finishedAt on a play still playing', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await aClueLadderPlayer(ctx)
+      await expect(writePlayFor(ctx, playerId, today, null, { ...finished, finishedAt: undefined })).rejects.toThrow(
+        /finishedAt/,
+      )
+      await expect(writePlayFor(ctx, playerId, today, null, { ...playing, finishedAt: 5 })).rejects.toThrow(/finishedAt/)
+      await nothingWritten(ctx)
+    })
+  })
+})
+
+describe('writePlayFor, rewriting an existing play', () => {
+  const playing = { cluesRevealed: 2, status: 'playing' as const, scratch: EMPTY }
+  const finished = { ...playing, status: 'solved' as const, lockedAtClue: 2, lockedOrder: [...SHAPES], finishedAt: 1 }
+
+  async function aStartedPlay(ctx: Ctx, write: PlayWrite = playing) {
+    const playerId = await aClueLadderPlayer(ctx)
+    await writePlayFor(ctx, playerId, today, null, write)
+    const existing = await playOn(ctx, playerId, today)
+    if (!existing) throw new Error('no play')
+    return { playerId, existing }
+  }
+
+  test('patches the same player’s play on the same date, with the same or more clues', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, existing } = await aStartedPlay(ctx)
+      await writePlayFor(ctx, playerId, today, existing, { ...playing, cluesRevealed: 3 })
+      expect((await playOn(ctx, playerId, today))?.cluesRevealed).toBe(3)
+    })
+  })
+
+  test('refuses another player’s play', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { existing } = await aStartedPlay(ctx)
+      const otherId = await ctx.db.insert('players', aPlayer({ email: 'other@example.com' }))
+      await expect(writePlayFor(ctx, otherId, today, existing, { ...playing, cluesRevealed: 3 })).rejects.toThrow(/is not/)
+      expect((await ctx.db.get(existing._id))?.cluesRevealed).toBe(2)
+    })
+  })
+
+  test('refuses a play from another date', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, existing } = await aStartedPlay(ctx)
+      const tomorrow = addDays(today, 1)
+      await expect(writePlayFor(ctx, playerId, tomorrow, existing, { ...playing, cluesRevealed: 3 })).rejects.toThrow(
+        /is not/,
+      )
+      expect((await ctx.db.get(existing._id))?.cluesRevealed).toBe(2)
+    })
+  })
+
+  test('never rewrites a finished play', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, existing } = await aStartedPlay(ctx, finished)
+      await expect(writePlayFor(ctx, playerId, today, existing, { ...playing, cluesRevealed: 3 })).rejects.toThrow(
+        /already solved/,
+      )
+      expect(await ctx.db.get(existing._id)).toMatchObject({ status: 'solved', cluesRevealed: 2 })
+    })
+  })
+
+  test('never takes a clue back', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { playerId, existing } = await aStartedPlay(ctx)
+      await expect(writePlayFor(ctx, playerId, today, existing, { ...playing, cluesRevealed: 1 })).rejects.toThrow(
+        /go back/,
+      )
+      expect((await ctx.db.get(existing._id))?.cluesRevealed).toBe(2)
     })
   })
 })
