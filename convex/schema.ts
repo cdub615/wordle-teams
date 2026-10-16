@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from 'convex/server'
 import { v } from 'convex/values'
+import { clueValidator, shapeValidator } from './lib/ladderValidators.ts'
 
 // The six tables ported from Supabase. See
 // docs/superpowers/plans/2026-08-11-v2-phase1-auth-and-data-copy.md §4.
@@ -424,6 +425,31 @@ export default defineSchema({
     startedAt: v.number(),
     finishedAt: v.optional(v.number()),
   }).index('by_player_and_date', ['playerId', 'date']),
+
+  /**
+   * ONE ROW PER CLUE LADDER DATE (spec section 3), shared by every player.
+   *
+   * Written once, by clueLadder.ts's ensurePuzzleFor, the first time anyone
+   * starts that date. Generation is deterministic (lib/clueLadder/seed.ts), so
+   * two first requests would write identical content. Convex retries the
+   * second mutation, which then finds the first's row, so `by_date` stays unique
+   * by convention, as clueLadderPlays' index does.
+   *
+   * THE ANSWER AND EVERY CLUE ARE HERE. Nothing sends this table to a client
+   * except clueLadder.ts's todayFor, which hides both while a play is unfinished.
+   *
+   * `remaining[i]` is the count of orders still possible after clue i + 1.
+   * `fallback` marks the four-slot ladder generatePuzzle uses when its random
+   * build gives up.
+   */
+  clueLadderPuzzles: defineTable({
+    date: v.string(),
+    answer: v.array(shapeValidator),
+    clues: v.array(clueValidator),
+    remaining: v.array(v.number()),
+    generatorVersion: v.number(),
+    fallback: v.boolean(),
+  }).index('by_date', ['date']),
 
   // Versioned scoring systems (wordle-teams-1j3). A team's `teams` doc still
   // carries eight point values; those are now THE ORIGINAL SYSTEM, and the
