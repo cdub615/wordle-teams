@@ -60,18 +60,32 @@ describe('candidateClues', () => {
 
 describe('clueText', () => {
   test.each<[Clue, string]>([
-    [{ kind: 'atEnd', shape: 'triangle', negated: false }, '▲ is at one end'],
-    [{ kind: 'atEnd', shape: 'circle', negated: true }, '● is not at either end'],
-    [{ kind: 'inSlot', shape: 'circle', slot: 2, negated: false }, '● is third'],
-    [{ kind: 'inSlot', shape: 'circle', slot: 0, negated: true }, '● is not first'],
-    [{ kind: 'leftOf', a: 'triangle', b: 'star' }, '▲ is somewhere left of ★'],
-    [{ kind: 'rightOf', a: 'star', b: 'triangle' }, '★ is somewhere right of ▲'],
-    [{ kind: 'nextTo', a: 'square', b: 'circle', negated: false }, '■ is next to ●'],
-    [{ kind: 'nextTo', a: 'square', b: 'diamond', negated: true }, '■ is not next to ◆'],
-    [{ kind: 'between', shape: 'circle', a: 'triangle', b: 'star' }, '● is somewhere between ▲ and ★'],
-    [{ kind: 'apart', a: 'triangle', b: 'circle', distance: 2 }, 'Exactly 1 shape sits between ▲ and ●'],
-    [{ kind: 'apart', a: 'triangle', b: 'star', distance: 4 }, 'Exactly 3 shapes sit between ▲ and ★'],
+    [{ kind: 'atEnd', shape: 'triangle', negated: false }, 'The triangle is at one end.'],
+    [{ kind: 'atEnd', shape: 'circle', negated: true }, 'The circle is not at either end.'],
+    [{ kind: 'inSlot', shape: 'circle', slot: 2, negated: false }, 'The circle is in the third slot.'],
+    [{ kind: 'inSlot', shape: 'circle', slot: 0, negated: true }, 'The circle is not in the first slot.'],
+    [{ kind: 'inSlot', shape: 'diamond', slot: 4, negated: false }, 'The diamond is in the fifth slot.'],
+    [{ kind: 'leftOf', a: 'star', b: 'circle' }, 'The star is somewhere left of the circle.'],
+    [{ kind: 'rightOf', a: 'star', b: 'triangle' }, 'The star is somewhere right of the triangle.'],
+    [{ kind: 'nextTo', a: 'square', b: 'circle', negated: false }, 'The square is next to the circle.'],
+    [{ kind: 'nextTo', a: 'square', b: 'diamond', negated: true }, 'The square is not next to the diamond.'],
+    [{ kind: 'between', shape: 'circle', a: 'triangle', b: 'star' }, 'The circle is somewhere between the triangle and the star.'],
+    [{ kind: 'apart', a: 'triangle', b: 'circle', distance: 2 }, 'Exactly one shape sits between the triangle and the circle.'],
+    [{ kind: 'apart', a: 'triangle', b: 'square', distance: 3 }, 'Exactly two shapes sit between the triangle and the square.'],
+    [{ kind: 'apart', a: 'triangle', b: 'star', distance: 4 }, 'Exactly three shapes sit between the triangle and the star.'],
   ])('%j reads "%s"', (clue, text) => {
     expect(clueText(clue)).toBe(text)
+  })
+
+  test('every clue the vocabulary can produce is one sentence in words', () => {
+    // No symbol, no digit, a capital first and a full stop last, for every true
+    // clue about every order: the cases above cover each kind, this covers
+    // every shape, slot and distance.
+    for (const order of ALL_ORDERS) {
+      for (const clue of candidateClues(order)) {
+        const text = clueText(clue)
+        expect(text, JSON.stringify(clue)).toMatch(/^[A-Z][a-z ]+\.$/)
+      }
+    }
   })
 })

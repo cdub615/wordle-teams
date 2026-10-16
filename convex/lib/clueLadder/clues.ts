@@ -1,4 +1,4 @@
-import { SHAPE_SYMBOLS, SHAPES, SLOT_COUNT, type Order, type Shape } from './orders.ts'
+import { SHAPES, SLOT_COUNT, type Order, type Shape } from './orders.ts'
 
 /**
  * A clue is a true/false test over an Order. Slots are 0-based internally
@@ -82,25 +82,43 @@ export function candidateClues(answer: Order): Clue[] {
 
 const SLOT_NAMES = ['first', 'second', 'third', 'fourth', 'fifth'] as const
 
-/** Plain-English text for a clue. Final player-facing copy is settled in plan 3. */
+/** Shapes between two others: apart's distance runs 2–4, so 1–3. */
+const COUNT_WORDS = ['no', 'one', 'two', 'three'] as const
+
+/** "the star". The shape's own name, so a screen reader reads the clue exactly as written. */
+const the = (shape: Shape) => `the ${shape}`
+
+const sentence = (text: string) => `${text[0].toUpperCase()}${text.slice(1)}.`
+
+/**
+ * Player-facing text for a clue: one sentence that names the shapes in words
+ * (owner decision, 2026-10-15). Not symbols: the board draws outlines, not the
+ * filled ▲ ● glyphs, and a screen reader reads a glyph out by its Unicode name.
+ *
+ * "SOMEWHERE" MARKS A RELATION THAT HOLDS AT ANY DISTANCE (left of, right of,
+ * between), so it is not read as "directly". "Next to" is the adjacent one.
+ *
+ * TEXT ONLY. Nothing scores or generates from it; the clue objects are what is
+ * stored and tested, so rewording a sentence never changes a puzzle.
+ */
 export function clueText(clue: Clue): string {
-  const s = (shape: Shape) => SHAPE_SYMBOLS[shape]
   switch (clue.kind) {
     case 'atEnd':
-      return clue.negated ? `${s(clue.shape)} is not at either end` : `${s(clue.shape)} is at one end`
+      return sentence(`${the(clue.shape)} is ${clue.negated ? 'not at either end' : 'at one end'}`)
     case 'inSlot':
-      return `${s(clue.shape)} is ${clue.negated ? 'not ' : ''}${SLOT_NAMES[clue.slot]}`
+      return sentence(`${the(clue.shape)} is ${clue.negated ? 'not ' : ''}in the ${SLOT_NAMES[clue.slot]} slot`)
     case 'leftOf':
-      return `${s(clue.a)} is somewhere left of ${s(clue.b)}`
+      return sentence(`${the(clue.a)} is somewhere left of ${the(clue.b)}`)
     case 'rightOf':
-      return `${s(clue.a)} is somewhere right of ${s(clue.b)}`
+      return sentence(`${the(clue.a)} is somewhere right of ${the(clue.b)}`)
     case 'nextTo':
-      return `${s(clue.a)} is ${clue.negated ? 'not ' : ''}next to ${s(clue.b)}`
+      return sentence(`${the(clue.a)} is ${clue.negated ? 'not ' : ''}next to ${the(clue.b)}`)
     case 'between':
-      return `${s(clue.shape)} is somewhere between ${s(clue.a)} and ${s(clue.b)}`
+      return sentence(`${the(clue.shape)} is somewhere between ${the(clue.a)} and ${the(clue.b)}`)
     case 'apart': {
       const gap = clue.distance - 1
-      return `Exactly ${gap} shape${gap === 1 ? '' : 's'} sit${gap === 1 ? 's' : ''} between ${s(clue.a)} and ${s(clue.b)}`
+      const shapes = gap === 1 ? 'shape sits' : 'shapes sit'
+      return sentence(`exactly ${COUNT_WORDS[gap]} ${shapes} between ${the(clue.a)} and ${the(clue.b)}`)
     }
   }
 }
