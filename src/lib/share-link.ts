@@ -32,20 +32,32 @@
  * THE OUTCOME IS RETURNED, NOT TOASTED. The copy differs per surface (the
  * invite dialog points back at its email field, which the challenge dialog does
  * not have), so the helper owns the ORDER and the caller owns the WORDS.
+ *
+ * shareText IS THE SAME RULE FOR A LINE OF TEXT (the clue ladder's result,
+ * spec section 6): the sheet gets `text`, the clipboard gets the line itself.
+ * Both go through shareOrCopy, so the order and the AbortError rule have one home.
  */
 export type ShareOutcome = 'shared' | 'copied' | 'dismissed' | 'unavailable'
 
-export async function shareLink({ url, title }: { url: string; title: string }): Promise<ShareOutcome> {
+async function shareOrCopy(data: ShareData, clip: string): Promise<ShareOutcome> {
   try {
     if (navigator.share) {
-      await navigator.share({ title, url })
+      await navigator.share(data)
       return 'shared'
     }
     if (!navigator.clipboard) return 'unavailable'
-    await navigator.clipboard.writeText(url)
+    await navigator.clipboard.writeText(clip)
     return 'copied'
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') return 'dismissed'
     throw error
   }
+}
+
+export async function shareLink({ url, title }: { url: string; title: string }): Promise<ShareOutcome> {
+  return await shareOrCopy({ title, url }, url)
+}
+
+export async function shareText({ text, title }: { text: string; title: string }): Promise<ShareOutcome> {
+  return await shareOrCopy({ title, text }, text)
 }

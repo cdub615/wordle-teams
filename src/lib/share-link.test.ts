@@ -13,7 +13,7 @@
 // contract directly — the outcome each browser yields — so the challenge dialog
 // can rely on it without re-testing the order.
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { shareLink } from './share-link.ts'
+import { shareLink, shareText } from './share-link.ts'
 
 const ARGS = { url: 'https://example.test/x/123', title: 'A title' }
 
@@ -69,5 +69,27 @@ describe('shareLink', () => {
   test('neither API: "unavailable", without throwing', async () => {
     browser({})
     await expect(shareLink(ARGS)).resolves.toBe('unavailable')
+  })
+})
+
+describe('shareText', () => {
+  const TEXT = { text: 'Clue ladder #6: X', title: 'Clue ladder' }
+
+  test('share sheet first, with the title and the text', async () => {
+    const share = vi.fn().mockResolvedValue(undefined)
+    const { writeText } = browser({ share, clipboard: true })
+    await expect(shareText(TEXT)).resolves.toBe('shared')
+    expect(share).toHaveBeenCalledExactlyOnceWith({ title: 'Clue ladder', text: 'Clue ladder #6: X' })
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
+  test('no share sheet: the line itself goes on the clipboard', async () => {
+    const { writeText } = browser({ clipboard: true })
+    await expect(shareText(TEXT)).resolves.toBe('copied')
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('Clue ladder #6: X')
+  })
+
+  test('neither API: unavailable', async () => {
+    await expect(shareText(TEXT)).resolves.toBe('unavailable')
   })
 })
