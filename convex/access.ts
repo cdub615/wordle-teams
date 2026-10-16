@@ -365,6 +365,10 @@ export async function requireTeamOwnerFor(
  *   are reactive READS that re-run on every league board write, so a tab left
  *   open past midnight would otherwise throw with no user action. None feeds
  *   winner recomputation.
+ * - games.ts's setTeamClueLadder, which stores the owner's day as
+ *   teams.clueLadderOnSince when switching the clue ladder on
+ *   (wordle-teams-k1v5). Switching off never checks it. No winner
+ *   recomputation reads it yet.
  *
  * ONE MORE CLOCK-BOUNDED SURFACE SITS DIRECTLY BELOW and is NOT one of the
  * seven: requirePlausiblePuzzleDay bounds the day a board is FOR, which is a

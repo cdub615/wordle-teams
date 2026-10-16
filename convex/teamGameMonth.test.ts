@@ -178,4 +178,27 @@ describe('getTeamGameMonthFor — clue ladder', () => {
       expect(month.players[0].results).toEqual([{ puzzleDay: passed, attempts: 7 }])
     })
   })
+
+  test('returns the day the team turned the clue ladder on, for the grid to count from', async () => {
+    vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
+    await convexTest(schema, modules).run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert(
+        'teams',
+        aTeam({ playerIds: [ada], owner: ada, clueLadderEnabled: true, clueLadderOnSince: today }),
+      )
+      expect((await getTeamGameMonthFor(ctx, ada, teamId, thisMonth, 'clueLadder')).countsFrom).toBe(today)
+      // Wordle has no such day, whatever the team's clue ladder holds.
+      expect((await getTeamGameMonthFor(ctx, ada, teamId, thisMonth, 'wordle')).countsFrom).toBeNull()
+    })
+  })
+
+  test('a team with no stored day counts every day (rows from before the field existed)', async () => {
+    vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
+    await convexTest(schema, modules).run(async (ctx) => {
+      const ada = await ctx.db.insert('players', aPlayer())
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada, clueLadderEnabled: true }))
+      expect((await getTeamGameMonthFor(ctx, ada, teamId, thisMonth, 'clueLadder')).countsFrom).toBeNull()
+    })
+  })
 })

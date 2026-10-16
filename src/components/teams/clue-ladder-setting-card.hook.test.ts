@@ -6,6 +6,7 @@ import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 
 let switchOn: boolean | undefined = true
@@ -47,7 +48,7 @@ describe('ClueLadderSettingCard', () => {
   test('the owner can switch it on', () => {
     render(createElement(ClueLadderSettingCard, { teamId, isOwner: true, enabled: false }))
     fireEvent.click(screen.getByRole('switch', { name: 'Clue ladder' }))
-    expect(mutate.mock.calls[0][0]).toEqual({ teamId, enabled: true })
+    expect(mutate.mock.calls[0][0]).toEqual({ teamId, enabled: true, today: toPuzzleDay(new Date()) })
     expect(mutationRefs).toContain(getFunctionName(api.games.setTeamClueLadder))
   })
 
@@ -55,7 +56,7 @@ describe('ClueLadderSettingCard', () => {
     render(createElement(ClueLadderSettingCard, { teamId, isOwner: true, enabled: true }))
     expect(screen.getByRole('switch', { name: 'Clue ladder' }).getAttribute('aria-checked')).toBe('true')
     fireEvent.click(screen.getByRole('switch', { name: 'Clue ladder' }))
-    expect(mutate.mock.calls[0][0]).toEqual({ teamId, enabled: false })
+    expect(mutate.mock.calls[0][0]).toEqual({ teamId, enabled: false, today: toPuzzleDay(new Date()) })
   })
 
   test('a member sees nothing', () => {
@@ -99,5 +100,10 @@ describe('ClueLadderSettingCard', () => {
     expect(expected).not.toBe(mutationErrorMessage(new Error('x'), 'Could not change that setting'))
     onError(error)
     expect(toastError).toHaveBeenCalledWith(expected)
+  })
+
+  test('the help text says days before it was on are not missed days', () => {
+    render(createElement(ClueLadderSettingCard, { teamId, isOwner: true, enabled: false }))
+    expect(screen.getByRole('switch', { description: /Days before you turn it on don't count as missed\./ })).toBeTruthy()
   })
 })

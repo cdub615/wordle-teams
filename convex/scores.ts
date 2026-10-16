@@ -322,6 +322,9 @@ export async function getTeamGameMonthFor(
 
   return {
     game,
+    // The day the team turned the clue ladder on (wordle-teams-k1v5): the grid
+    // counts nothing before it. Null for no limit, and always null for Wordle.
+    countsFrom: game === 'clueLadder' ? (team.clueLadderOnSince ?? null) : null,
     team: {
       id: team._id,
       name: team.name,

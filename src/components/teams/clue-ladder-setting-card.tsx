@@ -4,6 +4,7 @@ import { useId } from 'react'
 import { toast } from 'sonner'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { toPuzzleDay } from '../../../convex/lib/puzzleDay.ts'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card.tsx'
 import { Label } from '#/components/ui/label.tsx'
 import { Switch } from '#/components/ui/switch.tsx'
@@ -53,7 +54,7 @@ export function ClueLadderSettingCard({
             aria-describedby={helpId}
             onCheckedChange={() =>
               setClueLadder.mutate(
-                { teamId, enabled: !enabled },
+                { teamId, enabled: !enabled, today: toPuzzleDay(new Date()) },
                 { onError: (error) => toast.error(mutationErrorMessage(error, 'Could not change that setting')) },
               )
             }
@@ -61,7 +62,7 @@ export function ClueLadderSettingCard({
         </div>
         <p id={helpId} className="text-sm text-muted-foreground">
           A daily logic puzzle with its own scoreboard. Your team sees it on the dashboard once it's on. Turning it
-          off hides it again. Scores are kept.
+          off hides it again. Scores are kept. Days before you turn it on don't count as missed.
         </p>
       </CardContent>
     </Card>

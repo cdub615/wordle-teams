@@ -372,6 +372,24 @@ export default defineSchema({
      * requireGameOnTeam).
      */
     clueLadderEnabled: v.optional(v.boolean()),
+
+    /**
+     * THE DAY THE OWNER LAST TURNED THE CLUE LADDER ON (wordle-teams-k1v5,
+     * owner decision 2026-10-15). On the team's clue ladder scoreboard, a day
+     * before it WITH NO RESULT counts for nothing: not a missed day, a blank
+     * cell. A result always counts, whatever its date: the toggle promises
+     * "Scores are kept", so switching off and on again never hides a play.
+     *
+     * Written only by games.ts setTeamClueLadderFor, from the owner's own
+     * `today`. Turning the game off leaves it; turning it on again moves it.
+     * ABSENT MEANS NO LIMIT, which only rows from before this field existed can
+     * be (dev data).
+     *
+     * scores.ts getTeamGameMonthFor returns it as `countsFrom`, and ScoresGrid
+     * passes it to monthTotal as `fromDay`. The clue ladder's stored winners
+     * (spec section 7, not built) must do the same when they arrive.
+     */
+    clueLadderOnSince: v.optional(v.string()),
   }).index('by_legacyId', ['legacyId']),
   // No index for "teams containing player X": Convex cannot index array
   // membership. Production has 171 teams in total, so the later phases can
