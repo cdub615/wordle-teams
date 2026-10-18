@@ -1,8 +1,9 @@
 import { ConvexError } from 'convex/values'
 import { convexTest } from 'convex-test'
-import { describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema.ts'
 import { aPlayer } from './fixtures.ts'
+import { internal } from './_generated/api'
 import { removeByEndpointFor, saveSubscriptionFor, subscriptionsForPlayer } from './push.ts'
 
 const modules = import.meta.glob('./**/*.ts')
@@ -212,5 +213,66 @@ describe('removeByEndpointFor', () => {
     await expect(
       t.run(async (ctx) => removeByEndpointFor(ctx, playerId, 'https://push.example/ghost')),
     ).resolves.not.toThrow()
+  })
+})
+
+describe('pruneSubscriptionsCreatedBefore', () => {
+  // Rows are stamped by the system clock, so each one is inserted at a
+  // different fake time and `before` sits between them. ASCENDING ONLY:
+  // convex-test never stamps a row earlier than the last one, so the player
+  // goes in first, before every row's time.
+  async function seedAt(t: ReturnType<typeof convexTest>, times: number[]) {
+    vi.setSystemTime(Math.min(...times) - 1000)
+    const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
+    for (const [i, time] of times.entries()) {
+      vi.setSystemTime(time)
+      await t.run(async (ctx) => saveSubscriptionFor(ctx, playerId, { ...SUB, endpoint: `${SUB.endpoint}-${i}` }))
+    }
+  }
+  const OLD = Date.parse('2026-09-01T00:00:00Z')
+  const CUTOFF = Date.parse('2026-10-01T00:00:00Z')
+  const NEW = Date.parse('2026-10-10T00:00:00Z')
+
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  async function runAll(t: ReturnType<typeof convexTest>, execute: boolean) {
+    const totals = { scanned: 0, matched: 0, deleted: 0, batches: 0 }
+    let cursor: string | null = null
+    for (;;) {
+      const r: { cursor: string; isDone: boolean; scanned: number; matched: number; deleted: number } =
+        await t.mutation(internal.push.pruneSubscriptionsCreatedBefore, { before: CUTOFF, execute, cursor })
+      totals.scanned += r.scanned
+      totals.matched += r.matched
+      totals.deleted += r.deleted
+      totals.batches += 1
+      if (r.isDone) return totals
+      cursor = r.cursor
+    }
+  }
+
+  test('a dry run counts the older rows and deletes nothing', async () => {
+    const t = convexTest(schema, modules)
+    await seedAt(t, [OLD, OLD + 1, NEW])
+    const totals = await runAll(t, false)
+    expect(totals).toMatchObject({ scanned: 3, matched: 2, deleted: 0 })
+    expect(await t.run(async (ctx) => ctx.db.query('pushSubscriptions').collect())).toHaveLength(3)
+  })
+
+  test('execute deletes only rows created before the cutoff', async () => {
+    const t = convexTest(schema, modules)
+    await seedAt(t, [OLD, OLD + 1, NEW, NEW + 1])
+    const totals = await runAll(t, true)
+    expect(totals).toMatchObject({ scanned: 4, matched: 2, deleted: 2 })
+    const left = await t.run(async (ctx) => ctx.db.query('pushSubscriptions').collect())
+    expect(left.map((row) => row._creationTime >= CUTOFF)).toEqual([true, true])
+  })
+
+  test('pages through every row', async () => {
+    const t = convexTest(schema, modules)
+    await seedAt(t, Array.from({ length: 450 }, (_, i) => OLD + i))
+    const totals = await runAll(t, true)
+    expect(totals.batches).toBeGreaterThan(1)
+    expect(totals).toMatchObject({ scanned: 450, matched: 450, deleted: 450 })
   })
 })

@@ -163,3 +163,45 @@ export const removeByEndpoint = internalMutation({
   args: { playerId: v.id('players'), endpoint: v.string() },
   handler: async (ctx, { playerId, endpoint }) => await removeByEndpointFor(ctx, playerId, endpoint),
 })
+
+const CLEANUP_PAGE_SIZE = 200
+
+/**
+ * Deletes push subscriptions created before `before` (ms since epoch). DRY RUN
+ * unless `execute` is true. Built for one job (wordle-teams-2dl6): rows created
+ * before the 2026-09-30 cutover belong to the beta origin's service worker, the
+ * push service still accepts sends to them, so the 404/410 prune never removes
+ * them and they deliver to a site the player no longer uses.
+ *
+ * NO DEFAULT FOR `before`, on purpose: the cutover instant is chosen by whoever
+ * runs this, after reading a dry run, not baked in here.
+ *
+ * HOW THE OWNER RUNS IT, in the Convex dashboard for the production deployment
+ * (Functions, push:pruneSubscriptionsCreatedBefore, Run function):
+ *   1. { "before": 1790812800000, "execute": false, "cursor": null }
+ *      1790812800000 is 2026-10-01T00:00:00Z. Read `matched`; repeat with the
+ *      returned `cursor` until `isDone` is true.
+ *   2. The same calls with "execute": true.
+ * A player whose rows go keeps push in their methods with no device left;
+ * Settings then tells them push is not on for this device, and turning it on
+ * again subscribes against the current origin.
+ *
+ * Internal only: never reachable from the app.
+ */
+export const pruneSubscriptionsCreatedBefore = internalMutation({
+  args: { before: v.number(), execute: v.boolean(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { before, execute, cursor }) => {
+    const page = await ctx.db
+      .query('pushSubscriptions')
+      .paginate({ cursor, numItems: CLEANUP_PAGE_SIZE })
+    const matches = page.page.filter((row) => row._creationTime < before)
+    if (execute) for (const row of matches) await ctx.db.delete(row._id)
+    return {
+      cursor: page.continueCursor,
+      isDone: page.isDone,
+      scanned: page.page.length,
+      matched: matches.length,
+      deleted: execute ? matches.length : 0,
+    }
+  },
+})
