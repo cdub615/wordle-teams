@@ -263,6 +263,47 @@ export async function unsubscribeFromPush(browser: PushBrowser): Promise<Unsubsc
 }
 
 /**
+ * What this device can receive right now, read without prompting.
+ *
+ * THE SERVER'S METHOD LIST CANNOT ANSWER THIS. 'push' in
+ * reminderDeliveryMethods is one fact about the account; whether THIS
+ * origin's service worker holds a subscription is another, and the two drift
+ * apart silently: a copied first-release row, a 404/410 prune, a subscription
+ * made on beta before the cutover (wordle-teams-i5pj, wordle-teams-2dl6).
+ *
+ * NEVER THROWS, and never calls requestPermission, so it is safe to run on
+ * mount. Anything that goes wrong reading the browser reads as 'unavailable'.
+ * A subscription with no keys reads as 'none': nothing can be encrypted to it.
+ */
+export type DevicePushState =
+  | { kind: 'unavailable' }
+  | { kind: 'none' }
+  | { kind: 'subscribed'; subscription: StoredSubscription }
+
+export async function pushStateOfThisDevice(browser: PushBrowser | null): Promise<DevicePushState> {
+  if (!browser) return { kind: 'unavailable' }
+  try {
+    const pushManager = await browser.pushManager()
+    if (!pushManager) return { kind: 'unavailable' }
+    const subscription = await pushManager.getSubscription()
+    if (!subscription) return { kind: 'none' }
+    const p256dh = subscription.getKey('p256dh')
+    const auth = subscription.getKey('auth')
+    if (!p256dh || !auth) return { kind: 'none' }
+    return {
+      kind: 'subscribed',
+      subscription: {
+        endpoint: subscription.endpoint,
+        p256dh: uint8ArrayToUrlBase64(new Uint8Array(p256dh)),
+        auth: uint8ArrayToUrlBase64(new Uint8Array(auth)),
+      },
+    }
+  } catch {
+    return { kind: 'unavailable' }
+  }
+}
+
+/**
  * What `applyPushToggle` needs: two RAW INPUTS and three mutations.
  *
  * `browser` AND `applicationServerKey` ARE VALUES, NOT PRE-BUILT CLOSURES, and

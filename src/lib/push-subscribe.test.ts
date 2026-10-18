@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
 import {
+  pushStateOfThisDevice,
   applyPushToggle,
   subscribeToPush,
   settledWithin,
@@ -715,5 +716,59 @@ describe('applyPushToggle — turning push OFF', () => {
     await applyPushToggle(false, effects)
     expect(effects.removeStored).not.toHaveBeenCalled()
     expect(effects.setMethod).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('pushStateOfThisDevice', () => {
+  test('no browser support is unavailable', async () => {
+    await expect(pushStateOfThisDevice(null)).resolves.toEqual({ kind: 'unavailable' })
+  })
+
+  test('a service worker that never became ready is unavailable', async () => {
+    await expect(pushStateOfThisDevice(fakeBrowser({ pushManager: null }))).resolves.toEqual({
+      kind: 'unavailable',
+    })
+  })
+
+  test('a browser that throws while reading is unavailable, not an error', async () => {
+    const browser = fakeBrowser({
+      pushManager: { getSubscription: vi.fn().mockRejectedValue(new Error('boom')), subscribe: vi.fn() },
+    })
+    await expect(pushStateOfThisDevice(browser)).resolves.toEqual({ kind: 'unavailable' })
+  })
+
+  test('no subscription on this device is none', async () => {
+    const browser = fakeBrowser({
+      pushManager: { getSubscription: vi.fn().mockResolvedValue(null), subscribe: vi.fn() },
+    })
+    await expect(pushStateOfThisDevice(browser)).resolves.toEqual({ kind: 'none' })
+  })
+
+  test('a subscription without keys is none', async () => {
+    const browser = fakeBrowser({
+      pushManager: {
+        getSubscription: vi.fn().mockResolvedValue(fakeSubscription({ auth: null })),
+        subscribe: vi.fn(),
+      },
+    })
+    await expect(pushStateOfThisDevice(browser)).resolves.toEqual({ kind: 'none' })
+  })
+
+  test('a subscription is reported in the shape savePushSubscription stores, without prompting', async () => {
+    const browser = fakeBrowser({
+      pushManager: {
+        getSubscription: vi.fn().mockResolvedValue(fakeSubscription({ endpoint: 'https://push.example/xyz' })),
+        subscribe: vi.fn(),
+      },
+    })
+    await expect(pushStateOfThisDevice(browser)).resolves.toEqual({
+      kind: 'subscribed',
+      subscription: {
+        endpoint: 'https://push.example/xyz',
+        p256dh: uint8ArrayToUrlBase64(ALL_BYTES.slice(0, 65)),
+        auth: uint8ArrayToUrlBase64(ALL_BYTES.slice(100, 116)),
+      },
+    })
+    expect(browser.requestPermission).not.toHaveBeenCalled()
   })
 })
