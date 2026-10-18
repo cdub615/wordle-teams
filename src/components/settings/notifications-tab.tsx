@@ -1,7 +1,7 @@
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
-import { useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import { toast } from 'sonner'
 import { api } from '../../../convex/_generated/api'
 import { REMINDER_TIMES } from '../../../convex/lib/reminders.ts'
@@ -19,10 +19,10 @@ import { Separator } from '#/components/ui/separator.tsx'
 import { Switch } from '#/components/ui/switch.tsx'
 import { clockTime } from '#/lib/clock-time.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
-import { applyPushToggle, browserPush } from '#/lib/push-subscribe.ts'
+import { applyPushToggle, browserPush, pushStateOfThisDevice } from '#/lib/push-subscribe.ts'
 import { canonicalTimeZone, TIME_ZONE_GROUPS, unlistedZoneOption } from '#/lib/time-zones.ts'
 import { useMediaQuery } from '#/lib/use-media-query.ts'
-import type { SubscribeFailureReason } from '#/lib/push-subscribe.ts'
+import type { DevicePushState, SubscribeFailureReason } from '#/lib/push-subscribe.ts'
 
 /**
  * '13:00:00' -> '1:00 PM' for a US reader, '13:00' for a British or German one.
@@ -169,6 +169,24 @@ export default function NotificationsTab() {
   // second click starts the whole flow again.
   const [pushPending, setPushPending] = useState(false)
 
+  // THIS DEVICE'S OWN SUBSCRIPTION, read after mount and after every toggle.
+  // 'push' in the server's array says the account wants push; it says nothing
+  // about whether this origin's service worker can receive it (wordle-teams-
+  // i5pj, wordle-teams-2dl6). `null` until read, and then the switch shows the
+  // server's value alone, exactly as it did before this existed.
+  const [device, setDevice] = useState<DevicePushState | null>(null)
+  const readDevice = useCallback(async () => setDevice(await pushStateOfThisDevice(browserPush())), [])
+  useEffect(() => {
+    let live = true
+    void pushStateOfThisDevice(browserPush()).then((state) => {
+      if (live) setDevice(state)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+  const deviceHelpId = useId()
+
   // mySettings calls requirePlayer, which throws NO_PLAYER for a signed-in
   // session with no players row yet — and Header.tsx mounts globally,
   // including on /complete-profile, where that is the expected state (see
@@ -210,6 +228,11 @@ export default function NotificationsTab() {
   }
 
   const { timeZone, reminderDeliveryTime, reminderDeliveryMethods } = settings
+  // ON FOR THE ACCOUNT, NOT ON THIS DEVICE: shown off, with a line saying so,
+  // and turning it on runs the ordinary subscribe flow. Only a definite 'none'
+  // does this. 'unavailable' (a browser that cannot do push) keeps the
+  // server's value, so push can still be turned off from such a browser.
+  const pushNotOnThisDevice = reminderDeliveryMethods.includes('push') && device?.kind === 'none'
   const canonicalZone = canonicalTimeZone(timeZone)
   const unlistedZone = unlistedZoneOption(canonicalZone)
 
@@ -308,6 +331,7 @@ export default function NotificationsTab() {
     } catch (error) {
       toast.error(mutationErrorMessage(error, 'Failed to update delivery methods'))
     } finally {
+      await readDevice()
       setPushPending(false)
     }
   }
@@ -426,13 +450,19 @@ export default function NotificationsTab() {
                 // makes a denied permission leave the switch visibly off: the
                 // handler returns before writing 'push', so there is nothing
                 // for this to read back.
-                checked={reminderDeliveryMethods.includes('push')}
+                checked={reminderDeliveryMethods.includes('push') && !pushNotOnThisDevice}
                 onCheckedChange={handlePushToggle}
                 disabled={pushPending || setReminderMethod.isPending}
+                aria-describedby={pushNotOnThisDevice ? deviceHelpId : undefined}
               />
               {pushPending && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
             </div>
           </div>
+        )}
+        {vapidPublicKey && pushNotOnThisDevice && (
+          <p id={deviceHelpId} className="text-sm text-muted-foreground">
+            Push is on for your account, but not on this device. Turn it on to get reminders here.
+          </p>
         )}
       </div>
     </div>

@@ -356,3 +356,74 @@ describe('the Email switch is unaffected by any of it', () => {
     expect(setMethodMock).toHaveBeenCalledWith({ method: 'email', enabled: true })
   })
 })
+
+describe("the Push switch — this device's own subscription (wordle-teams-i5pj, 2dl6)", () => {
+  const HELP = 'Push is on for your account, but not on this device. Turn it on to get reminders here.'
+
+  test('on for the account and subscribed here: on, with no help text', async () => {
+    settings.reminderDeliveryMethods = ['push']
+    const getSubscription = vi.fn().mockResolvedValue(fakeSubscription())
+    stubBrowser({ getSubscription, subscribe: vi.fn() })
+    render(createElement(NotificationsTab))
+
+    await waitFor(() => expect(getSubscription).toHaveBeenCalled())
+    await Promise.resolve()
+    expect(isChecked()).toBe('true')
+    expect(screen.queryByText(HELP)).toBeNull()
+  })
+
+  test('on for the account but not subscribed here: off, and the switch is described by the help text', async () => {
+    settings.reminderDeliveryMethods = ['push']
+    stubBrowser({ getSubscription: vi.fn().mockResolvedValue(null), subscribe: vi.fn() })
+    render(createElement(NotificationsTab))
+
+    await waitFor(() => expect(isChecked()).toBe('false'))
+    expect(screen.getByRole('switch', { name: 'Push', description: HELP })).toBe(pushSwitch())
+  })
+
+  test('turning it on from there runs the ordinary subscribe flow', async () => {
+    settings.reminderDeliveryMethods = ['push']
+    stubBrowser({
+      getSubscription: vi.fn().mockResolvedValue(null),
+      subscribe: vi.fn().mockResolvedValue(fakeSubscription()),
+    })
+    render(createElement(NotificationsTab))
+    await waitFor(() => expect(isChecked()).toBe('false'))
+
+    fireEvent.click(pushSwitch())
+
+    await waitFor(() => expect(setMethodMock).toHaveBeenCalledWith({ method: 'push', enabled: true }))
+    expect(savePushMock).toHaveBeenCalledWith({ endpoint: ENDPOINT, p256dh: 'AQIDBA', auth: 'AQIDBA' })
+  })
+
+  test('after turning it on, the switch reads this device again and shows on', async () => {
+    settings.reminderDeliveryMethods = ['push']
+    const getSubscription = vi.fn().mockResolvedValue(null)
+    stubBrowser({
+      getSubscription,
+      subscribe: vi.fn().mockImplementation(async () => {
+        getSubscription.mockResolvedValue(fakeSubscription())
+        return fakeSubscription()
+      }),
+    })
+    render(createElement(NotificationsTab))
+    await waitFor(() => expect(isChecked()).toBe('false'))
+
+    fireEvent.click(pushSwitch())
+
+    await waitFor(() => expect(isChecked()).toBe('true'))
+    expect(screen.queryByText(HELP)).toBeNull()
+  })
+
+  test('off for the account: off, with no help text, even when this device is subscribed', async () => {
+    settings.reminderDeliveryMethods = ['email']
+    const getSubscription = vi.fn().mockResolvedValue(fakeSubscription())
+    stubBrowser({ getSubscription, subscribe: vi.fn() })
+    render(createElement(NotificationsTab))
+
+    await waitFor(() => expect(getSubscription).toHaveBeenCalled())
+    await Promise.resolve()
+    expect(isChecked()).toBe('false')
+    expect(screen.queryByText(HELP)).toBeNull()
+  })
+})
