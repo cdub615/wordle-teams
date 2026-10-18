@@ -133,7 +133,15 @@ export const deliverTo = internalAction({
     }
 
     const subscriptions = await ctx.runQuery(internal.push.subscriptionsFor, { playerId })
-    if (subscriptions.length === 0) return
+    if (subscriptions.length === 0) {
+      // LOGGED, NOT SILENT (wordle-teams-i5pj). The caller only got here
+      // because 'push' is one of this player's methods, so zero rows means a
+      // channel that is on and reaches nobody: a copied first-release row, or
+      // the 404/410 prune below removing the last device. The player id only,
+      // never an endpoint; there is none to leak here anyway.
+      console.warn('[reminders] push is on but no device is subscribed', { playerId })
+      return
+    }
 
     // See REMINDER_PAYLOAD above for the copy this defaults to and why it is
     // duplicated in the service worker.

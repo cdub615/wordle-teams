@@ -198,14 +198,20 @@ describe('deliverTo', () => {
     expect(sendNotification).toHaveBeenCalledTimes(1)
   })
 
-  test('no registered subscriptions is a no-op', async () => {
+  test('no registered subscriptions sends nothing and logs one line naming the player', async () => {
     const t = convexTest(schema, modules)
     const playerId = await t.run(async (ctx) => ctx.db.insert('players', aPlayer()))
 
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await t.action(internal.pushSend.deliverTo, { playerId, attempt: 0 })
 
     expect(sendNotification).not.toHaveBeenCalled()
     expect(setVapidDetails).toHaveBeenCalled()
+    // wordle-teams-i5pj: this used to return silently, so a player with push
+    // on and no device to send to was invisible in every log.
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy).toHaveBeenCalledWith('[reminders] push is on but no device is subscribed', { playerId })
+    spy.mockRestore()
   })
 
   test('missing VAPID config logs and returns without sending or scheduling', async () => {
