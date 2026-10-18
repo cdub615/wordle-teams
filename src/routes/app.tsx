@@ -19,6 +19,7 @@ import { useSearchSync } from '#/lib/use-search-sync.ts'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 import { usePendingInvite } from '#/lib/use-pending-invite.ts'
 import { usePendingChallenge } from '#/lib/use-pending-challenge.ts'
+import { usePushResync } from '#/lib/use-push-resync.ts'
 import { useUpgrade } from '#/components/upgrade-dialog.tsx'
 import { UnreadBadge } from '#/components/chat/unread-badge.tsx'
 import { chatEntryLabel, hasUnread, unreadTeamIds, useUnreadTeams } from '#/components/chat/use-chat-sync.ts'
@@ -217,6 +218,8 @@ function Dashboard() {
   const [scoresGame, setScoresGame] = useState<GameId>('wordle')
   const navigate = useNavigate({ from: Route.fullPath })
   const hydrated = useHydrated()
+  // Re-saves this device's push subscription once per load (wordle-teams-cvvn).
+  usePushResync()
   const { data: teams } = useSuspenseQuery(convexQuery(api.teams.getMyTeams, {}))
   const { data: isPro } = useSuspenseQuery(convexQuery(api.teams.amIPro, {}))
   const { data: myPlayerId } = useSuspenseQuery(convexQuery(api.scores.getMyPlayerId, {}))
