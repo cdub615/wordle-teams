@@ -41,6 +41,7 @@
  */
 import { ConvexHttpClient } from 'convex/browser'
 import { internal } from '../convex/_generated/api.js'
+import { TOTAL_KEYS } from './lib/prune-totals.mjs'
 
 const KNOWN_FLAGS = ['--url=', '--page-size=', '--execute', '--allow-mixed']
 
@@ -99,27 +100,8 @@ convex.setAdminAuth(adminKey)
 // ever reports a numeric counter not listed here, the script refuses to run
 // rather than silently under-report. e2ePrune.test.ts:36-42 built the same
 // drift-proofing into the TEST helper when this file was first written; this
-// script just didn't get the same treatment until now.
-const TOTAL_KEYS = [
-  'playersScanned',
-  'e2ePlayersFound',
-  'playersDeleted',
-  'dailyScoresDeleted',
-  'monthlyWinnersDeleted',
-  'scoringSystemsDeleted',
-  'playerMembershipsDeleted',
-  'pushSubscriptionsDeleted',
-  'chatReadsDeleted',
-  'clueLadderPlaysDeleted',
-  'teamsDeleted',
-  'teamRostersPatched',
-  'teamInvitesCleared',
-  'celebrationRefsCleared',
-  'teamsKeptWithUnresolvableMembers',
-  'invitesDiscardedWithDeletedTeams',
-  'challengesClosed',
-  'challengesWithdrawn',
-]
+// script just didn't get the same treatment until now. The list itself lives
+// in lib/prune-totals.mjs, where a test can compare it with a real report.
 
 // A safety ceiling, not a tuning knob. Each call advances the cursor by one page
 // unconditionally — even a page holding no e2e rows — so the loop terminates on

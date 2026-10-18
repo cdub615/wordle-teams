@@ -5,6 +5,7 @@ import schema from './schema'
 import { internal } from './_generated/api'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { STARTING_WORDS, seedLeagueFor } from './leagues.ts'
+import { TOTAL_KEYS } from '../scripts/lib/prune-totals.mjs'
 import type { PruneBatchReport } from './e2ePrune.ts'
 import type { Id } from './_generated/dataModel'
 
@@ -82,6 +83,25 @@ const aScore = (playerId: Id<'players'>, over: Record<string, unknown> = {}) => 
   date: Date.parse('2026-08-01T12:00:00Z'),
   guesses: ['crane'],
   ...over,
+})
+
+// THE SCRIPT'S DRIFT GUARD, CHECKED IN THE GATES (wordle-teams-kxwa). The
+// script refuses to run when the report holds a counter TOTAL_KEYS does not
+// name, and nothing but a real run used to reach that check — so
+// leagueRowsDeleted went missing and every run refused. Both directions: a
+// name the report lacks would total as NaN.
+describe("the prune script's TOTAL_KEYS", () => {
+  test('names exactly the numeric counters a pruneBatch report holds', async () => {
+    const t = convexTest(schema, modules)
+    const report: PruneBatchReport = await t.mutation(internal.e2ePrune.pruneBatch, {
+      execute: false,
+      cursor: null,
+    })
+    const numeric = Object.entries(report)
+      .filter(([, value]) => typeof value === 'number')
+      .map(([key]) => key)
+    expect([...TOTAL_KEYS].sort()).toEqual(numeric.sort())
+  })
 })
 
 describe('the E2E_TEST_MODE gate', () => {
