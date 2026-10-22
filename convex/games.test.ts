@@ -18,9 +18,37 @@ type Ctx = { db: GenericDatabaseWriter<DataModel> }
 async function seedTeam(ctx: Ctx) {
   const owner = await ctx.db.insert('players', aPlayer())
   const member = await ctx.db.insert('players', aPlayer({ email: 'bob@example.com', firstName: 'Bob' }))
-  const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [owner, member], owner }))
+  // OFF to start, so switching on has something to do. A team that never
+  // touched the setting is on (wordle-teams-9j7o.2.11); see the tests below.
+  const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [owner, member], owner, clueLadderEnabled: false }))
   return { owner, member, teamId }
 }
+
+describe('a team that never touched the setting (wordle-teams-9j7o.2.11)', () => {
+  test('is already on, so switching on writes nothing and checks no date', async () => {
+    vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { owner, teamId } = await seedTeam(ctx)
+      await ctx.db.patch(teamId, { clueLadderEnabled: undefined })
+      await setTeamClueLadderFor(ctx, owner, teamId, true, 'not-a-day')
+      const team = await ctx.db.get(teamId)
+      expect(team?.clueLadderEnabled).toBeUndefined()
+      expect(team?.clueLadderOnSince).toBeUndefined()
+    })
+  })
+
+  test('switches off, and back on from today', async () => {
+    vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
+    await convexTest(schema, modules).run(async (ctx) => {
+      const { owner, teamId } = await seedTeam(ctx)
+      await ctx.db.patch(teamId, { clueLadderEnabled: undefined })
+      await setTeamClueLadderFor(ctx, owner, teamId, false, today)
+      expect((await ctx.db.get(teamId))?.clueLadderEnabled).toBe(false)
+      await setTeamClueLadderFor(ctx, owner, teamId, true, today)
+      expect(await ctx.db.get(teamId)).toMatchObject({ clueLadderEnabled: true, clueLadderOnSince: today })
+    })
+  })
+})
 
 describe('setTeamClueLadderFor', () => {
   test('the owner switches it on, and back off', async () => {
@@ -41,7 +69,7 @@ describe('setTeamClueLadderFor', () => {
       await expect(setTeamClueLadderFor(ctx, member, teamId, true, today)).rejects.toMatchObject({
         data: { code: 'NOT_TEAM_OWNER' },
       })
-      expect((await ctx.db.get(teamId))?.clueLadderEnabled).toBeUndefined()
+      expect((await ctx.db.get(teamId))?.clueLadderEnabled).toBe(false)
     })
   })
 
@@ -66,7 +94,7 @@ describe('setTeamClueLadderFor', () => {
       await expect(setTeamClueLadderFor(ctx, owner, teamId, true, today)).rejects.toMatchObject({
         data: { code: 'CLUE_LADDER_DISABLED' },
       })
-      expect((await ctx.db.get(teamId))?.clueLadderEnabled).toBeUndefined()
+      expect((await ctx.db.get(teamId))?.clueLadderEnabled).toBe(false)
     })
   })
 
@@ -126,7 +154,7 @@ describe('clueLadderOnSince (wordle-teams-k1v5)', () => {
       await expect(setTeamClueLadderFor(ctx, owner, teamId, true, addDays(today, -5))).rejects.toMatchObject({
         data: { code: 'INVALID_DATE' },
       })
-      expect((await ctx.db.get(teamId))?.clueLadderEnabled).toBeUndefined()
+      expect((await ctx.db.get(teamId))?.clueLadderEnabled).toBe(false)
 
       await ctx.db.patch(teamId, { clueLadderEnabled: true })
       await setTeamClueLadderFor(ctx, owner, teamId, false, 'not-a-day')

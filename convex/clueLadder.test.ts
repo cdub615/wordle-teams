@@ -261,6 +261,15 @@ describe('who may play', () => {
       await nothingWritten(ctx)
     })
   })
+
+  test('a team that never touched the setting counts (wordle-teams-9j7o.2.11)', async () => {
+    await convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await ctx.db.insert('players', aPlayer())
+      await ctx.db.insert('teams', aTeam({ playerIds: [playerId], owner: playerId }))
+      await startFor(ctx, playerId, today)
+      expect(await playOn(ctx, playerId, today)).toMatchObject({ status: 'playing' })
+    })
+  })
 })
 
 describe('writePlayFor, the shape of a write', () => {

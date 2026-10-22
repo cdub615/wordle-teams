@@ -86,7 +86,7 @@ describe('getMyTeamsFor', () => {
     })
   })
 
-  test('carries clueLadderEnabled: the deployment switch AND the owner’s opt-in, absent reading false', async () => {
+  test('carries clueLadderEnabled: the deployment switch AND the owner’s opt-in, absent reading true (wordle-teams-9j7o.2.11)', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
@@ -103,7 +103,7 @@ describe('getMyTeamsFor', () => {
       vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
       const on = await getMyTeamsFor(ctx, ada)
       expect(Object.fromEntries(on.map((team) => [team.name, team.clueLadderEnabled]))).toEqual({
-        Absent: false,
+        Absent: true,
         Off: false,
         On: true,
       })

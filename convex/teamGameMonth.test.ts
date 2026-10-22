@@ -83,11 +83,11 @@ describe('getTeamGameMonthFor — clue ladder', () => {
     })
   })
 
-  test('refuses a team that has not opted in', async () => {
+  test('refuses a team whose owner switched it off', async () => {
     vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
     await convexTest(schema, modules).run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada, clueLadderEnabled: false }))
       await expect(getTeamGameMonthFor(ctx, ada, teamId, thisMonth, 'clueLadder')).rejects.toMatchObject({
         data: { code: 'CLUE_LADDER_NOT_ON_TEAM' },
       })
@@ -157,11 +157,11 @@ describe('getTeamGameMonthFor — clue ladder', () => {
     })
   })
 
-  test('the month window refuses the clue ladder for a team that has not opted in', async () => {
+  test('the month window refuses the clue ladder for a team whose owner switched it off', async () => {
     vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
     await convexTest(schema, modules).run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada }))
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada, clueLadderEnabled: false }))
       await expect(monthWindowInputsFor(ctx, ada, teamId, 'clueLadder')).rejects.toMatchObject({
         data: { code: 'CLUE_LADDER_NOT_ON_TEAM' },
       })

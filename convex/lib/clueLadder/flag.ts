@@ -15,3 +15,14 @@ export const CLUE_LADDER_ON = 'true'
 export function clueLadderSwitchOn(value: string | undefined): boolean {
   return value === CLUE_LADDER_ON
 }
+
+/**
+ * Whether a team has the clue ladder, leaving the deployment switch aside
+ * (wordle-teams-9j7o.2.11). ON UNLESS THE OWNER SWITCHED IT OFF: absent means
+ * on, as acceptsChallenges does, so every team that never touched the setting
+ * has it. `!== false`, never `=== true`. The one rule every reader of
+ * teams.clueLadderEnabled goes through.
+ */
+export function teamHasClueLadder(team: { clueLadderEnabled?: boolean }): boolean {
+  return team.clueLadderEnabled !== false
+}

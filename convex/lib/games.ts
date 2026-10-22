@@ -2,7 +2,7 @@ import { v } from 'convex/values'
 import type { GenericDatabaseReader } from 'convex/server'
 import type { DataModel, Doc, Id } from '../_generated/dataModel'
 import { accessError } from '../access.ts'
-import { clueLadderSwitchOn } from './clueLadder/flag.ts'
+import { clueLadderSwitchOn, teamHasClueLadder } from './clueLadder/flag.ts'
 import { addDays, toPuzzleDay, type PuzzleDay } from './puzzleDay.ts'
 import { wordleDays, type AttemptDay } from './scoring.ts'
 
@@ -128,12 +128,13 @@ export const GAMES: Record<GameId, Game> = { wordle, clueLadder }
 
 /**
  * Refuses a game this team cannot see. Wordle is every team's; the clue ladder
- * needs the CLUE_LADDER_ENABLED deployment switch AND the owner's opt-in.
+ * needs the CLUE_LADDER_ENABLED deployment switch, and the owner must not have
+ * switched it off (teamHasClueLadder).
  * The switch is checked first, so turning it off answers the same way for
  * every team: it is the kill switch (spec section 8).
  */
 export function requireGameOnTeam(team: Pick<Doc<'teams'>, 'clueLadderEnabled'>, game: GameId): void {
   if (game === 'wordle') return
   if (!clueLadderSwitchOn(process.env.CLUE_LADDER_ENABLED)) throw accessError('CLUE_LADDER_DISABLED')
-  if (team.clueLadderEnabled !== true) throw accessError('CLUE_LADDER_NOT_ON_TEAM')
+  if (!teamHasClueLadder(team)) throw accessError('CLUE_LADDER_NOT_ON_TEAM')
 }

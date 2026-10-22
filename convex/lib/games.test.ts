@@ -169,17 +169,23 @@ describe('requireGameOnTeam', () => {
     )
   })
 
-  test('the clue ladder refuses a team that has not opted in', () => {
+  test('the clue ladder refuses a team whose owner switched it off', () => {
     vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
-    for (const clueLadderEnabled of [undefined, false]) {
-      expect(codeOf(() => requireGameOnTeam(teamWith({ clueLadderEnabled }), 'clueLadder'))).toBe(
-        'CLUE_LADDER_NOT_ON_TEAM',
-      )
-    }
+    expect(codeOf(() => requireGameOnTeam(teamWith({ clueLadderEnabled: false }), 'clueLadder'))).toBe(
+      'CLUE_LADDER_NOT_ON_TEAM',
+    )
   })
 
-  test('the clue ladder passes with the switch on and the team opted in', () => {
+  test('the clue ladder refuses a team that never touched the setting while the deployment switch is off', () => {
+    vi.stubEnv('CLUE_LADDER_ENABLED', '')
+    expect(codeOf(() => requireGameOnTeam(teamWith({ clueLadderEnabled: undefined }), 'clueLadder'))).toBe(
+      'CLUE_LADDER_DISABLED',
+    )
+  })
+
+  // wordle-teams-9j7o.2.11: on unless switched off, so absent passes too.
+  test.each([[true], [undefined]])('the clue ladder passes with the switch on and clueLadderEnabled %s', (clueLadderEnabled) => {
     vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
-    expect(codeOf(() => requireGameOnTeam(teamWith({ clueLadderEnabled: true }), 'clueLadder'))).toBeUndefined()
+    expect(codeOf(() => requireGameOnTeam(teamWith({ clueLadderEnabled }), 'clueLadder'))).toBeUndefined()
   })
 })

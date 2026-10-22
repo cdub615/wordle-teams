@@ -4,7 +4,7 @@ import { mutation, query } from './_generated/server'
 import type { DataModel, Doc, Id } from './_generated/dataModel'
 import { accessError, requireCurrentSomewhere, requirePlayer } from './access'
 import { clueText } from './lib/clueLadder/clues.ts'
-import { clueLadderSwitchOn } from './lib/clueLadder/flag.ts'
+import { clueLadderSwitchOn, teamHasClueLadder } from './lib/clueLadder/flag.ts'
 import type { Puzzle } from './lib/clueLadder/generate.ts'
 import { ladderProblem, MAX_CLUES, survivors } from './lib/clueLadder/ladder.ts'
 import { isOrder, SLOT_COUNT, type Shape } from './lib/clueLadder/orders.ts'
@@ -80,13 +80,13 @@ export function clueLadderPlayable(): boolean {
 }
 
 /**
- * Whether the player is on at least one team whose owner opted it in (spec
- * section 4, "Who can play"). A whole-table scan, as getMyTeamsFor does
+ * Whether the player is on at least one team with the clue ladder (spec
+ * section 4, "Who can play"): every team whose owner has not switched it off. A whole-table scan, as getMyTeamsFor does
  * (teams.ts): Convex cannot index array membership, and the table is small.
  */
 export async function onClueLadderTeam(ctx: ReaderCtx, playerId: Id<'players'>): Promise<boolean> {
   const teams = await ctx.db.query('teams').collect()
-  return teams.some((team) => team.clueLadderEnabled === true && team.playerIds.includes(playerId))
+  return teams.some((team) => teamHasClueLadder(team) && team.playerIds.includes(playerId))
 }
 
 async function requireClueLadderPlayer(ctx: ReaderCtx, playerId: Id<'players'>): Promise<void> {
