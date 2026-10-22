@@ -2,7 +2,7 @@ import { v } from 'convex/values'
 import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
 import { mutation, query } from './_generated/server'
 import type { DataModel, Doc, Id } from './_generated/dataModel'
-import { accessError, requirePlausibleToday, requirePlayer } from './access'
+import { accessError, requireCurrentSomewhere, requirePlayer } from './access'
 import { clueText } from './lib/clueLadder/clues.ts'
 import { clueLadderSwitchOn } from './lib/clueLadder/flag.ts'
 import type { Puzzle } from './lib/clueLadder/generate.ts'
@@ -11,7 +11,7 @@ import { isOrder, SLOT_COUNT, type Shape } from './lib/clueLadder/orders.ts'
 import { GENERATOR_VERSION, puzzleForDate, seedSecretUsable } from './lib/clueLadder/seed.ts'
 import { isPassedDate } from './lib/games.ts'
 import { shapeValidator, slotValidator } from './lib/ladderValidators.ts'
-import { isPlausibleToday, toPuzzleDay, type PuzzleDay } from './lib/puzzleDay.ts'
+import { isCurrentSomewhere, toPuzzleDay, type PuzzleDay } from './lib/puzzleDay.ts'
 
 /**
  * The clue ladder's puzzles and plays (wordle-teams-9j7o.2.3, spec sections 3
@@ -32,8 +32,8 @@ export async function puzzleOn(ctx: ReaderCtx, date: PuzzleDay): Promise<Doc<'cl
 /**
  * The puzzle for `date`, made the first time anyone asks (spec section 3).
  *
- * CALLERS BOUND THE DATE FIRST, with requirePlausibleToday, so a puzzle exists
- * only for a day some player could be on. Nothing here checks it again.
+ * CALLERS BOUND THE DATE FIRST, with requireCurrentSomewhere, so a puzzle exists
+ * only for a day that is the date somewhere right now. Nothing here checks it again.
  *
  * `generate` is a parameter only so a test can hand in a ladder that breaks the
  * rules. Production always uses puzzleForDate.
@@ -130,7 +130,7 @@ const isClueCount = (n: number) => Number.isInteger(n) && n >= 1 && n <= MAX_CLU
  * It refuses what no writer should produce:
  * - A PASSED DATE, judged by the scoreboard's own isPassedDate (lib/games.ts),
  *   so a day already counted as X can never become a win. Today's callers
- *   cannot reach it, since they write only a `today` that requirePlausibleToday
+ *   cannot reach it, since they write only a `today` that requireCurrentSomewhere
  *   accepted, and that is never passed (clueLadder.test.ts pins the two rules
  *   together). It guards the next writer.
  * - A clue count outside 1..MAX_CLUES, or a lockedAtClue different from
@@ -187,7 +187,7 @@ export async function writePlayFor(
 /** Makes the puzzle if needed, then the play with clue 1 revealed. Idempotent (spec section 4). */
 export async function startFor(ctx: WriterCtx, playerId: Id<'players'>, today: string): Promise<void> {
   await requireClueLadderPlayer(ctx, playerId)
-  const date = requirePlausibleToday(today)
+  const date = requireCurrentSomewhere(today)
   await ensurePuzzleFor(ctx, date)
   if (await playOn(ctx, playerId, date)) return
   await writePlayFor(ctx, playerId, date, null, { cluesRevealed: 1, status: 'playing', scratch: emptyScratch() })
@@ -242,8 +242,9 @@ export const today = query({
     // A LIVE QUERY FALLS BACK TO THE SERVER'S DAY instead of refusing, as
     // leagues.ts's readToday does: a tab left open past midnight re-runs this on
     // every write, and must not start throwing with no action from the player.
-    const serverToday = toPuzzleDay(new Date())
-    const date = isPlausibleToday(args.today, serverToday) ? args.today : serverToday
+    // The same bound the mutations use (wordle-teams-9j7o.2.3.3), so this never
+    // shows a day start would refuse.
+    const date = isCurrentSomewhere(args.today, Date.now()) ? args.today : toPuzzleDay(new Date())
     return { enabled: true as const, play: await todayFor(ctx, player._id, date) }
   },
 })
@@ -265,7 +266,7 @@ export const start = mutation({
  */
 async function ownPlayFor(ctx: ReaderCtx, playerId: Id<'players'>, today: string) {
   await requireClueLadderPlayer(ctx, playerId)
-  const date = requirePlausibleToday(today)
+  const date = requireCurrentSomewhere(today)
   const play = await playOn(ctx, playerId, date)
   if (!play) throw new Error(`clue ladder: no play for ${date}; start comes first`)
   return { date, play }

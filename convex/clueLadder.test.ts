@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import { api } from './_generated/api'
 import type { DataModel } from './_generated/dataModel'
-import { requirePlausibleToday } from './access'
+import { requireCurrentSomewhere } from './access'
 import { aPlayer, aTeam, authenticatedAs, makeRegisterBetterAuth } from './fixtures.ts'
 import {
   ensurePuzzleFor,
@@ -28,14 +28,22 @@ import { addDays, toPuzzleDay } from './lib/puzzleDay.ts'
 const modules = import.meta.glob('./**/*.ts')
 const registerBetterAuth = makeRegisterBetterAuth(import.meta.glob('./betterAuth/**/*.ts'))
 const SECRET = 'clue-ladder-test-secret-0123456789'
-// The real clock, as teamGameMonth.test.ts does: requirePlausibleToday reads it.
-const today = toPuzzleDay(new Date())
+// A FIXED CLOCK, at noon UTC. requireCurrentSomewhere reads it, and its window
+// moves with the hour: at noon the dates current somewhere are today and
+// tomorrow, so a real clock would make every tomorrow test depend on when it ran.
+const NOON = Date.parse('2026-06-08T12:00:00Z')
+const today = '2026-06-08'
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOON)
   vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
   vi.stubEnv('CLUE_LADDER_SEED', SECRET)
 })
-afterEach(() => vi.unstubAllEnvs())
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.useRealTimers()
+})
 
 describe('ensurePuzzleFor', () => {
   test('creates the date’s puzzle once, from the secret', async () => {
@@ -124,6 +132,19 @@ describe('startFor', () => {
     })
   })
 
+  test('refuses tomorrow while it has started nowhere, and allows it once it has (wordle-teams-9j7o.2.3.3)', async () => {
+    const tomorrow = addDays(today, 1)
+    await convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await aClueLadderPlayer(ctx)
+      vi.setSystemTime(Date.parse(`${today}T09:59:59Z`))
+      await expect(startFor(ctx, playerId, tomorrow)).rejects.toMatchObject({ data: { code: 'INVALID_DATE' } })
+      await nothingWritten(ctx)
+      vi.setSystemTime(Date.parse(`${today}T10:00:00Z`))
+      await startFor(ctx, playerId, tomorrow)
+      expect(await playOn(ctx, playerId, tomorrow)).toMatchObject({ status: 'playing', cluesRevealed: 1 })
+    })
+  })
+
   test('refuses a past date: there is no backfill', async () => {
     await convexTest(schema, modules).run(async (ctx) => {
       const playerId = await aClueLadderPlayer(ctx)
@@ -206,23 +227,27 @@ describe('writePlayFor', () => {
     })
   })
 
-  test('every day requirePlausibleToday accepts is live by isPassedDate', () => {
+  test('every day requireCurrentSomewhere accepts is live by isPassedDate, at any hour', () => {
     // The two rules must agree, or a writer could accept a day the scoreboard has
-    // already scored X. Pinned here, where both are used.
-    const serverToday = toPuzzleDay(new Date())
-    const accepted: number[] = []
-    for (let delta = -5; delta <= 5; delta++) {
-      const day = addDays(serverToday, delta)
-      try {
-        requirePlausibleToday(day)
-      } catch {
-        continue
+    // already scored X. Pinned here, where both are used. Every hour of the UTC
+    // day, because the accepted days move with it.
+    const accepted = new Set<number>()
+    for (let hour = 0; hour < 24; hour++) {
+      vi.setSystemTime(Date.parse(`${today}T${String(hour).padStart(2, '0')}:30:00Z`))
+      const serverToday = toPuzzleDay(new Date())
+      for (let delta = -5; delta <= 5; delta++) {
+        const day = addDays(serverToday, delta)
+        try {
+          requireCurrentSomewhere(day)
+        } catch {
+          continue
+        }
+        accepted.add(delta)
+        expect(isPassedDate(day, serverToday)).toBe(false)
       }
-      accepted.push(delta)
-      expect(isPassedDate(day, serverToday)).toBe(false)
     }
-    expect(accepted).toEqual(expect.arrayContaining([-1, 0, 1]))
-    expect(isPassedDate(addDays(serverToday, -2), serverToday)).toBe(true)
+    expect([...accepted].sort()).toEqual([-1, 0, 1])
+    expect(isPassedDate(addDays(today, -2), today)).toBe(true)
   })
 })
 
@@ -392,12 +417,22 @@ describe('today (the query)', () => {
     expect(await asMe.query(api.clueLadder.today, { today })).toEqual({ enabled: false })
   })
 
-  test('uses the client’s today when it is plausible', async () => {
+  test('uses the client’s today when it is current somewhere', async () => {
     const asMe = await asOptedInPlayer()
     const tomorrow = addDays(today, 1)
     expect(await asMe.query(api.clueLadder.today, { today: tomorrow })).toEqual({
       enabled: true,
       play: { status: 'not-started', date: tomorrow },
+    })
+  })
+
+  test('falls back to the server’s day for a tomorrow that has started nowhere yet', async () => {
+    // 01:00 UTC: tomorrow begins at UTC+14 midnight, nine hours away.
+    vi.setSystemTime(Date.parse(`${today}T01:00:00Z`))
+    const asMe = await asOptedInPlayer()
+    expect(await asMe.query(api.clueLadder.today, { today: addDays(today, 1) })).toEqual({
+      enabled: true,
+      play: { status: 'not-started', date: today },
     })
   })
 
@@ -447,6 +482,19 @@ describe('nextClueFor', () => {
       expect(await nextClueFor(ctx, playerId, today, 1)).toEqual({ noMoreClues: false, cluesRevealed: 2 })
       expect(await nextClueFor(ctx, playerId, today, 1)).toEqual({ noMoreClues: false, cluesRevealed: 2 })
       expect((await playOn(ctx, playerId, today))?.cluesRevealed).toBe(2)
+    })
+  })
+
+  test('refuses a day once it has ended everywhere, even with a play on it', async () => {
+    const yesterday = addDays(today, -1)
+    await convexTest(schema, modules).run(async (ctx) => {
+      const playerId = await aClueLadderPlayer(ctx)
+      // 11:00 UTC: still yesterday at UTC-12, for one more hour.
+      vi.setSystemTime(Date.parse(`${today}T11:00:00Z`))
+      await startFor(ctx, playerId, yesterday)
+      vi.setSystemTime(Date.parse(`${today}T12:00:00Z`))
+      await expect(nextClueFor(ctx, playerId, yesterday, 1)).rejects.toMatchObject({ data: { code: 'INVALID_DATE' } })
+      expect((await playOn(ctx, playerId, yesterday))?.cluesRevealed).toBe(1)
     })
   })
 })
