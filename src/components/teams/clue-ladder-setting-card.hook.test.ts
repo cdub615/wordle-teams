@@ -106,6 +106,11 @@ describe('ClueLadderSettingCard', () => {
 
   test('the help text says days before it was on are not missed days', () => {
     render(createElement(ClueLadderSettingCard, { teamId, isOwner: true, enabled: false }))
-    expect(screen.getByRole('switch', { description: /Days before you turn it on don't count as missed\./ })).toBeTruthy()
+    expect(screen.getByRole('switch', { description: /days before that don't count as missed\./ })).toBeTruthy()
+  })
+
+  test('the help text says it is on for every team unless turned off (wordle-teams-9j7o.2.11)', () => {
+    render(createElement(ClueLadderSettingCard, { teamId, isOwner: true, enabled: true }))
+    expect(screen.getByRole('switch', { description: /It's on for every team unless you turn it off\./ })).toBeTruthy()
   })
 })

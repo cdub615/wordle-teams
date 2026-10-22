@@ -235,7 +235,7 @@ export const today = query({
   handler: async (ctx, args) => {
     // RETURNS rather than throws when off, so the card and the play page never
     // error on a dark deployment (challenges.ts's convention). A player on no
-    // opted-in team gets the same answer: there is nothing for them to see.
+    // team with the clue ladder on gets the same answer: there is nothing for them to see.
     if (!clueLadderPlayable()) return { enabled: false as const }
     const player = await requirePlayer(ctx)
     if (!(await onClueLadderTeam(ctx, player._id))) return { enabled: false as const }

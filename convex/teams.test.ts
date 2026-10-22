@@ -86,7 +86,7 @@ describe('getMyTeamsFor', () => {
     })
   })
 
-  test('carries clueLadderEnabled: the deployment switch AND the owner’s opt-in, absent reading true (wordle-teams-9j7o.2.11)', async () => {
+  test('carries clueLadderEnabled: the deployment switch AND the team setting, absent reading true (wordle-teams-9j7o.2.11)', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())

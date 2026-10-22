@@ -31,7 +31,7 @@ the design leaves a single, named seam for each (section 7).
 | Clue ladder | Fewest-moves puzzles: learnable tricks, higher boredom risk, needs a new rule set for variety. Classic logic grid: good players all score 0, so most days tie. |
 | Day changes at each player's local midnight; one puzzle per date worldwide (Wordle's model) | One global switch moment: lands mid-day for many players and needs a second day model. |
 | One lock-in; wrong = X; the last clue always proves the answer | Penalty and continue: cheapens the gamble and runs past 6. Two lock-ins: an extra rule. |
-| Pilot access: team owner opts the team in, behind a global env switch | Everyone: exposes all users to a possible no-go. Hand-picked players: half-empty team boards. |
+| Pilot access: on for every team unless its owner switches it off, behind a global env switch (owner, 2026-10-22, wordle-teams-9j7o.2.11; this reverses the first design, where the owner opted the team in) | Owner opt-in: players wait on each owner finding the switch. Hand-picked players: half-empty team boards. The cost accepted: every team sees a game that may not survive the go/no-go. |
 | A dashboard card under the Wordle entry; full-screen play page; Wordle / Clue ladder switch on scores | Whole-dashboard game switch: hides the other game. Separate menu page: easy to forget. |
 | Pilot ships play, scoreboard, share line and after-game explanation | Streaks, personal stats and insights: after the go/no-go. |
 | A row of five shapes (120 orders) | Shape plus colour: more to learn, colour-blind readability. 3x3 grid: harder to tune and to fit on a phone. Both stay possible as later variants. |
@@ -84,14 +84,14 @@ it would announce "this clue proves it" and replace reasoning with counting.
 
 - `clueLadderPlays`: `{ playerId, date, cluesRevealed, status: 'playing' | 'solved' | 'failed', scratch, lockedOrder?, lockedAtClue?, startedAt, finishedAt? }`,
   unique by `by_player_and_date`. `scratch` is the player's in-progress slot arrangement.
-- `teams.clueLadderEnabled?: boolean`. Only the team owner can change it.
+- `teams.clueLadderEnabled?: boolean`. Absent means on: only an explicit `false` is off. Only the team owner can change it.
 - Env var `CLUE_LADDER_ENABLED`. Only the exact string `'true'` enables it, like
   `CHALLENGES_ENABLED`. Disabled queries return `{ enabled: false }`; disabled mutations
   throw `CLUE_LADDER_DISABLED`.
 
 **Who can play:** a player on at least one team with the clue ladder on. A result
-belongs to the player, as a Wordle board does, and appears on every opted-in team they
-are in.
+belongs to the player, as a Wordle board does, and appears on every team they are in
+that has the clue ladder on.
 
 **Server functions** (all take the player's local `today`):
 
@@ -142,7 +142,10 @@ are already game-neutral.
 
 **Team scoreboard.** `getTeamMonth` (`convex/scores.ts`) gains an optional `game`
 argument defaulting to `'wordle'`, so every current caller is unchanged. For
-`'clueLadder'` it refuses unless the global switch is on and the team has opted in.
+`'clueLadder'` it refuses unless the global switch is on and the team's owner has not switched it off.
+The scoreboard counts from the day the owner last switched it on, or, for a team that
+never touched the setting, from the launch day (`CLUE_LADDER_DAY_ONE`) or the team's
+creation day if later. Earlier days show blank, not X.
 Otherwise it walks the roster as it does today, applies the team's scoring system (with X fixed at −1, section 2) and
 missed-day rule, and works out the month winner when read. The month dropdown and the
 free/Pro month window use the existing rules. The earliest month comes from the game's
@@ -153,8 +156,10 @@ plays the role `upsertBoardFor` plays for Wordle. Later hooks (section 7) attach
 
 ## 6. Play surface
 
-**Dashboard (`/app`), opted-in teams only.** A "Today's clue ladder" card sits below
-the Wordle entry. Its states:
+**Dashboard (`/app`), teams with the clue ladder on.** A "Today's clue ladder" card sits below
+the Wordle entry. The first time a player sees it, a one-time notice above it says what
+the game is, and tells the team's owner they can switch it off on the Team page; "Got it"
+hides it for good. Its states:
 
 - not started → **Play**
 - playing → "Clue N · Continue"
@@ -162,7 +167,7 @@ the Wordle entry. Its states:
 - failed → "X", with a link to the explanation
 
 The scores area gets a Wordle / Clue ladder switch. The clue ladder view reuses the
-scores table, with cells showing the clue number or X. Teams that have not opted in see
+scores table, with cells showing the clue number or X. Teams whose owner switched it off see
 no change.
 
 **Play page.** A full-screen route of its own, built phone first, with a back link to
@@ -237,7 +242,7 @@ rerun. If tuning cannot clear the bar, return to the mechanic before building.
   - while a game is playing, `today` never returns the answer or an unrevealed clue;
   - one lock-in only;
   - a stale `playing` row reads as X;
-  - opt-in and the global switch are enforced;
+  - the team setting (on unless switched off) and the global switch are enforced;
   - past dates are refused;
   - each error carries its code.
 - **Scoring refactor:** Wordle month totals are identical before and after.
@@ -248,13 +253,15 @@ rerun. If tuning cannot clear the bar, return to the mechanic before building.
   change.
 
 **Rollout.** The switch goes on in dev first. In production the owner sets
-`CLUE_LADDER_SEED` and `CLUE_LADDER_ENABLED`, then turns the game on for their own team.
-No other team sees a change until the go/no-go (wordle-teams-9j7o.2.7). The kill switch is the env var.
+`CLUE_LADDER_SEED` and `CLUE_LADDER_ENABLED`, after the commit that sets `CLUE_LADDER_DAY_ONE`
+to the launch day. Every team then has the game, unless its owner switches it off
+(wordle-teams-9j7o.2.11; the first design kept it to the owner's own team until the
+go/no-go, wordle-teams-9j7o.2.7). The kill switch is the env var.
 
 **Build order.** The simulation runs first. Then three plans:
 
 1. **Game abstraction (2.2):** registry, `monthTotal` change, the `getTeamMonth` game
-   option, the team opt-in field and the global switch.
+   option, the team setting and the global switch.
 2. **Play surface (3.2):** play route, dashboard card and scores switch, against a stub
    game.
 3. **Clue ladder (2.3):** puzzle and play tables, server functions, real screens and the

@@ -57,7 +57,7 @@ export const setTeamClueLadder = mutation({
 
 /**
  * Whether the deployment offers the clue ladder at all. The owner's team
- * settings show the opt-in toggle only when it does (plan 2).
+ * settings show the clue ladder switch only when it does (plan 2).
  */
 export const clueLadderSwitch = query({
   args: {},

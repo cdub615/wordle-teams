@@ -9,7 +9,7 @@ export type ClueLadderCardPlay =
   | { status: 'failed' }
 
 /**
- * "Today's clue ladder", below the Wordle entry on an opted-in team's
+ * "Today's clue ladder", below the Wordle entry on the
  * dashboard (spec section 6). Plan 3 mounts it, supplies `play` from the
  * `today` query, and passes `renderLink` so the action is a real link, e.g.
  * `(c) => <Link to="/play/clue-ladder">{c}</Link>`. The card wraps the result

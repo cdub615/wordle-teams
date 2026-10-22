@@ -12,7 +12,7 @@ import { cardPlayOf } from './today.ts'
  * "Today's clue ladder" on the dashboard (spec section 6), fed by `today`.
  *
  * NOTHING UNTIL IT KNOWS, and no skeleton: the game can be off, or the player
- * on no opted-in team, and a placeholder that then vanished would be worse than
+ * on no team with it on, and a placeholder that then vanished would be worse than
  * a card that arrives a moment late. useQuery, not useSuspenseQuery, so it never
  * holds up the dashboard. The query waits for hydration so the server render and
  * the first client render agree (the player's day is a client clock).

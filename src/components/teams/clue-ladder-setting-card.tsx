@@ -11,7 +11,8 @@ import { Switch } from '#/components/ui/switch.tsx'
 import { mutationErrorMessage } from '#/lib/convex-error.ts'
 
 /**
- * The owner opts the team into the clue ladder (wordle-teams-9j7o.3.2).
+ * The owner switches the team's clue ladder off, or back on (wordle-teams-9j7o.3.2).
+ * It is on by default (wordle-teams-9j7o.2.11), so for most teams this is an opt-out.
  *
  * HIDDEN WHILE THE DEPLOYMENT SWITCH IS OFF, not shown disabled: until the
  * pilot ships there is nothing to explain. useQuery, not useSuspenseQuery, so
@@ -61,8 +62,9 @@ export function ClueLadderSettingCard({
           />
         </div>
         <p id={helpId} className="text-sm text-muted-foreground">
-          A daily logic puzzle with its own scoreboard. Your team sees it on the dashboard once it's on. Turning it
-          off hides it again. Scores are kept. Days before you turn it on don't count as missed.
+          A daily logic puzzle with its own scoreboard, on the dashboard. It's on for every team unless you turn it
+          off. Turning it off hides it. Scores are kept. If you turn it back on, days before that don't count as
+          missed.
         </p>
       </CardContent>
     </Card>

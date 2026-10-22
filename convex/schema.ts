@@ -369,9 +369,11 @@ export default defineSchema({
     /**
      * WHETHER THIS TEAM PLAYS THE CLUE LADDER (wordle-teams-9j7o.2.2).
      *
-     * ABSENT MEANS NO — the opposite of acceptsChallenges, deliberately. The
-     * clue ladder is a pilot that a team opts INTO, and no existing team should
-     * find a new game on its dashboard. Only the owner changes it
+     * ABSENT MEANS ON, as for acceptsChallenges (owner, 2026-10-22,
+     * wordle-teams-9j7o.2.11): every team has the clue ladder unless its owner
+     * switched it off, and only an explicit false is off. Read it through
+     * lib/clueLadder/flag.ts teamHasClueLadder, never directly. It was opt-in
+     * until then, so a true here may also be an early switch-on. Only the owner changes it
      * (games.ts setTeamClueLadder), and it counts only while the
      * CLUE_LADDER_ENABLED deployment switch is on (lib/games.ts
      * requireGameOnTeam).
