@@ -49,25 +49,42 @@ export function ShapeIcon({
   )
 }
 
-/** A full or partial order, announced once as a sentence rather than shape by shape. */
+/**
+ * A full or partial order, announced once as a sentence rather than shape by shape.
+ *
+ * `showLabel` also prints the label above the row, for sighted players
+ * (wordle-teams-9j7o.3.2.3). That text is aria-hidden, because the row's own
+ * name already says it, and a screen reader would otherwise read it twice.
+ */
 export function ShapeRow({
   order,
   label,
+  showLabel = false,
   className,
 }: {
   order: ReadonlyArray<Shape>
   label: string
+  showLabel?: boolean
   className?: string
 }) {
-  return (
+  const row = (
     <div
       role="img"
       aria-label={`${label}: ${order.map((shape) => SHAPE_NAMES[shape]).join(', ')}`}
-      className={cn('flex gap-1', className)}
+      className={cn('flex gap-1', !showLabel && className)}
     >
       {order.map((shape, i) => (
         <ShapeIcon key={i} shape={shape} decorative />
       ))}
+    </div>
+  )
+  if (!showLabel) return row
+  return (
+    <div className={cn('flex flex-col gap-1', className)}>
+      <span aria-hidden="true" className="text-sm text-muted-foreground">
+        {label}
+      </span>
+      {row}
     </div>
   )
 }

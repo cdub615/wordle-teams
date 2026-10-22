@@ -51,4 +51,17 @@ describe('ShapeRow', () => {
     // The five icons inside are decorative; only the row is announced.
     expect(screen.getAllByRole('img')).toHaveLength(1)
   })
+
+  test('without showLabel there is no visible label', () => {
+    render(createElement(ShapeRow, { order: ['star'], label: 'Answer' }))
+    expect(screen.queryByText('Answer')).toBeNull()
+  })
+
+  test('showLabel prints the label, hidden from screen readers so the row is named once', () => {
+    render(createElement(ShapeRow, { order: ['star', 'circle'], label: 'Answer', showLabel: true }))
+    const shown = screen.getByText('Answer')
+    expect(shown.closest('[aria-hidden="true"]')).toBe(shown)
+    expect(screen.getAllByRole('img')).toHaveLength(1)
+    expect(screen.getByRole('img', { name: 'Answer: star, circle' })).toBeTruthy()
+  })
 })

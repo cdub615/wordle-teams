@@ -91,8 +91,8 @@ export function ClueLadderFinished({
       {result.status === 'timedOut' && <p>Time ran out.</p>}
 
       <div className="flex flex-col gap-2">
-        <ShapeRow order={answer} label="Answer" />
-        {result.status === 'failed' && <ShapeRow order={result.lockedOrder} label="Your order" className="opacity-70" />}
+        <ShapeRow order={answer} label="Answer" showLabel />
+        {result.status === 'failed' && <ShapeRow order={result.lockedOrder} label="Your order" showLabel className="opacity-70" />}
       </div>
 
       <ol aria-label="Orders still possible after each clue" className="flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
@@ -115,7 +115,7 @@ export function ClueLadderFinished({
         <div className="flex flex-col gap-2">
           <p>Your order didn&rsquo;t fit the clues you had.</p>
           {possibleAtLockIn.length === 1 ? (
-            <ShapeRow order={possibleAtLockIn[0]} label="The order that fit was" />
+            <ShapeRow order={possibleAtLockIn[0]} label="The order that fit was" showLabel />
           ) : (
             <>
               <p>The orders that fit were:</p>
@@ -129,7 +129,7 @@ export function ClueLadderFinished({
         <div className="flex flex-col gap-2">
           <p>You had a 1 in {possibleAtLockIn.length} chance.</p>
           {others.length === 1 ? (
-            <ShapeRow order={others[0]} label="The other was" />
+            <ShapeRow order={others[0]} label="The other was" showLabel />
           ) : (
             <>
               <p>The others were:</p>

@@ -38,6 +38,28 @@ describe('ClueLadderFinished', () => {
     expect(screen.getByRole('img', { name: 'Answer: star, circle, square, triangle, diamond' })).toBeTruthy()
   })
 
+  // wordle-teams-9j7o.3.2.3: every single row says what it is on screen too.
+  test.each([
+    ['a solve with another order', solved, ['Answer', 'The other was']],
+    ['an X', { ...solved, result: { status: 'failed', lockedAtClue: 3, lockedOrder: other } as ClueLadderResult }, ['Answer', 'Your order', 'The other was']],
+    [
+      'an X whose order did not fit',
+      {
+        ...solved,
+        result: { status: 'failed', lockedAtClue: 3, lockedOrder: ['square', 'circle', 'star', 'triangle', 'diamond'] } as ClueLadderResult,
+        possibleAtLockIn: [answer],
+      },
+      ['Answer', 'Your order', 'The order that fit was'],
+    ],
+  ] as const)('%s labels each single row visibly, and names each row once', (_, props, labels) => {
+    render(createElement(ClueLadderFinished, props))
+    for (const label of labels) {
+      const shown = screen.getByText(label)
+      expect(shown.getAttribute('aria-hidden')).toBe('true')
+      expect(screen.getAllByRole('img', { name: new RegExp(`^${label}: `) })).toHaveLength(1)
+    }
+  })
+
   test('the ladder runs from 120 and marks the lock-in step', () => {
     render(createElement(ClueLadderFinished, solved))
     const steps = screen.getByRole('list', { name: 'Orders still possible after each clue' }).querySelectorAll('li')
