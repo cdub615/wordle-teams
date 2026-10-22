@@ -111,6 +111,40 @@ export function isPlausibleToday(today: PuzzleDay, serverToday: PuzzleDay): bool
   return today >= addDays(serverToday, -1) && today <= addDays(serverToday, 1)
 }
 
+const HOUR_MS = 60 * 60 * 1000
+
+/** The UTC calendar day of an instant. UTC on purpose, unlike toPuzzleDay. */
+function utcDayOf(ms: number): PuzzleDay {
+  const date = new Date(ms)
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`
+}
+
+/**
+ * Whether `day` is the calendar date SOMEWHERE ON EARTH at `now`
+ * (wordle-teams-9j7o.2.3.3).
+ *
+ * TIGHTER THAN isPlausibleToday, and for a game whose answer is the same for
+ * everyone that day. The ±1 day window admits the server's tomorrow at any
+ * hour, so at 01:00 UTC a player could open a day that starts nowhere for
+ * another eleven hours and read its answer early. Here the window follows the
+ * real offsets instead: the earliest date anywhere is the one at UTC-12, the
+ * latest the one at UTC+14, and a date outside both is current nowhere.
+ *
+ * What it still allows is what Wordle allows: a player far east plays a day
+ * before a player far west does.
+ *
+ * NO GRACE AT THE UTC+14 EDGE. A device a few minutes fast just before
+ * midnight there is refused; the clue ladder's today query falls back to the
+ * server's day for it.
+ *
+ * Takes `now` for isPlausibleToday's reason: a pure function, directly
+ * testable, with the clock read once by the caller.
+ */
+export function isCurrentSomewhere(day: string, now: number): boolean {
+  if (!isPuzzleDay(day)) return false
+  return day >= utcDayOf(now - 12 * HOUR_MS) && day <= utcDayOf(now + 14 * HOUR_MS)
+}
+
 /**
  * Wordle's own day zero — the date the game's solution list indexes puzzle 0 to.
  *

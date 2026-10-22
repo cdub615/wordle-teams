@@ -5,6 +5,7 @@ import schema from './schema'
 import {
   isProFor,
   playerForEmail,
+  requireCurrentSomewhere,
   requirePlausibleToday,
   requireTeamOwnerFor,
   requireTeamMemberFor,
@@ -192,4 +193,26 @@ describe('requirePlausibleToday', () => {
       )
     },
   )
+})
+
+describe('requireCurrentSomewhere', () => {
+  // 01:00 UTC on 2026-10-04: UTC-12 is on the 3rd and UTC+14 on the 4th, so the
+  // 5th, which requirePlausibleToday accepts, starts nowhere for nine hours.
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-04T01:00:00Z'))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  test.each(['2026-10-03', '2026-10-04'])('%s is current somewhere and is returned', (today) => {
+    expect(requireCurrentSomewhere(today)).toBe(today)
+  })
+
+  test.each(['2026-10-05', '2026-10-02', '2026-10-04x'])('%s is refused', (today) => {
+    expect(() => requireCurrentSomewhere(today)).toThrow(
+      expect.objectContaining({ data: { code: 'INVALID_DATE' } }),
+    )
+  })
 })

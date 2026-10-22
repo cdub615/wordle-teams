@@ -1,7 +1,7 @@
 import { ConvexError } from 'convex/values'
 import { authComponent } from './auth'
 import { insightsAccess } from './lib/insightsAccess.ts'
-import { isPlausiblePuzzleDay, isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
+import { isCurrentSomewhere, isPlausiblePuzzleDay, isPlausibleToday, toPuzzleDay } from './lib/puzzleDay.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { GenericDatabaseReader } from 'convex/server'
@@ -371,13 +371,16 @@ export async function requireTeamOwnerFor(
  *   recomputation reads it yet.
  * - clueLadder.ts's start, nextClue, saveScratch and lockIn (startFor and
  *   ownPlayFor), which take the player's own `today` as the day of the play
- *   they create or change. None feeds winner recomputation (stored clue
- *   ladder winners, spec section 7, are not built). writePlayFor, which all
- *   four write through, also refuses a passed date against the server's own
- *   day (isPassedDate), which those callers cannot reach.
+ *   they create or change. They go through requireCurrentSomewhere below, a
+ *   TIGHTER bound than this one (wordle-teams-9j7o.2.3.3), not through this
+ *   function. None feeds winner recomputation (stored clue ladder winners,
+ *   spec section 7, are not built). writePlayFor, which all four write
+ *   through, also refuses a passed date against the server's own day
+ *   (isPassedDate), which those callers cannot reach.
  * - clueLadder.ts's `today` query, which falls back to the server's day
  *   rather than refusing, for readToday's reason: a reactive read re-run on
- *   every write must not throw for a tab left open past midnight.
+ *   every write must not throw for a tab left open past midnight. It applies
+ *   isCurrentSomewhere directly.
  *
  * ONE MORE CLOCK-BOUNDED SURFACE SITS DIRECTLY BELOW and is NOT one of the
  * seven: requirePlausiblePuzzleDay bounds the day a board is FOR, which is a
@@ -395,6 +398,18 @@ export function requirePlausibleToday(today: PuzzleDay): PuzzleDay {
     // and the device's clock is what's off. See the code split in Task 4.
     throw accessError('INVALID_DATE')
   }
+  return today
+}
+
+/**
+ * The player's own `today`, refused unless it is the date somewhere on earth
+ * right now (wordle-teams-9j7o.2.3.3). For the clue ladder, whose answer is the
+ * same for everyone on a day: requirePlausibleToday's ±1 day window would let
+ * a player open tomorrow's puzzle hours before it starts anywhere. See
+ * isCurrentSomewhere in lib/puzzleDay.ts. Listed in the census above.
+ */
+export function requireCurrentSomewhere(today: PuzzleDay): PuzzleDay {
+  if (!isCurrentSomewhere(today, Date.now())) throw accessError('INVALID_DATE')
   return today
 }
 

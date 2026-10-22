@@ -5,6 +5,7 @@ import {
   addMonths,
   daysOfMonth,
   fromPuzzleDay,
+  isCurrentSomewhere,
   isPlausiblePuzzleDay,
   isPlausibleToday,
   isPuzzleDay,
@@ -124,6 +125,48 @@ describe('isPlausibleToday', () => {
     '%s is inside the string bound but not a day, so it is not plausible',
     (today) => {
       expect(isPlausibleToday(today, '2026-10-04')).toBe(false)
+    },
+  )
+})
+
+describe('isCurrentSomewhere', () => {
+  const at = (iso: string) => Date.parse(iso)
+
+  test("at 01:00 UTC the server's tomorrow starts nowhere yet", () => {
+    // UTC+14 is at 15:00 on the 8th; the 9th is eleven hours away everywhere.
+    expect(isCurrentSomewhere('2026-06-09', at('2026-06-08T01:00:00Z'))).toBe(false)
+    expect(isCurrentSomewhere('2026-06-08', at('2026-06-08T01:00:00Z'))).toBe(true)
+    // UTC-12 is still on the 7th.
+    expect(isCurrentSomewhere('2026-06-07', at('2026-06-08T01:00:00Z'))).toBe(true)
+  })
+
+  test('a day begins at UTC+14 midnight, to the millisecond', () => {
+    expect(isCurrentSomewhere('2026-06-09', at('2026-06-08T09:59:59.999Z'))).toBe(false)
+    expect(isCurrentSomewhere('2026-06-09', at('2026-06-08T10:00:00Z'))).toBe(true)
+  })
+
+  test('a day ends at UTC-12 midnight, to the millisecond', () => {
+    expect(isCurrentSomewhere('2026-06-07', at('2026-06-08T11:59:59.999Z'))).toBe(true)
+    expect(isCurrentSomewhere('2026-06-07', at('2026-06-08T12:00:00Z'))).toBe(false)
+  })
+
+  test('two days either side is never current', () => {
+    for (const hour of ['00', '06', '12', '18', '23']) {
+      const now = at(`2026-06-08T${hour}:00:00Z`)
+      expect(isCurrentSomewhere('2026-06-06', now)).toBe(false)
+      expect(isCurrentSomewhere('2026-06-10', now)).toBe(false)
+    }
+  })
+
+  test('the window crosses a month and a year', () => {
+    expect(isCurrentSomewhere('2027-01-01', at('2026-12-31T10:00:00Z'))).toBe(true)
+    expect(isCurrentSomewhere('2026-12-31', at('2027-01-01T11:00:00Z'))).toBe(true)
+  })
+
+  test.each(['2026-06-089', '2026-06-08x', '2026-06-08T00:00:00Z', '2026-6-8', ''])(
+    '%s is not a day, so it is not current',
+    (day) => {
+      expect(isCurrentSomewhere(day, at('2026-06-08T12:00:00Z'))).toBe(false)
     },
   )
 })
