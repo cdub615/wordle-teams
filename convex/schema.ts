@@ -242,6 +242,11 @@ export default defineSchema({
     // SEPARATE from it: hiding the league offer is not giving up on
     // onboarding. The Leagues menu item stays either way.
     leagueOfferDismissedAt: v.optional(v.number()),
+    // "Got it" on the dashboard's clue ladder heads-up (wordle-teams-9j7o.2.11):
+    // the clue ladder is on for every team by default, so each player is told
+    // once. Set by clueLadder.dismissNotice; nothing clears it. A timestamp, as
+    // leagueOfferDismissedAt above.
+    clueLadderNoticeDismissedAt: v.optional(v.number()),
 
     // REGION OPT-OUT (spec v2 §4.4): the PuzzleDay the player left their region
     // league, absent = in it. A PuzzleDay, NOT a timestamp: it is leaveRegion's

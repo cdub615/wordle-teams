@@ -35,6 +35,7 @@ import type * as lib_challenge from "../lib/challenge.js";
 import type * as lib_chat from "../lib/chat.js";
 import type * as lib_chatLimits from "../lib/chatLimits.js";
 import type * as lib_clueLadder_clues from "../lib/clueLadder/clues.js";
+import type * as lib_clueLadder_dayOne from "../lib/clueLadder/dayOne.js";
 import type * as lib_clueLadder_flag from "../lib/clueLadder/flag.js";
 import type * as lib_clueLadder_generate from "../lib/clueLadder/generate.js";
 import type * as lib_clueLadder_ladder from "../lib/clueLadder/ladder.js";
@@ -123,6 +124,7 @@ declare const fullApi: ApiFromModules<{
   "lib/chat": typeof lib_chat;
   "lib/chatLimits": typeof lib_chatLimits;
   "lib/clueLadder/clues": typeof lib_clueLadder_clues;
+  "lib/clueLadder/dayOne": typeof lib_clueLadder_dayOne;
   "lib/clueLadder/flag": typeof lib_clueLadder_flag;
   "lib/clueLadder/generate": typeof lib_clueLadder_generate;
   "lib/clueLadder/ladder": typeof lib_clueLadder_ladder;

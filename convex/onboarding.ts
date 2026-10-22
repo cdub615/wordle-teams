@@ -99,6 +99,9 @@ export const getStatus = query({
       // "Not now" on the dashboard's league card (leagues.dismissLeagueOffer).
       // Off the player doc already read: no extra read, nobody else's activity.
       leagueOfferDismissed: player.leagueOfferDismissedAt !== undefined,
+      // "Got it" on the dashboard's clue ladder heads-up (clueLadder.dismissNotice).
+      // Off the player doc already read, as leagueOfferDismissed.
+      clueLadderNoticeDismissed: player.clueLadderNoticeDismissedAt !== undefined,
       // Environment only, NO DB READ, so it cannot widen this query's read set
       // or let anyone else's activity invalidate it. Gates the app menu's
       // "Leagues" item, which would otherwise lead every player on a dark

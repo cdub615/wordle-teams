@@ -31,8 +31,25 @@ describe('onboarding.getStatus', () => {
       dismissed: false,
       inLeague: true,
       leagueOfferDismissed: false,
+      clueLadderNoticeDismissed: false,
       leaguesEnabled: false,
     })
+  })
+
+  test('clueLadderNoticeDismissed turns true after clueLadder.dismissNotice, and nothing else does', async () => {
+    const t = convexTest(schema, modules)
+    registerBetterAuth(t)
+    await t.run(async (ctx) => {
+      await ctx.db.insert('players', aPlayer({ email: 'c1@example.com' }))
+    })
+    const as = await authenticatedAs(t, 'c1@example.com')
+    await as.mutation(api.leagues.dismissLeagueOffer, {}).catch(() => undefined)
+    expect((await as.query(api.onboarding.getStatus, {}))?.clueLadderNoticeDismissed).toBe(false)
+    await as.mutation(api.clueLadder.dismissNotice, {})
+    await as.mutation(api.clueLadder.dismissNotice, {})
+    const status = await as.query(api.onboarding.getStatus, {})
+    expect(status?.clueLadderNoticeDismissed).toBe(true)
+    expect(status?.dismissed).toBe(false)
   })
 
   describe('inLeague with leagues enabled', () => {

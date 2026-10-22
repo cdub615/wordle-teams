@@ -29,6 +29,12 @@ test('an opted-in player solves today’s clue ladder on clue 1', async ({ page 
 
   const card = page.getByRole('region', { name: "Today's clue ladder", exact: true })
   await expect(card).toBeVisible(DASHBOARD_READY)
+  // THE ONE-TIME HEADS-UP (wordle-teams-9j7o.2.11): a fresh player sees it,
+  // and Got it hides it for good (checked again back on the dashboard below).
+  const notice = page.getByRole('region', { name: 'New: the clue ladder', exact: true })
+  await expect(notice).toBeVisible(TIMEOUT)
+  await notice.getByRole('button', { name: 'Got it', exact: true }).click()
+  await expect(notice).toBeHidden(TIMEOUT)
   await card.getByRole('link', { name: 'Play', exact: true }).click()
   await expect(page).toHaveURL(/\/play\/clue-ladder/, TIMEOUT)
   // Opening the page starts the game (departure 5), which reveals clue 1.
@@ -51,4 +57,5 @@ test('an opted-in player solves today’s clue ladder on clue 1', async ({ page 
     'Solved on clue 1',
     DASHBOARD_READY,
   )
+  await expect(page.getByRole('region', { name: 'New: the clue ladder', exact: true })).toHaveCount(0)
 })

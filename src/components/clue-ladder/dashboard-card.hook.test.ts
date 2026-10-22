@@ -3,7 +3,7 @@
 // THE DASHBOARD CARD (wordle-teams-9j7o.2.3.2.14): nothing until hydrated and
 // until `today` says the game is on; then the card for the play's state, as a
 // link to the play route carrying the team.
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { getFunctionName, type FunctionReference } from 'convex/server'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
@@ -87,6 +87,47 @@ describe('DashboardClueLadderCard', () => {
   test('shows the play’s state through cardPlayOf', () => {
     mount()
     expect(screen.getByText('Clue 3')).toBeTruthy()
+  })
+
+  // wordle-teams-9j7o.2.11: the one-time heads-up above the card.
+  describe('the heads-up', () => {
+    const withNotice = (isOwner: boolean, onDismiss = vi.fn()) =>
+      render(createElement(DashboardClueLadderCard, { teamId: 'team1', notice: { isOwner, onDismiss } }))
+
+    test('is absent without a notice prop, which is how a dismissed player renders', () => {
+      mount()
+      expect(screen.queryByRole('region', { name: 'New: the clue ladder' })).toBeNull()
+    })
+
+    test('shows above the card, and Got it calls back', () => {
+      const onDismiss = vi.fn()
+      withNotice(false, onDismiss)
+      const notice = screen.getByRole('region', { name: 'New: the clue ladder' })
+      const card = screen.getByRole('region', { name: "Today's clue ladder" })
+      expect(notice.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'Got it' }))
+      expect(onDismiss).toHaveBeenCalledTimes(1)
+    })
+
+    test('a member is not told about the off switch', () => {
+      withNotice(false)
+      expect(screen.queryByText(/switch it off/)).toBeNull()
+      expect(screen.queryByRole('link', { name: 'Team page' })).toBeNull()
+    })
+
+    test('the owner is told, with a link to their Team page', () => {
+      withNotice(true)
+      expect(screen.getByText(/You can switch it off/)).toBeTruthy()
+      const link = screen.getByRole('link', { name: 'Team page' })
+      expect(link.getAttribute('href')).toBe('/team')
+      expect(link.getAttribute('data-search')).toBe(JSON.stringify({ team: 'team1' }))
+    })
+
+    test('is not shown when the game is off for the player', () => {
+      state.answer = { enabled: false }
+      const { container } = withNotice(true)
+      expect(container.innerHTML).toBe('')
+    })
   })
 
   test('a not-started play offers Play', () => {

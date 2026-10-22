@@ -644,6 +644,10 @@ function Dashboard() {
   const joinLeague = useMutation({ mutationFn: useConvexMutation(api.leagues.joinGroup) })
   const joinLeagueWord = useMutation({ mutationFn: useConvexMutation(api.leagues.joinWord) })
   const dismissLeagueOffer = useMutation({ mutationFn: useConvexMutation(api.leagues.dismissLeagueOffer) })
+  // THE CLUE LADDER HEADS-UP (wordle-teams-9j7o.2.11), once per player. A
+  // missing status counts as dismissed, by leagueOfferDismissed's rule: nothing flashes.
+  const clueLadderNoticeDismissed = onboardingStatus?.clueLadderNoticeDismissed ?? true
+  const dismissClueLadderNotice = useMutation({ mutationFn: useConvexMutation(api.clueLadder.dismissNotice) })
   // `offerPicker` is the CALL SITE's: true on the team grid, false on the
   // teamless branch. A member sees their rows on both.
   const leaguesCard = (className: string, offerPicker: boolean) => {
@@ -1602,11 +1606,27 @@ function Dashboard() {
           className="md:col-span-3"
         />
       </Suspense>
-      {/* Below the day's Wordle (spec section 6), for opted-in teams only.
+      {/* Below the day's Wordle (spec section 6), for teams with the clue ladder on.
           Outside any Suspense boundary: it reads with useQuery and renders
           nothing until its answer arrives. */}
       {selectedTeam?.clueLadderEnabled && (
-        <DashboardClueLadderCard teamId={selectedTeam.id} className="md:col-span-3" />
+        <DashboardClueLadderCard
+          teamId={selectedTeam.id}
+          notice={
+            clueLadderNoticeDismissed
+              ? undefined
+              : {
+                  isOwner: selectedTeam.isOwner,
+                  // The leagues card's idiom: no success UI, getStatus answers and the notice goes.
+                  onDismiss: () =>
+                    dismissClueLadderNotice.mutate(
+                      {},
+                      { onError: (error: unknown) => toast.error(mutationErrorMessage(error, 'Could not hide that notice')) },
+                    ),
+                }
+          }
+          className="md:col-span-3"
+        />
       )}
       {selectedTeam?.clueLadderEnabled && (
         <GameSwitch value={scoresGame} onChange={setScoresGame} className="md:col-span-3" />

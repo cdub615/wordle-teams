@@ -384,3 +384,21 @@ export const lockIn = mutation({
     return await lockInFor(ctx, player._id, args.today, args.order)
   },
 })
+
+/**
+ * "Got it" on the dashboard's clue ladder heads-up (wordle-teams-9j7o.2.11).
+ * IDEMPOTENT, like leagues.dismissLeagueOffer: a repeat rewrites the stamp.
+ * NOT GATED on CLUE_LADDER_ENABLED: hiding a notice is harmless whatever the
+ * deployment's state. onboarding.getStatus reads it back.
+ */
+export async function dismissNoticeFor(ctx: WriterCtx, playerId: Id<'players'>): Promise<void> {
+  await ctx.db.patch(playerId, { clueLadderNoticeDismissedAt: Date.now() })
+}
+
+export const dismissNotice = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const player = await requirePlayer(ctx)
+    await dismissNoticeFor(ctx, player._id)
+  },
+})
