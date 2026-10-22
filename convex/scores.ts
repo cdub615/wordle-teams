@@ -18,6 +18,7 @@ import { recomputeLeagueMonthFor } from './leagues.ts'
 import { recomputePlayerMonth } from './winners.ts'
 import { clueLadderSystem } from './lib/clueLadder/points.ts'
 import { GAMES, gameValidator, requireGameOnTeam, type GameId } from './lib/games.ts'
+import { clueLadderCountsFrom } from './lib/clueLadder/dayOne.ts'
 import type { Doc, Id, DataModel } from './_generated/dataModel'
 import type { GenericDatabaseReader, GenericDatabaseWriter } from 'convex/server'
 
@@ -322,9 +323,10 @@ export async function getTeamGameMonthFor(
 
   return {
     game,
-    // The day the team turned the clue ladder on (wordle-teams-k1v5): the grid
-    // counts nothing before it. Null for no limit, and always null for Wordle.
-    countsFrom: game === 'clueLadder' ? (team.clueLadderOnSince ?? null) : null,
+    // The first day the team's clue ladder counts (wordle-teams-k1v5,
+    // wordle-teams-9j7o.2.11): the grid counts nothing before it. Always null
+    // for Wordle.
+    countsFrom: game === 'clueLadder' ? clueLadderCountsFrom(team) : null,
     team: {
       id: team._id,
       name: team.name,

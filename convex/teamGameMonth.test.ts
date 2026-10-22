@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
 import { aPlayer, aTeam } from './fixtures.ts'
 import { addDays, addMonths, monthOf, toPuzzleDay } from './lib/puzzleDay.ts'
+import { CLUE_LADDER_DAY_ONE } from './lib/clueLadder/dayOne.ts'
 import { GAMES } from './lib/games.ts'
 import { monthTotal, wordleDays } from './lib/scoring.ts'
 import { getTeamGameMonthFor, getTeamMonthFor, monthWindowInputsFor } from './scores'
@@ -214,12 +215,15 @@ describe('getTeamGameMonthFor — clue ladder', () => {
     })
   })
 
-  test('a team with no stored day counts every day (rows from before the field existed)', async () => {
+  // wordle-teams-9j7o.2.11: a team with no stored day is on by default, and
+  // counts from the day the clue ladder reached it.
+  test('a team with no stored day, created before launch, counts from the launch day', async () => {
     vi.stubEnv('CLUE_LADDER_ENABLED', 'true')
     await convexTest(schema, modules).run(async (ctx) => {
       const ada = await ctx.db.insert('players', aPlayer())
-      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada, clueLadderEnabled: true }))
-      expect((await getTeamGameMonthFor(ctx, ada, teamId, thisMonth, 'clueLadder')).countsFrom).toBeNull()
+      const createdAt = Date.parse(`${addDays(CLUE_LADDER_DAY_ONE, -400)}T12:00:00Z`)
+      const teamId = await ctx.db.insert('teams', aTeam({ playerIds: [ada], owner: ada, createdAt }))
+      expect((await getTeamGameMonthFor(ctx, ada, teamId, thisMonth, 'clueLadder')).countsFrom).toBe(CLUE_LADDER_DAY_ONE)
     })
   })
 })

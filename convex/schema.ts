@@ -382,11 +382,12 @@ export default defineSchema({
      *
      * Written only by games.ts setTeamClueLadderFor, from the owner's own
      * `today`. Turning the game off leaves it; turning it on again moves it.
-     * ABSENT MEANS NO LIMIT, which only rows from before this field existed can
-     * be (dev data): such a team's empty past days score as missed, as before
-     * k1v5, until its next off-then-on.
+     * ABSENT ON A TEAM THAT NEVER TOUCHED THE SETTING, which has the clue ladder
+     * by default (wordle-teams-9j7o.2.11): it counts from the launch day, or its
+     * creation day if later. See clueLadderCountsFrom in lib/clueLadder/dayOne.ts,
+     * which every reader of this field goes through.
      *
-     * scores.ts getTeamGameMonthFor returns it as `countsFrom`, and ScoresGrid
+     * scores.ts getTeamGameMonthFor returns that as `countsFrom`, and ScoresGrid
      * passes it to monthTotal as `fromDay`. The clue ladder's stored winners
      * (spec section 7, not built) must do the same when they arrive.
      */

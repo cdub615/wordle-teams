@@ -114,7 +114,7 @@ export function isPlausibleToday(today: PuzzleDay, serverToday: PuzzleDay): bool
 const HOUR_MS = 60 * 60 * 1000
 
 /** The UTC calendar day of an instant. UTC on purpose, unlike toPuzzleDay. */
-function utcDayOf(ms: number): PuzzleDay {
+export function utcDayOf(ms: number): PuzzleDay {
   const date = new Date(ms)
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`
 }

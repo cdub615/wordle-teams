@@ -1,14 +1,9 @@
 import type { PuzzleDay } from '../../convex/lib/puzzleDay.ts'
+import { CLUE_LADDER_DAY_ONE } from '../../convex/lib/clueLadder/dayOne.ts'
 
-/**
- * Clue ladder #1 (spec section 6). The share line counts days from here.
- *
- * A PLACEHOLDER UNTIL LAUNCH (owner decision, 2026-10-15). Launch day includes a
- * one-line commit that sets this to the production launch day, and that commit
- * lands BEFORE CLUE_LADDER_ENABLED goes on in production. After that, never
- * change it: it would renumber every line already shared.
- */
-export const CLUE_LADDER_DAY_ONE: PuzzleDay = '2026-10-15'
+// Clue ladder #1, the launch day. It lives with the server, which also counts
+// default teams' scoreboards from it; see its comment there.
+export { CLUE_LADDER_DAY_ONE }
 
 const DAY_MS = 86_400_000
 
